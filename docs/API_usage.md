@@ -107,11 +107,27 @@ data = extractor.download_dataset(
 )
 ```
 
-**Available Datasets**:
-- `demografia-per-barris`: Demographics by neighborhood
-- `habitatge-per-barris`: Housing data by neighborhood
-- `poblacio-per-barris`: Population by neighborhood
-- `preus-habitatge`: Housing prices
+**Available Datasets** (IDs CKAN confirmados):
+- `pad_mdbas_sexe`: Población por sexo y barrio
+- `est-padro-edat-any-a-any`: Población por edad
+- `habitatges-2na-ma`: Precios de venta (confirmado)
+- `est-mercat-immobiliari-lloguer-mitja-mensual`: Precios de alquiler
+
+**Nuevos Métodos Disponibles**:
+```python
+from src.data_extraction import OpenDataBCNExtractor
+
+extractor = OpenDataBCNExtractor()
+
+# Extraer datos demográficos (con IDs correctos)
+df_demo, metadata = extractor.extract_demographics_ckan(2015, 2025)
+
+# Extraer precios de venta
+df_venta, metadata = extractor.extract_housing_venta(2015, 2025)
+
+# Extraer precios de alquiler
+df_alquiler, metadata = extractor.extract_housing_alquiler(2015, 2025)
+```
 
 **Finding Datasets**:
 ```python

@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import logging.handlers
+import re
 import time
 import traceback
 from datetime import datetime, date
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urljoin
 
+import chardet
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -368,10 +370,15 @@ class OpenDataBCNExtractor(BaseExtractor):
     BASE_URL = "https://opendata-ajuntament.barcelona.cat"
     API_URL = f"{BASE_URL}/data/api/3/action"
     
-    # IDs de datasets relevantes (ejemplos - ajustar según necesidades)
+    # IDs de datasets CKAN identificados y confirmados
     DATASETS = {
-        "demographics": "demografia-per-barris",
-        "housing": "habitatge-per-barris",
+        "demographics": "pad_mdbas_sexe",  # Población por sexo y barrio
+        "demographics_age": "est-padro-edat-any-a-any",  # Población por edad
+        "housing_venta": "habitatges-2na-ma",  # Precios de venta (confirmado)
+        "housing_alquiler": "est-mercat-immobiliari-lloguer-mitja-mensual",  # Precios de alquiler
+        # Mantener IDs antiguos para compatibilidad
+        "demographics_old": "demografia-per-barris",
+        "housing_old": "habitatge-per-barris",
         "population": "poblacio-per-barris",
         "prices": "preus-habitatge"
     }
@@ -564,24 +571,400 @@ class OpenDataBCNExtractor(BaseExtractor):
         year_start: int = 2015,
         year_end: int = 2025
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Obtiene datos demográficos por barrio."""
-        return self.download_dataset(
-            self.DATASETS.get("demographics", "demografia-per-barris"),
-            year_start=year_start,
-            year_end=year_end
-        )
+        """
+        Obtiene datos demográficos por barrio usando API CKAN con IDs correctos.
+        
+        Args:
+            year_start: Año inicial
+            year_end: Año final
+            
+        Returns:
+            Tupla con (DataFrame con datos, metadata de cobertura)
+        """
+        # Usar el nuevo método con IDs correctos
+        return self.extract_demographics_ckan(year_start, year_end)
     
     def get_housing_data_by_neighborhood(
         self,
         year_start: int = 2015,
         year_end: int = 2025
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Obtiene datos de vivienda por barrio."""
+        """Obtiene datos de vivienda por barrio (método legacy)."""
         return self.download_dataset(
-            self.DATASETS.get("housing", "habitatge-per-barris"),
+            self.DATASETS.get("housing_old", "habitatge-per-barris"),
             year_start=year_start,
             year_end=year_end
         )
+    
+    def get_dataset_resources_ckan(self, dataset_id: str) -> Dict[str, str]:
+        """
+        Obtiene todos los recursos (archivos) de un dataset usando API CKAN.
+        
+        Args:
+            dataset_id: ID del dataset en CKAN
+        
+        Returns:
+            Diccionario con {año: url_descarga} o {nombre: url}
+        """
+        logger.info(f"Obteniendo recursos del dataset: {dataset_id}")
+        
+        self._rate_limit()
+        
+        url = f"{self.API_URL}/package_show"
+        params = {"id": dataset_id}
+        
+        try:
+            response = self.session.get(url, params=params, timeout=30)
+            if not self._validate_response(response):
+                return {}
+            
+            data = response.json()
+            
+            if not data.get('success'):
+                logger.error(f"API CKAN devolvió error para {dataset_id}")
+                return {}
+            
+            resources = {}
+            for resource in data['result'].get('resources', []):
+                # Solo archivos CSV
+                if resource.get('format', '').lower() in ['csv', 'text/csv']:
+                    name = resource.get('name', '')
+                    url_resource = resource.get('url', '')
+                    
+                    if not url_resource:
+                        continue
+                    
+                    # Intentar extraer año del nombre
+                    year_match = re.search(r'(\d{4})', name)
+                    
+                    if year_match:
+                        year = int(year_match.group(1))
+                        resources[year] = url_resource
+                    else:
+                        # Si no hay año, usar nombre completo
+                        resources[name] = url_resource
+            
+            logger.info(f"✓ {len(resources)} recursos CSV encontrados para {dataset_id}")
+            return resources
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo recursos de {dataset_id}: {e}")
+            logger.debug(traceback.format_exc())
+            return {}
+    
+    def download_and_parse_csv(
+        self,
+        url: str,
+        encoding: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Descarga y parsea un archivo CSV detectando encoding automáticamente.
+        
+        Args:
+            url: URL del CSV
+            encoding: Encoding inicial (se detectará automáticamente si es None)
+        
+        Returns:
+            DataFrame con los datos
+        """
+        self._rate_limit()
+        
+        try:
+            response = self.session.get(url, timeout=60)
+            if not self._validate_response(response):
+                return pd.DataFrame()
+            
+            raw_data = response.content
+            
+            # Detectar encoding si no se especifica
+            if encoding is None:
+                detected = chardet.detect(raw_data)
+                encoding = detected.get('encoding', 'utf-8')
+                logger.debug(f"Encoding detectado: {encoding} (confianza: {detected.get('confidence', 0):.2f})")
+            
+            # Intentar leer CSV
+            try:
+                df = pd.read_csv(io.BytesIO(raw_data), encoding=encoding)
+            except UnicodeDecodeError:
+                # Si falla, intentar con otros encodings comunes
+                for enc in ['latin-1', 'iso-8859-1', 'cp1252', 'utf-8']:
+                    try:
+                        df = pd.read_csv(io.BytesIO(raw_data), encoding=enc)
+                        logger.info(f"CSV leído con encoding: {enc}")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    raise
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error descargando/parseando CSV desde {url}: {e}")
+            logger.debug(traceback.format_exc())
+            return pd.DataFrame()
+    
+    def extract_housing_venta(
+        self,
+        year_start: int = 2015,
+        year_end: int = 2025
+    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Extrae datos de PRECIO DE VENTA usando API CKAN.
+        
+        Args:
+            year_start: Año inicial
+            year_end: Año final
+            
+        Returns:
+            Tupla con (DataFrame con datos, metadata de cobertura)
+        """
+        logger.info(f"Extrayendo precios de VENTA ({year_start}-{year_end})")
+        
+        dataset_id = self.DATASETS["housing_venta"]
+        resources = self.get_dataset_resources_ckan(dataset_id)
+        
+        coverage_metadata = {
+            "dataset_id": dataset_id,
+            "requested_range": {"start": year_start, "end": year_end},
+            "years_extracted": [],
+            "years_failed": [],
+            "success": False
+        }
+        
+        if not resources:
+            logger.warning("No se encontraron recursos de venta")
+            coverage_metadata["error"] = "No se encontraron recursos"
+            return pd.DataFrame(), coverage_metadata
+        
+        all_data = []
+        
+        for identifier, url in resources.items():
+            # Si identifier es un año (int)
+            if isinstance(identifier, int):
+                year = identifier
+                if year_start <= year <= year_end:
+                    logger.info(f"Descargando año {year}...")
+                    
+                    df = self.download_and_parse_csv(url)
+                    
+                    if not df.empty:
+                        logger.info(f"✓ Año {year}: {len(df)} registros")
+                        logger.debug(f"  Columnas: {list(df.columns)}")
+                        
+                        df['año'] = year
+                        df['tipo_operacion'] = 'venta'
+                        df['source'] = 'opendatabcn_idealista'
+                        
+                        all_data.append(df)
+                        coverage_metadata["years_extracted"].append(year)
+                    else:
+                        logger.warning(f"✗ Año {year}: DataFrame vacío")
+                        coverage_metadata["years_failed"].append(year)
+            else:
+                # Si es un nombre, intentar descargar y filtrar por años
+                logger.info(f"Descargando recurso: {identifier}...")
+                df = self.download_and_parse_csv(url)
+                
+                if not df.empty:
+                    # Buscar columna de año
+                    year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
+                    if year_cols:
+                        year_col = year_cols[0]
+                        df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
+                        df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
+                        
+                        if not df.empty:
+                            df['tipo_operacion'] = 'venta'
+                            df['source'] = 'opendatabcn_idealista'
+                            all_data.append(df)
+                            logger.info(f"✓ {identifier}: {len(df)} registros")
+        
+        if not all_data:
+            coverage_metadata["error"] = "No se obtuvieron datos"
+            return pd.DataFrame(), coverage_metadata
+        
+        df_combined = pd.concat(all_data, ignore_index=True)
+        coverage_metadata["success"] = True
+        coverage_metadata["records"] = len(df_combined)
+        coverage_metadata["coverage_percentage"] = (
+            len(coverage_metadata["years_extracted"]) / (year_end - year_start + 1) * 100
+            if year_end >= year_start else 0
+        )
+        
+        logger.info(f"✅ Total registros venta: {len(df_combined)}")
+        
+        # Guardar datos
+        self._save_raw_data(
+            df_combined,
+            "opendatabcn_venta",
+            'csv',
+            year_start=year_start,
+            year_end=year_end
+        )
+        
+        return df_combined, coverage_metadata
+    
+    def extract_housing_alquiler(
+        self,
+        year_start: int = 2015,
+        year_end: int = 2025
+    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Extrae datos de PRECIO DE ALQUILER usando API CKAN.
+        
+        Args:
+            year_start: Año inicial
+            year_end: Año final
+            
+        Returns:
+            Tupla con (DataFrame con datos, metadata de cobertura)
+        """
+        logger.info(f"Extrayendo precios de ALQUILER ({year_start}-{year_end})")
+        
+        dataset_id = self.DATASETS["housing_alquiler"]
+        resources = self.get_dataset_resources_ckan(dataset_id)
+        
+        coverage_metadata = {
+            "dataset_id": dataset_id,
+            "requested_range": {"start": year_start, "end": year_end},
+            "success": False
+        }
+        
+        if not resources:
+            logger.warning("No se encontraron recursos de alquiler")
+            coverage_metadata["error"] = "No se encontraron recursos"
+            return pd.DataFrame(), coverage_metadata
+        
+        all_data = []
+        
+        for identifier, url in resources.items():
+            logger.info(f"Descargando recurso: {identifier}...")
+            
+            df = self.download_and_parse_csv(url)
+            
+            if not df.empty:
+                logger.info(f"✓ {identifier}: {len(df)} registros")
+                logger.debug(f"  Columnas: {list(df.columns)}")
+                
+                df['tipo_operacion'] = 'alquiler'
+                df['source'] = 'opendatabcn_incasol'
+                
+                # Filtrar por años si existe columna de año
+                year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
+                if year_cols:
+                    year_col = year_cols[0]
+                    df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
+                    df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
+                    logger.info(f"  Filtrado: {len(df)} registros")
+                
+                all_data.append(df)
+        
+        if not all_data:
+            coverage_metadata["error"] = "No se obtuvieron datos"
+            return pd.DataFrame(), coverage_metadata
+        
+        df_combined = pd.concat(all_data, ignore_index=True)
+        coverage_metadata["success"] = True
+        coverage_metadata["records"] = len(df_combined)
+        
+        logger.info(f"✅ Total registros alquiler: {len(df_combined)}")
+        
+        # Guardar datos
+        self._save_raw_data(
+            df_combined,
+            "opendatabcn_alquiler",
+            'csv',
+            year_start=year_start,
+            year_end=year_end
+        )
+        
+        return df_combined, coverage_metadata
+    
+    def extract_demographics_ckan(
+        self,
+        year_start: int = 2015,
+        year_end: int = 2025
+    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Extrae datos DEMOGRÁFICOS (población) usando API CKAN con IDs correctos.
+        
+        Args:
+            year_start: Año inicial
+            year_end: Año final
+            
+        Returns:
+            Tupla con (DataFrame con datos, metadata de cobertura)
+        """
+        logger.info(f"Extrayendo datos demográficos ({year_start}-{year_end})")
+        
+        # Probar múltiples datasets de población
+        dataset_ids = [
+            self.DATASETS["demographics"],  # Población por sexo y barrio
+            self.DATASETS["demographics_age"]  # Población por edad
+        ]
+        
+        coverage_metadata = {
+            "requested_range": {"start": year_start, "end": year_end},
+            "datasets_processed": [],
+            "datasets_failed": [],
+            "success": False
+        }
+        
+        all_data = []
+        
+        for dataset_id in dataset_ids:
+            logger.info(f"Consultando dataset: {dataset_id}")
+            resources = self.get_dataset_resources_ckan(dataset_id)
+            
+            if not resources:
+                coverage_metadata["datasets_failed"].append(dataset_id)
+                continue
+            
+            for identifier, url in resources.items():
+                logger.info(f"  Descargando: {identifier}...")
+                
+                df = self.download_and_parse_csv(url)
+                
+                if not df.empty:
+                    logger.info(f"  ✓ {identifier}: {len(df)} registros")
+                    logger.debug(f"    Columnas: {list(df.columns)}")
+                    
+                    df['dataset_origen'] = dataset_id
+                    df['source'] = 'opendatabcn'
+                    
+                    # Filtrar por años
+                    year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
+                    if year_cols:
+                        year_col = year_cols[0]
+                        df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
+                        df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
+                        logger.info(f"    Filtrado: {len(df)} registros")
+                    
+                    all_data.append(df)
+                    coverage_metadata["datasets_processed"].append(dataset_id)
+        
+        if not all_data:
+            logger.warning("No se pudieron extraer datos demográficos")
+            coverage_metadata["error"] = "No se obtuvieron datos"
+            return pd.DataFrame(), coverage_metadata
+        
+        df_combined = pd.concat(all_data, ignore_index=True)
+        coverage_metadata["success"] = True
+        coverage_metadata["records"] = len(df_combined)
+        
+        logger.info(f"✅ Total registros demografía: {len(df_combined)}")
+        
+        # Guardar datos
+        self._save_raw_data(
+            df_combined,
+            "opendatabcn_demographics",
+            'csv',
+            year_start=year_start,
+            year_end=year_end
+        )
+        
+        return df_combined, coverage_metadata
 
 
 class IdealistaExtractor(BaseExtractor):
@@ -942,9 +1325,9 @@ def extract_all_sources(
             logger.info("=== Extrayendo datos de Open Data BCN ===")
             bcn_extractor = OpenDataBCNExtractor(output_dir=output_dir)
             
-            # Demographics
+            # Demographics (usando nuevo método con IDs correctos)
             try:
-                df_demo, metadata_demo = bcn_extractor.get_demographics_by_neighborhood(
+                df_demo, metadata_demo = bcn_extractor.extract_demographics_ckan(
                     year_start, year_end
                 )
                 results["opendatabcn_demographics"] = df_demo if df_demo is not None else pd.DataFrame()
@@ -964,27 +1347,60 @@ def extract_all_sources(
                 coverage_metadata["coverage_by_source"]["opendatabcn_demographics"] = {"error": str(e)}
                 coverage_metadata["sources_failed"].append("opendatabcn_demographics")
             
-            # Housing
+            # Housing - Venta (usando nuevo método con IDs correctos)
+            try:
+                df_venta, metadata_venta = bcn_extractor.extract_housing_venta(
+                    year_start, year_end
+                )
+                results["opendatabcn_venta"] = df_venta if df_venta is not None else pd.DataFrame()
+                coverage_metadata["coverage_by_source"]["opendatabcn_venta"] = metadata_venta
+                
+                # Validar tamaño de datos
+                is_valid = validate_data_size(results["opendatabcn_venta"], "OpenDataBCN Venta")
+                
+                if df_venta is not None and not df_venta.empty and is_valid:
+                    coverage_metadata["sources_success"].append("opendatabcn_venta")
+                else:
+                    coverage_metadata["sources_failed"].append("opendatabcn_venta")
+            except Exception as e:
+                logger.error(f"Error extrayendo venta de Open Data BCN: {e}")
+                logger.debug(traceback.format_exc())
+                results["opendatabcn_venta"] = pd.DataFrame()
+                coverage_metadata["coverage_by_source"]["opendatabcn_venta"] = {"error": str(e)}
+                coverage_metadata["sources_failed"].append("opendatabcn_venta")
+            
+            # Housing - Alquiler (usando nuevo método con IDs correctos)
+            try:
+                df_alquiler, metadata_alquiler = bcn_extractor.extract_housing_alquiler(
+                    year_start, year_end
+                )
+                results["opendatabcn_alquiler"] = df_alquiler if df_alquiler is not None else pd.DataFrame()
+                coverage_metadata["coverage_by_source"]["opendatabcn_alquiler"] = metadata_alquiler
+                
+                # Validar tamaño de datos
+                is_valid = validate_data_size(results["opendatabcn_alquiler"], "OpenDataBCN Alquiler")
+                
+                if df_alquiler is not None and not df_alquiler.empty and is_valid:
+                    coverage_metadata["sources_success"].append("opendatabcn_alquiler")
+                else:
+                    coverage_metadata["sources_failed"].append("opendatabcn_alquiler")
+            except Exception as e:
+                logger.error(f"Error extrayendo alquiler de Open Data BCN: {e}")
+                logger.debug(traceback.format_exc())
+                results["opendatabcn_alquiler"] = pd.DataFrame()
+                coverage_metadata["coverage_by_source"]["opendatabcn_alquiler"] = {"error": str(e)}
+                coverage_metadata["sources_failed"].append("opendatabcn_alquiler")
+            
+            # Housing (método legacy para compatibilidad)
             try:
                 df_housing, metadata_housing = bcn_extractor.get_housing_data_by_neighborhood(
                     year_start, year_end
                 )
-                results["opendatabcn_housing"] = df_housing if df_housing is not None else pd.DataFrame()
-                coverage_metadata["coverage_by_source"]["opendatabcn_housing"] = metadata_housing
-                
-                # Validar tamaño de datos
-                is_valid = validate_data_size(results["opendatabcn_housing"], "OpenDataBCN Housing")
-                
-                if df_housing is not None and not df_housing.empty and is_valid:
-                    coverage_metadata["sources_success"].append("opendatabcn_housing")
-                else:
-                    coverage_metadata["sources_failed"].append("opendatabcn_housing")
+                if df_housing is not None and not df_housing.empty:
+                    results["opendatabcn_housing"] = df_housing
+                    coverage_metadata["coverage_by_source"]["opendatabcn_housing"] = metadata_housing
             except Exception as e:
-                logger.error(f"Error extrayendo housing de Open Data BCN: {e}")
-                logger.debug(traceback.format_exc())
-                results["opendatabcn_housing"] = pd.DataFrame()
-                coverage_metadata["coverage_by_source"]["opendatabcn_housing"] = {"error": str(e)}
-                coverage_metadata["sources_failed"].append("opendatabcn_housing")
+                logger.debug(f"Método legacy de housing falló (esperado): {e}")
                 
         except Exception as e:
             error_msg = f"Error en extracción Open Data BCN: {e}"
