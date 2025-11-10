@@ -615,13 +615,20 @@ class OpenDataBCNExtractor(BaseExtractor):
         
         try:
             response = self.session.get(url, params=params, timeout=30)
+            
+            # Manejar error 404 específicamente
+            if response.status_code == 404:
+                logger.warning(f"Dataset '{dataset_id}' no encontrado (404). Puede que el ID haya cambiado o el dataset no exista.")
+                return {}
+            
             if not self._validate_response(response):
                 return {}
             
             data = response.json()
             
             if not data.get('success'):
-                logger.error(f"API CKAN devolvió error para {dataset_id}")
+                error_msg = data.get('error', {}).get('message', 'Error desconocido')
+                logger.error(f"API CKAN devolvió error para {dataset_id}: {error_msg}")
                 return {}
             
             resources = {}
@@ -651,6 +658,40 @@ class OpenDataBCNExtractor(BaseExtractor):
             logger.error(f"Error obteniendo recursos de {dataset_id}: {e}")
             logger.debug(traceback.format_exc())
             return {}
+    
+    def search_datasets_by_keyword(self, keyword: str) -> List[str]:
+        """
+        Busca datasets en Open Data BCN por palabra clave.
+        
+        Args:
+            keyword: Palabra clave para buscar (ej: "alquiler", "lloguer", "vivienda")
+            
+        Returns:
+            Lista de IDs de datasets encontrados
+        """
+        logger.info(f"Buscando datasets con palabra clave: '{keyword}'")
+        
+        all_datasets = self.get_dataset_list()
+        matching_datasets = []
+        
+        for dataset_id in all_datasets:
+            try:
+                info = self.get_dataset_info(dataset_id)
+                if info:
+                    title = info.get('title', '').lower()
+                    description = info.get('notes', '').lower()
+                    tags = [tag.get('name', '').lower() for tag in info.get('tags', [])]
+                    
+                    if (keyword.lower() in title or 
+                        keyword.lower() in description or 
+                        keyword.lower() in ' '.join(tags)):
+                        matching_datasets.append(dataset_id)
+                        logger.info(f"  Encontrado: {dataset_id} - {info.get('title', 'Sin título')}")
+            except Exception as e:
+                logger.debug(f"Error obteniendo info de {dataset_id}: {e}")
+                continue
+        
+        return matching_datasets
     
     def download_and_parse_csv(
         self,
@@ -828,18 +869,54 @@ class OpenDataBCNExtractor(BaseExtractor):
         coverage_metadata = {
             "dataset_id": dataset_id,
             "requested_range": {"start": year_start, "end": year_end},
-            "success": False
+            "success": False,
+            "alternative_datasets_searched": False
         }
         
+        # Si el dataset principal no existe, buscar alternativas
         if not resources:
-            logger.warning("No se encontraron recursos de alquiler")
-            coverage_metadata["error"] = "No se encontraron recursos"
+            logger.warning(f"Dataset '{dataset_id}' no encontrado. Buscando alternativas...")
+            
+            # Buscar datasets alternativos
+            alternative_keywords = ["lloguer", "alquiler", "rent", "renta"]
+            alternative_datasets = []
+            
+            for keyword in alternative_keywords:
+                found = self.search_datasets_by_keyword(keyword)
+                alternative_datasets.extend(found)
+                if found:
+                    break  # Si encontramos alguno, usar ese
+            
+            if alternative_datasets:
+                logger.info(f"Encontrados {len(alternative_datasets)} datasets alternativos. Intentando con el primero...")
+                coverage_metadata["alternative_datasets_searched"] = True
+                coverage_metadata["alternative_datasets_found"] = alternative_datasets
+                
+                # Intentar con el primer dataset alternativo
+                dataset_id = alternative_datasets[0]
+                coverage_metadata["dataset_id_used"] = dataset_id
+                resources = self.get_dataset_resources_ckan(dataset_id)
+            else:
+                logger.warning("No se encontraron datasets alternativos de alquiler")
+                coverage_metadata["error"] = f"Dataset '{self.DATASETS['housing_alquiler']}' no encontrado y no se encontraron alternativas"
+                return pd.DataFrame(), coverage_metadata
+        
+        if not resources:
+            coverage_metadata["error"] = "No se encontraron recursos de alquiler"
             return pd.DataFrame(), coverage_metadata
         
         all_data = []
         
         for identifier, url in resources.items():
-            logger.info(f"Descargando recurso: {identifier}...")
+            # Si identifier es un año (int), filtrar antes de descargar
+            if isinstance(identifier, int):
+                year = identifier
+                if not (year_start <= year <= year_end):
+                    logger.debug(f"Omitiendo año {year} (fuera del rango {year_start}-{year_end})")
+                    continue
+                logger.info(f"Descargando año {year}...")
+            else:
+                logger.info(f"Descargando recurso: {identifier}...")
             
             df = self.download_and_parse_csv(url)
             
@@ -850,13 +927,19 @@ class OpenDataBCNExtractor(BaseExtractor):
                 df['tipo_operacion'] = 'alquiler'
                 df['source'] = 'opendatabcn_incasol'
                 
-                # Filtrar por años si existe columna de año
-                year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
-                if year_cols:
-                    year_col = year_cols[0]
-                    df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
-                    df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
-                    logger.info(f"  Filtrado: {len(df)} registros")
+                # Si identifier es un año, agregarlo directamente
+                if isinstance(identifier, int):
+                    df['año'] = identifier
+                else:
+                    # Filtrar por años si existe columna de año
+                    year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
+                    if year_cols:
+                        year_col = year_cols[0]
+                        df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
+                        original_count = len(df)
+                        df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
+                        if len(df) < original_count:
+                            logger.info(f"  Filtrado: {len(df)} registros (de {original_count})")
                 
                 all_data.append(df)
         
@@ -899,9 +982,10 @@ class OpenDataBCNExtractor(BaseExtractor):
         logger.info(f"Extrayendo datos demográficos ({year_start}-{year_end})")
         
         # Probar múltiples datasets de población
+        # Nota: est-padro-edat-any-a-any devuelve 404, usar solo pad_mdbas_sexe por ahora
         dataset_ids = [
             self.DATASETS["demographics"],  # Población por sexo y barrio
-            self.DATASETS["demographics_age"]  # Población por edad
+            # self.DATASETS["demographics_age"]  # Población por edad - ID no encontrado (404)
         ]
         
         coverage_metadata = {
@@ -922,7 +1006,15 @@ class OpenDataBCNExtractor(BaseExtractor):
                 continue
             
             for identifier, url in resources.items():
-                logger.info(f"  Descargando: {identifier}...")
+                # Si identifier es un año (int), filtrar antes de descargar
+                if isinstance(identifier, int):
+                    year = identifier
+                    if not (year_start <= year <= year_end):
+                        logger.debug(f"  Omitiendo año {year} (fuera del rango {year_start}-{year_end})")
+                        continue
+                    logger.info(f"  Descargando año {year}...")
+                else:
+                    logger.info(f"  Descargando: {identifier}...")
                 
                 df = self.download_and_parse_csv(url)
                 
@@ -933,16 +1025,23 @@ class OpenDataBCNExtractor(BaseExtractor):
                     df['dataset_origen'] = dataset_id
                     df['source'] = 'opendatabcn'
                     
-                    # Filtrar por años
-                    year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
-                    if year_cols:
-                        year_col = year_cols[0]
-                        df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
-                        df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
-                        logger.info(f"    Filtrado: {len(df)} registros")
+                    # Si identifier es un año, agregarlo directamente
+                    if isinstance(identifier, int):
+                        df['año'] = identifier
+                    else:
+                        # Filtrar por años si existe columna de año
+                        year_cols = [col for col in df.columns if any(x in col.lower() for x in ['any', 'año', 'year'])]
+                        if year_cols:
+                            year_col = year_cols[0]
+                            df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
+                            original_count = len(df)
+                            df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
+                            if len(df) < original_count:
+                                logger.info(f"    Filtrado: {len(df)} registros (de {original_count})")
                     
                     all_data.append(df)
-                    coverage_metadata["datasets_processed"].append(dataset_id)
+                    if dataset_id not in coverage_metadata["datasets_processed"]:
+                        coverage_metadata["datasets_processed"].append(dataset_id)
         
         if not all_data:
             logger.warning("No se pudieron extraer datos demográficos")

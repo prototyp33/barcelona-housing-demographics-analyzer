@@ -108,10 +108,11 @@ data = extractor.download_dataset(
 ```
 
 **Available Datasets** (IDs CKAN confirmados):
-- `pad_mdbas_sexe`: Población por sexo y barrio
-- `est-padro-edat-any-a-any`: Población por edad
-- `habitatges-2na-ma`: Precios de venta (confirmado)
-- `est-mercat-immobiliari-lloguer-mitja-mensual`: Precios de alquiler
+- `pad_mdbas_sexe`: Población por sexo y barrio ✅ (funcionando)
+- `habitatges-2na-ma`: Precios de venta ✅ (funcionando)
+- `est-mercat-immobiliari-lloguer-mitja-mensual`: Precios de alquiler ⚠️ (ID no encontrado - el sistema busca alternativas automáticamente)
+
+**Nota**: Si un dataset ID no existe (404), el sistema intentará buscar datasets alternativos automáticamente usando palabras clave.
 
 **Nuevos Métodos Disponibles**:
 ```python
