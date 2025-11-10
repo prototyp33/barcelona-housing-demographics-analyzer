@@ -51,6 +51,7 @@ data/
 *.tmp
 outputs/
 temp/
+logs/
 
 # OS
 .DS_Store
