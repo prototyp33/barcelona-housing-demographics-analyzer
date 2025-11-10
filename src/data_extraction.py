@@ -854,6 +854,8 @@ class OpenDataBCNExtractor(BaseExtractor):
         """
         Extrae datos de PRECIO DE ALQUILER usando API CKAN.
         
+        Intenta múltiples IDs posibles y usa búsqueda automática como fallback.
+        
         Args:
             year_start: Año inicial
             year_end: Año final
@@ -863,19 +865,39 @@ class OpenDataBCNExtractor(BaseExtractor):
         """
         logger.info(f"Extrayendo precios de ALQUILER ({year_start}-{year_end})")
         
-        dataset_id = self.DATASETS["housing_alquiler"]
-        resources = self.get_dataset_resources_ckan(dataset_id)
-        
         coverage_metadata = {
-            "dataset_id": dataset_id,
             "requested_range": {"start": year_start, "end": year_end},
             "success": False,
-            "alternative_datasets_searched": False
+            "alternative_datasets_searched": False,
+            "ids_tried": []
         }
         
-        # Si el dataset principal no existe, buscar alternativas
+        # Intentar primero con múltiples IDs posibles
+        possible_ids = [
+            self.DATASETS["housing_alquiler"],  # ID principal
+            "lloguer-mitja-mensual",
+            "est-lloguer-mitja",
+            "mercat-immobiliari-lloguer",
+        ]
+        
+        resources = {}
+        found_dataset = None
+        
+        for dataset_id in possible_ids:
+            logger.debug(f"Probando dataset ID: {dataset_id}")
+            coverage_metadata["ids_tried"].append(dataset_id)
+            
+            temp_resources = self.get_dataset_resources_ckan(dataset_id)
+            if temp_resources:
+                logger.info(f"✓ Dataset alquiler encontrado: {dataset_id}")
+                resources = temp_resources
+                found_dataset = dataset_id
+                coverage_metadata["dataset_id"] = dataset_id
+                break
+        
+        # Si la API CKAN falló con todos los IDs, buscar alternativas automáticamente
         if not resources:
-            logger.warning(f"Dataset '{dataset_id}' no encontrado. Buscando alternativas...")
+            logger.warning("Ningún ID conocido funcionó. Buscando datasets alternativos...")
             
             # Buscar datasets alternativos
             alternative_keywords = ["lloguer", "alquiler", "rent", "renta"]
@@ -893,12 +915,12 @@ class OpenDataBCNExtractor(BaseExtractor):
                 coverage_metadata["alternative_datasets_found"] = alternative_datasets
                 
                 # Intentar con el primer dataset alternativo
-                dataset_id = alternative_datasets[0]
-                coverage_metadata["dataset_id_used"] = dataset_id
-                resources = self.get_dataset_resources_ckan(dataset_id)
+                found_dataset = alternative_datasets[0]
+                coverage_metadata["dataset_id"] = found_dataset
+                resources = self.get_dataset_resources_ckan(found_dataset)
             else:
                 logger.warning("No se encontraron datasets alternativos de alquiler")
-                coverage_metadata["error"] = f"Dataset '{self.DATASETS['housing_alquiler']}' no encontrado y no se encontraron alternativas"
+                coverage_metadata["error"] = f"Ningún dataset de alquiler encontrado. IDs probados: {possible_ids}"
                 return pd.DataFrame(), coverage_metadata
         
         if not resources:
