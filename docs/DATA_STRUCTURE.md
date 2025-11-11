@@ -18,9 +18,9 @@ barcelona-housing-demographics-analyzer/
 │   │   │   └── idealista_report_20250115.pdf
 │   │   └── extraction_metadata_20250115_143030.json
 │   │
-│   ├── processed/                        # ← Datos limpios y normalizados (futuro)
-│   │   ├── demographics_clean.csv
-│   │   └── housing_prices_clean.csv
+│   ├── processed/                        # ← Datos limpios y normalizados listos para análisis
+│   │   ├── database.db                   # ← Esquema dimensional (dim_barrios, fact_* y etl_runs)
+│   │   └── backups/                      # ← Copias opcionales o versiones históricas (pendiente)
 │   │
 │   └── logs/                              # ← Logs de extracción
 │       └── extraction_20250115_143030.txt
@@ -62,17 +62,37 @@ barcelona-housing-demographics-analyzer/
 
 ### `data/processed/` - Datos Procesados
 
-**Propósito**: Almacena datos después de limpieza, normalización y validación.
+**Propósito**: Almacena los resultados del pipeline ETL listos para análisis y visualización.
 
-**Estado**: Pendiente de implementación (futuro)
+**Estado**: ✅ Implementado.
 
-**Estructura esperada**:
+**Contenido actual**:
 ```
 data/processed/
-├── demographics_clean.csv
-├── housing_prices_clean.csv
-└── unified_dataset.csv
+├── database.db          # SQLite con tablas dim_barrios, fact_precios, fact_demografia y etl_runs
+└── backups/             # Carpeta opcional para snapshots (crear según necesidad)
 ```
+
+**Cómo generar/actualizar el esquema**:
+
+```bash
+# Ejecuta el ETL (Transformación + Carga)
+python scripts/process_and_load.py \
+    --raw-dir data/raw \
+    --processed-dir data/processed \
+    --log-level INFO
+```
+
+El script:
+- Detecta automáticamente los últimos archivos en `data/raw/opendatabcn/`
+- Construye la dimensión de barrios (`dim_barrios`)
+- Genera las tablas de hechos `fact_demografia` y `fact_precios`
+- Registra la ejecución en `etl_runs`
+- Crea/actualiza `data/processed/database.db`
+
+**Notas**:
+- Actualmente `fact_precios` solo contiene precios de venta (`habitatges-2na-ma`). Los precios de alquiler quedan en `NULL` hasta encontrar un dataset válido.
+- Cada ejecución registra métricas y parámetros en `etl_runs` para trazabilidad.
 
 ### `data/logs/` - Logs de Extracción
 

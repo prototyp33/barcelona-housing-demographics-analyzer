@@ -97,8 +97,43 @@ python scripts/extract_data.py \
     --output-dir /custom/path/data
 ```
 
+### Data Processing and Loading (ETL)
+
+Transform and load extracted data into a dimensional SQLite database:
+
+```bash
+# Process raw data and create/update database.db
+python scripts/process_and_load.py \
+    --raw-dir data/raw \
+    --processed-dir data/processed \
+    --log-level INFO
+```
+
+This creates `data/processed/database.db` with:
+- **dim_barrios**: Neighborhood dimension table (73 barrios)
+- **fact_demografia**: Demographic facts (population by year and barrio)
+- **fact_precios**: Housing prices facts (sale prices by year and barrio)
+- **etl_runs**: ETL execution audit log
+
+**Query the database**:
+```python
+import sqlite3
+import pandas as pd
+
+conn = sqlite3.connect('data/processed/database.db')
+
+# Get demographics with barrio names
+df = pd.read_sql_query("""
+    SELECT d.*, b.barrio_nombre, b.distrito_nombre
+    FROM fact_demografia d
+    JOIN dim_barrios b ON d.barrio_id = b.barrio_id
+    WHERE d.anio = 2023
+""", conn)
+```
+
 For detailed API usage and configuration, see [docs/API_usage.md](docs/API_usage.md).
 For data structure and directory organization, see [docs/DATA_STRUCTURE.md](docs/DATA_STRUCTURE.md).
+For next steps and development roadmap, see [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md).
 
 ## 📚 Documentation
 
@@ -107,3 +142,5 @@ For data structure and directory organization, see [docs/DATA_STRUCTURE.md](docs
 - [Data Structure](docs/DATA_STRUCTURE.md) - Directory organization and file naming conventions
 - [Extraction Improvements](docs/EXTRACTION_IMPROVEMENTS.md) - Advanced features and improvements
 - [Project Milestones](docs/PROJECT_MILESTONES.md) - Development roadmap
+- [Next Steps](docs/NEXT_STEPS.md) - Immediate action plan and recommendations
+- [Debugging Datasets](docs/DEBUGGING_DATASETS.md) - Guide for investigating CKAN datasets
