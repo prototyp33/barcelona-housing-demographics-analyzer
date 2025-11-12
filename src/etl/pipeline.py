@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -118,6 +119,42 @@ def run_etl(
             source="opendatabcn",
         )
 
+        # Procesar datos del Portal de Dades
+        portaldades_dir = raw_base_dir / "portaldades"
+        portaldades_venta_df = pd.DataFrame()
+        portaldades_alquiler_df = pd.DataFrame()
+        
+        if portaldades_dir.exists():
+            logger.info("=== Procesando datos del Portal de Dades ===")
+            metadata_file = portaldades_dir / "indicadores_habitatge.csv"
+            try:
+                portaldades_venta_df, portaldades_alquiler_df = (
+                    data_processing.prepare_portaldades_precios(
+                        portaldades_dir,
+                        dim_barrios,
+                        reference_time,
+                        metadata_file=metadata_file if metadata_file.exists() else None,
+                    )
+                )
+                params["portaldades_venta_rows"] = len(portaldades_venta_df)
+                params["portaldades_alquiler_rows"] = len(portaldades_alquiler_df)
+                
+                if not portaldades_venta_df.empty:
+                    logger.info(
+                        f"✓ Portal de Dades - Venta: {len(portaldades_venta_df):,} registros "
+                        f"(años {portaldades_venta_df['anio'].min()}-{portaldades_venta_df['anio'].max()})"
+                    )
+                if not portaldades_alquiler_df.empty:
+                    logger.info(
+                        f"✓ Portal de Dades - Alquiler: {len(portaldades_alquiler_df):,} registros "
+                        f"(años {portaldades_alquiler_df['anio'].min()}-{portaldades_alquiler_df['anio'].max()})"
+                    )
+            except Exception as e:
+                logger.warning(f"Error procesando datos del Portal de Dades: {e}")
+                logger.debug(traceback.format_exc())
+        else:
+            logger.info("Directorio del Portal de Dades no encontrado, omitiendo")
+
         fact_precios = data_processing.prepare_fact_precios(
             venta_df,
             dim_barrios,
@@ -125,6 +162,8 @@ def run_etl(
             reference_time=reference_time,
             alquiler=alquiler_df,
             dataset_id_alquiler=dataset_alquiler_id,
+            portaldades_venta=portaldades_venta_df,
+            portaldades_alquiler=portaldades_alquiler_df,
         )
 
         params.update(
