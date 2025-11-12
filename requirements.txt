@@ -76,3 +76,4 @@ urllib3==2.5.0
 w3lib==2.3.1
 xyzservices==2025.10.0
 zope.interface==8.1
+playwright==1.48.0
