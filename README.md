@@ -97,6 +97,27 @@ python scripts/extract_data.py \
     --output-dir /custom/path/data
 ```
 
+### Portal Dades (Habitatge) Scraper
+
+Automate indicator discovery and downloads from Portal Dades (requires Playwright):
+
+```bash
+# Install Playwright once
+pip install playwright
+playwright install
+
+# Scrape IDs + download all indicators (CSV by default)
+python scripts/extract_portaldades.py
+
+# Only list indicator IDs (no downloads)
+python scripts/extract_portaldades.py --scrape-only
+
+# Limit pagination
+python scripts/extract_portaldades.py --max-pages 3
+```
+
+Downloaded files live under `data/raw/portaldades/` and the indicator catalog in `data/raw/portaldades/indicadores_habitatge.csv`.
+
 ### Data Processing and Loading (ETL)
 
 Transform and load extracted data into a dimensional SQLite database:
@@ -137,6 +158,8 @@ For next steps and development roadmap, see [docs/NEXT_STEPS.md](docs/NEXT_STEPS
 
 ## 📚 Documentation
 
+- **[Project Status](docs/PROJECT_STATUS.md)** ⭐ - Current state, achievements, issues, and next steps
+- [Issues to Create](docs/ISSUES_TO_CREATE.md) - GitHub issues ready to be created
 - [Vision and Objectives](docs/01_VISION_AND_OBJECTIVES.md) - Project goals and data requirements
 - [API Usage Guide](docs/API_usage.md) - How to use data extraction APIs
 - [Data Structure](docs/DATA_STRUCTURE.md) - Directory organization and file naming conventions
