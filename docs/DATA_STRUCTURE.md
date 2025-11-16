@@ -69,7 +69,13 @@ barcelona-housing-demographics-analyzer/
 **Contenido actual**:
 ```
 data/processed/
-├── database.db          # SQLite con tablas dim_barrios, fact_precios, fact_demografia y etl_runs
+├── database.db          # SQLite con tablas:
+│                        #   - dim_barrios (73 barrios con geometrías GeoJSON)
+│                        #   - fact_demografia (demografía estándar)
+│                        #   - fact_demografia_ampliada (edad quinquenal y nacionalidad)
+│                        #   - fact_precios (precios de venta y alquiler)
+│                        #   - fact_renta (renta por barrio)
+│                        #   - etl_runs (auditoría de ejecuciones)
 └── backups/             # Carpeta opcional para snapshots (crear según necesidad)
 ```
 
@@ -84,14 +90,19 @@ python scripts/process_and_load.py \
 ```
 
 El script:
-- Detecta automáticamente los últimos archivos en `data/raw/opendatabcn/`
-- Construye la dimensión de barrios (`dim_barrios`)
-- Genera las tablas de hechos `fact_demografia` y `fact_precios`
+- Detecta automáticamente los últimos archivos en `data/raw/opendatabcn/` y `data/raw/geojson/`
+- Construye la dimensión de barrios (`dim_barrios`) con geometrías GeoJSON
+- Genera las tablas de hechos:
+  - `fact_demografia` (demografía estándar) o `fact_demografia_ampliada` (edad quinquenal y nacionalidad)
+  - `fact_precios` (precios de venta y alquiler)
+  - `fact_renta` (renta familiar disponible por barrio)
 - Registra la ejecución en `etl_runs`
 - Crea/actualiza `data/processed/database.db`
 
 **Notas**:
-- Actualmente `fact_precios` solo contiene precios de venta (`habitatges-2na-ma`). Los precios de alquiler quedan en `NULL` hasta encontrar un dataset válido.
+- `fact_demografia_ampliada` se usa cuando está disponible el dataset `pad_mdb_lloc-naix-continent_edat-q_sexe`
+- `fact_renta` contiene renta agregada por barrio desde datos de sección censal
+- `dim_barrios` incluye geometrías GeoJSON cuando está disponible el archivo `barrios_geojson_*.json`
 - Cada ejecución registra métricas y parámetros en `etl_runs` para trazabilidad.
 
 ### `data/logs/` - Logs de Extracción
@@ -268,4 +279,163 @@ Fuentes Externas (INE, OpenDataBCN, Idealista)
 - **Datos procesados**: `data/processed/` (futuro)
 
 Esta estructura mantiene claridad entre datos brutos, procesados y logs, fundamental para un proyecto data-driven profesional y open source.
+
+## 📊 Esquema de Base de Datos
+
+### Tablas de Dimensión
+
+#### `dim_barrios`
+Dimensión de barrios con información geográfica y administrativa.
+
+```sql
+CREATE TABLE dim_barrios (
+    barrio_id INTEGER PRIMARY KEY,
+    barrio_nombre TEXT NOT NULL,
+    barrio_nombre_normalizado TEXT NOT NULL,
+    distrito_id INTEGER,
+    distrito_nombre TEXT,
+    municipio TEXT,
+    ambito TEXT,
+    codi_districte TEXT,
+    codi_barri TEXT,
+    geometry_json TEXT,              -- GeoJSON con geometría del barrio
+    source_dataset TEXT,
+    etl_created_at TEXT,
+    etl_updated_at TEXT
+);
+```
+
+**Notas**:
+- `geometry_json`: Contiene geometría en formato GeoJSON (Polygon) cuando está disponible
+- `barrio_nombre_normalizado`: Versión normalizada para matching de nombres
+
+### Tablas de Hechos
+
+#### `fact_demografia`
+Demografía estándar por barrio y año (población total, por sexo, hogares, etc.).
+
+```sql
+CREATE TABLE fact_demografia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barrio_id INTEGER NOT NULL,
+    anio INTEGER NOT NULL,
+    poblacion_total INTEGER,
+    poblacion_hombres INTEGER,
+    poblacion_mujeres INTEGER,
+    hogares_totales INTEGER,
+    edad_media REAL,
+    porc_inmigracion REAL,
+    densidad_hab_km2 REAL,
+    dataset_id TEXT,
+    source TEXT,
+    etl_loaded_at TEXT,
+    FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+);
+```
+
+#### `fact_demografia_ampliada` ⭐ NUEVO
+Demografía detallada con edad quinquenal y nacionalidad por barrio, año, sexo y grupo de edad.
+
+```sql
+CREATE TABLE fact_demografia_ampliada (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barrio_id INTEGER NOT NULL,
+    anio INTEGER NOT NULL,
+    sexo TEXT,                       -- 'hombre', 'mujer'
+    grupo_edad TEXT,                 -- '18-34', '35-49', '50-64', '65+'
+    nacionalidad TEXT,                -- 'Europa', 'América', 'África', 'Asia', 'Oceanía', 'No consta'
+    poblacion INTEGER,
+    barrio_nombre_normalizado TEXT,
+    dataset_id TEXT,
+    source TEXT,
+    etl_loaded_at TEXT,
+    FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+);
+```
+
+**Ejemplo de uso**:
+```sql
+-- Población joven (18-34) por nacionalidad en 2025
+SELECT 
+    b.barrio_nombre,
+    d.nacionalidad,
+    SUM(d.poblacion) as poblacion_total
+FROM fact_demografia_ampliada d
+JOIN dim_barrios b ON d.barrio_id = b.barrio_id
+WHERE d.anio = 2025 
+  AND d.grupo_edad = '18-34'
+GROUP BY b.barrio_nombre, d.nacionalidad
+ORDER BY poblacion_total DESC;
+```
+
+#### `fact_renta` ⭐ NUEVO
+Renta Familiar Disponible (RFD) agregada por barrio y año.
+
+```sql
+CREATE TABLE fact_renta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barrio_id INTEGER NOT NULL,
+    anio INTEGER NOT NULL,
+    renta_euros REAL,                -- Métrica principal (promedio o mediana según configuración)
+    renta_promedio REAL,
+    renta_mediana REAL,
+    renta_min REAL,
+    renta_max REAL,
+    num_secciones INTEGER,            -- Número de secciones censales agregadas
+    barrio_nombre_normalizado TEXT,
+    dataset_id TEXT,
+    source TEXT,
+    etl_loaded_at TEXT,
+    FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+);
+```
+
+**Ejemplo de uso**:
+```sql
+-- Renta por barrio en 2022 con información del distrito
+SELECT 
+    b.barrio_nombre,
+    b.distrito_nombre,
+    r.renta_euros,
+    r.renta_mediana,
+    r.num_secciones
+FROM fact_renta r
+JOIN dim_barrios b ON r.barrio_id = b.barrio_id
+WHERE r.anio = 2022
+ORDER BY r.renta_euros DESC;
+```
+
+#### `fact_precios`
+Precios de vivienda (venta y alquiler) por barrio, año y período.
+
+```sql
+CREATE TABLE fact_precios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barrio_id INTEGER NOT NULL,
+    anio INTEGER NOT NULL,
+    periodo TEXT,
+    trimestre INTEGER,
+    precio_m2_venta REAL,
+    precio_mes_alquiler REAL,
+    dataset_id TEXT,
+    source TEXT,
+    etl_loaded_at TEXT,
+    FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+);
+```
+
+### Tabla de Auditoría
+
+#### `etl_runs`
+Registro de ejecuciones del pipeline ETL para trazabilidad.
+
+```sql
+CREATE TABLE etl_runs (
+    run_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    parameters TEXT                  -- JSON con parámetros y métricas de la ejecución
+);
+```
 

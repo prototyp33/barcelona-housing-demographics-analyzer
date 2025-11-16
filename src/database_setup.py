@@ -52,8 +52,17 @@ CREATE_TABLE_STATEMENTS = (
     );
     """,
     """
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_precios_unique
-    ON fact_precios (barrio_id, anio, COALESCE(trimestre, -1));
+    DROP INDEX IF EXISTS idx_fact_precios_unique;
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_precios_unique_dataset
+    ON fact_precios (
+        barrio_id,
+        anio,
+        COALESCE(trimestre, -1),
+        COALESCE(dataset_id, ''),
+        COALESCE(source, '')
+    );
     """,
     """
     CREATE TABLE IF NOT EXISTS fact_demografia (
@@ -76,6 +85,48 @@ CREATE_TABLE_STATEMENTS = (
     """
     CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_demografia_unique
     ON fact_demografia (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_demografia_ampliada (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        sexo TEXT,
+        grupo_edad TEXT,
+        nacionalidad TEXT,
+        poblacion INTEGER,
+        barrio_nombre_normalizado TEXT,
+        dataset_id TEXT,
+        source TEXT,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_demografia_ampliada_barrio_anio
+    ON fact_demografia_ampliada (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_renta (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        renta_euros REAL,
+        renta_promedio REAL,
+        renta_mediana REAL,
+        renta_min REAL,
+        renta_max REAL,
+        num_secciones INTEGER,
+        barrio_nombre_normalizado TEXT,
+        dataset_id TEXT,
+        source TEXT,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_renta_unique
+    ON fact_renta (barrio_id, anio);
     """,
     """
     CREATE TABLE IF NOT EXISTS etl_runs (
@@ -122,10 +173,16 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
 
 def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
     """Remove all rows from the given list of tables inside a transaction."""
-
-    with conn:
-        for table in tables:
-            conn.execute(f"DELETE FROM {table};")
+    
+    # Desactivar temporalmente foreign keys para permitir truncado en cualquier orden
+    conn.execute("PRAGMA foreign_keys = OFF;")
+    try:
+        with conn:
+            for table in tables:
+                conn.execute(f"DELETE FROM {table};")
+    finally:
+        # Reactivar foreign keys
+        conn.execute("PRAGMA foreign_keys = ON;")
 
 
 def register_etl_run(

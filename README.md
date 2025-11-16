@@ -131,9 +131,11 @@ python scripts/process_and_load.py \
 ```
 
 This creates `data/processed/database.db` with:
-- **dim_barrios**: Neighborhood dimension table (73 barrios)
-- **fact_demografia**: Demographic facts (population by year and barrio)
-- **fact_precios**: Housing prices facts (sale prices by year and barrio)
+- **dim_barrios**: Neighborhood dimension table (73 barrios with GeoJSON geometries)
+- **fact_demografia**: Standard demographic facts (population by year and barrio)
+- **fact_demografia_ampliada**: Extended demographics (age groups and nationality by barrio, year, sex)
+- **fact_precios**: Housing prices facts (sale and rental prices by year and barrio)
+- **fact_renta**: Income facts (household disposable income by barrio and year)
 - **etl_runs**: ETL execution audit log
 
 **Query the database**:
@@ -149,6 +151,48 @@ df = pd.read_sql_query("""
     FROM fact_demografia d
     JOIN dim_barrios b ON d.barrio_id = b.barrio_id
     WHERE d.anio = 2023
+""", conn)
+
+# Get extended demographics (age groups and nationality)
+df_ampliada = pd.read_sql_query("""
+    SELECT 
+        b.barrio_nombre,
+        d.anio,
+        d.sexo,
+        d.grupo_edad,
+        d.nacionalidad,
+        d.poblacion
+    FROM fact_demografia_ampliada d
+    JOIN dim_barrios b ON d.barrio_id = b.barrio_id
+    WHERE d.anio = 2025
+      AND d.grupo_edad = '18-34'
+    ORDER BY d.poblacion DESC
+""", conn)
+
+# Get rent data by barrio
+df_renta = pd.read_sql_query("""
+    SELECT 
+        b.barrio_nombre,
+        b.distrito_nombre,
+        r.anio,
+        r.renta_euros,
+        r.renta_mediana,
+        r.num_secciones
+    FROM fact_renta r
+    JOIN dim_barrios b ON r.barrio_id = b.barrio_id
+    WHERE r.anio = 2022
+    ORDER BY r.renta_euros DESC
+""", conn)
+
+# Get barrios with geometry (for mapping)
+df_geometrias = pd.read_sql_query("""
+    SELECT 
+        barrio_id,
+        barrio_nombre,
+        distrito_nombre,
+        geometry_json
+    FROM dim_barrios
+    WHERE geometry_json IS NOT NULL
 """, conn)
 ```
 

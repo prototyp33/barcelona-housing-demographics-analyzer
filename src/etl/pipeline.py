@@ -72,9 +72,22 @@ def run_etl(
 
     try:
         opendata_dir = raw_base_dir / "opendatabcn"
-        demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
+        geojson_dir = raw_base_dir / "geojson"
+        
+        # Buscar archivos de datos (prioridad: nuevos datasets, luego legacy)
+        demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_*.csv")
+        if demographics_path is None:
+            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
+        
+        # Buscar archivos de renta
+        renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
+        
+        # Buscar archivos de precios (legacy)
         venta_path = _find_latest_file(opendata_dir, "opendatabcn_venta_*.csv")
         alquiler_path = _find_latest_file(opendata_dir, "opendatabcn_alquiler_*.csv")
+        
+        # Buscar GeoJSON
+        geojson_path = _find_latest_file(geojson_dir, "barrios_geojson_*.json")
 
         if demographics_path is None:
             raise FileNotFoundError(
@@ -91,11 +104,25 @@ def run_etl(
         dem_df = _safe_read_csv(demographics_path)
         venta_df = _safe_read_csv(venta_path) if venta_path else pd.DataFrame()
         alquiler_df = _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
+        
+        # Cargar datos de renta si están disponibles
+        renta_df = None
+        if renta_path:
+            try:
+                renta_df = _safe_read_csv(renta_path)
+                logger.info("✓ Datos de renta cargados: %s", renta_path.name)
+            except Exception as e:
+                logger.warning("Error cargando datos de renta: %s", e)
 
+        # Determinar dataset IDs
         dataset_dem = metadata.get("coverage_by_source", {}).get(
             "opendatabcn_demographics", {}
         ).get("datasets_processed", ["pad_mdbas_sexe"])
         dataset_dem_id = dataset_dem[0] if dataset_dem else "pad_mdbas_sexe"
+        
+        # Si el archivo es de demografía ampliada, usar ese ID
+        if "pad_mdb" in demographics_path.name.lower():
+            dataset_dem_id = "pad_mdb_lloc-naix-continent_edat-q_sexe"
 
         dataset_venta_id = metadata.get("coverage_by_source", {}).get(
             "opendatabcn_venta", {}
@@ -104,20 +131,66 @@ def run_etl(
         dataset_alquiler_id = metadata.get("coverage_by_source", {}).get(
             "opendatabcn_alquiler", {}
         ).get("dataset_id")
+        
+        # Determinar dataset ID de renta
+        dataset_renta_id = "renda-disponible-llars-bcn"
+        if renta_path and "atles-renda" in renta_path.name.lower():
+            if "per-llar" in renta_path.name.lower():
+                dataset_renta_id = "atles-renda-bruta-per-llar"
+            elif "per-persona" in renta_path.name.lower():
+                dataset_renta_id = "atles-renda-bruta-per-persona"
 
         reference_time = datetime.utcnow()
 
+        # Preparar dim_barrios con GeoJSON si está disponible
+        logger.info("Preparando dimensión de barrios...")
+        if geojson_path:
+            logger.info("  Usando GeoJSON: %s", geojson_path.name)
         dim_barrios = data_processing.prepare_dim_barrios(
-            dem_df, dataset_id=dataset_dem_id, reference_time=reference_time
+            dem_df, 
+            dataset_id=dataset_dem_id, 
+            reference_time=reference_time,
+            geojson_path=geojson_path
         )
 
-        fact_demografia = data_processing.prepare_fact_demografia(
-            dem_df,
-            dim_barrios,
-            dataset_id=dataset_dem_id,
-            reference_time=reference_time,
-            source="opendatabcn",
-        )
+        # Procesar demografía: usar función ampliada si el dataset lo soporta
+        fact_demografia = None
+        fact_demografia_ampliada = None
+        
+        if "pad_mdb" in demographics_path.name.lower() and "lloc-naix" in demographics_path.name.lower():
+            # Usar procesamiento ampliado para datos con edad quinquenal y nacionalidad
+            logger.info("Procesando demografía ampliada (edad quinquenal y nacionalidad)...")
+            try:
+                fact_demografia_ampliada = data_processing.prepare_demografia_ampliada(
+                    dem_df,
+                    dim_barrios,
+                    dataset_id=dataset_dem_id,
+                    reference_time=reference_time,
+                    source="opendatabcn",
+                )
+                logger.info("✓ Demografía ampliada procesada: %s registros", len(fact_demografia_ampliada))
+            except Exception as e:
+                logger.warning("Error procesando demografía ampliada, usando procesamiento estándar: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_demografia_ampliada = None
+        
+        # Si no se procesó ampliada o falló, usar procesamiento estándar
+        if fact_demografia_ampliada is None:
+            logger.info("Procesando demografía estándar...")
+            fact_demografia = data_processing.prepare_fact_demografia(
+                dem_df,
+                dim_barrios,
+                dataset_id=dataset_dem_id,
+                reference_time=reference_time,
+                source="opendatabcn",
+            )
+
+            fact_demografia = data_processing.enrich_fact_demografia(
+                fact_demografia,
+                dim_barrios,
+                raw_base_dir=raw_base_dir,
+                reference_time=reference_time,
+            )
 
         # Procesar datos del Portal de Dades
         portaldades_dir = raw_base_dir / "portaldades"
@@ -165,15 +238,38 @@ def run_etl(
             portaldades_venta=portaldades_venta_df,
             portaldades_alquiler=portaldades_alquiler_df,
         )
+        
+        # Procesar renta si está disponible
+        fact_renta = None
+        if renta_df is not None and not renta_df.empty:
+            logger.info("Procesando datos de renta...")
+            try:
+                fact_renta = data_processing.prepare_renta_barrio(
+                    renta_df,
+                    dim_barrios,
+                    dataset_id=dataset_renta_id,
+                    reference_time=reference_time,
+                    source="opendatabcn",
+                    metric="mean",
+                )
+                logger.info("✓ Renta procesada: %s registros", len(fact_renta))
+            except Exception as e:
+                logger.warning("Error procesando renta: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_renta = None
 
         params.update(
             {
                 "demographics_file": demographics_path.name,
                 "venta_file": venta_path.name if venta_path else None,
                 "alquiler_file": alquiler_path.name if alquiler_path else None,
+                "renta_file": renta_path.name if renta_path else None,
+                "geojson_file": geojson_path.name if geojson_path else None,
                 "dim_barrios_rows": len(dim_barrios),
-                "fact_demografia_rows": len(fact_demografia),
+                "fact_demografia_rows": len(fact_demografia) if fact_demografia is not None else 0,
+                "fact_demografia_ampliada_rows": len(fact_demografia_ampliada) if fact_demografia_ampliada is not None else 0,
                 "fact_precios_rows": len(fact_precios),
+                "fact_renta_rows": len(fact_renta) if fact_renta is not None else 0,
             }
         )
 
@@ -183,15 +279,36 @@ def run_etl(
         conn = create_connection(database_path)
         create_database_schema(conn)
 
-        truncate_tables(conn, ["fact_precios", "fact_demografia", "dim_barrios"])
+        # Determinar qué tablas truncar (orden: primero tablas con foreign keys, luego dim_barrios)
+        tables_to_truncate = []
+        if fact_demografia_ampliada is not None:
+            tables_to_truncate.append("fact_demografia_ampliada")
+        if fact_demografia is not None:
+            tables_to_truncate.append("fact_demografia")
+        if fact_renta is not None:
+            tables_to_truncate.append("fact_renta")
+        tables_to_truncate.append("fact_precios")
+        # dim_barrios se trunca al final porque otras tablas tienen foreign keys hacia ella
+        tables_to_truncate.append("dim_barrios")
+        
+        truncate_tables(conn, tables_to_truncate)
 
         logger.info("Cargando dimensión de barrios en SQLite")
         dim_barrios.to_sql("dim_barrios", conn, if_exists="append", index=False)
 
-        logger.info("Cargando tabla de hechos demográficos")
-        fact_demografia.to_sql(
-            "fact_demografia", conn, if_exists="append", index=False
-        )
+        # Cargar demografía (estándar o ampliada)
+        if fact_demografia_ampliada is not None:
+            logger.info("Cargando tabla de hechos demográficos ampliados")
+            fact_demografia_ampliada.to_sql(
+                "fact_demografia_ampliada", conn, if_exists="append", index=False
+            )
+        elif fact_demografia is not None:
+            logger.info("Cargando tabla de hechos demográficos")
+            fact_demografia.to_sql(
+                "fact_demografia", conn, if_exists="append", index=False
+            )
+        else:
+            logger.warning("No se cargaron datos demográficos")
 
         if not fact_precios.empty:
             logger.info("Cargando tabla de hechos de precios")
@@ -205,6 +322,17 @@ def run_etl(
             logger.warning(
                 "No se cargaron datos en fact_precios (dataframe vacío)"
             )
+        
+        if fact_renta is not None and not fact_renta.empty:
+            logger.info("Cargando tabla de hechos de renta")
+            fact_renta.to_sql(
+                "fact_renta",
+                conn,
+                if_exists="append",
+                index=False,
+            )
+        else:
+            logger.debug("No se cargaron datos en fact_renta (no disponible o vacío)")
 
     except Exception as exc:  # noqa: BLE001
         status = "FAILED"

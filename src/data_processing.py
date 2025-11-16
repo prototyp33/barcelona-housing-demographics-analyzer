@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
 import unicodedata
 from datetime import datetime
-from typing import Dict, Iterable, Optional, Tuple
+from difflib import get_close_matches
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -18,6 +21,48 @@ NORMALIZATION_PATTERN = re.compile(r"[^a-z0-9]+")
 LEADING_INDEX_PATTERN = re.compile(r"^\d+[\.,]?\s*")
 AEI_SUFFIX_PATTERN = re.compile(r"-AEI.*$")
 FOOTNOTE_PATTERN = re.compile(r"\s*\(\d+\)$")
+
+BARRIO_ALIAS_OVERRIDES = {
+    "antigaesquerraeixample": "lantigaesquerradeleixample",
+    "novaesquerraeixample": "lanovaesquerradeleixample",
+    "vilaolimpicadelpoblenou": "lavilolimpicadelpoblenou",
+    "fontdenfargues": "lafontdenfargues",
+    "bordeta": "labordeta",
+    "marinadeport": "lamarinadeport",
+    "marinadelpratvermell": "lamarinadelpratvermell",
+    "trinitatnova": "latrinitatnova",
+    "trinitatvella": "latrinitatvella",
+    "guineueta": "laguineueta",
+}
+
+
+def _parse_household_size(label: Optional[str]) -> Optional[float]:
+    """Convierte el descriptor de tamaño de hogar en un valor numérico aproximado."""
+
+    if label is None:
+        return None
+    normalized = str(label).strip().lower()
+    if not normalized or normalized in {"sense dades", "no consta"}:
+        return None
+
+    if normalized.startswith(">"):
+        digits = re.findall(r"\d+", normalized)
+        if digits:
+            return max(float(digits[0]) + 1.0, float(digits[0]) + 0.5)
+        return None
+
+    if "o més" in normalized or "mes de" in normalized:
+        digits = re.findall(r"\d+", normalized)
+        if digits:
+            base = float(digits[0])
+            return max(base, base + 1.0)
+        return None
+
+    digits = re.findall(r"\d+", normalized)
+    if digits:
+        return float(digits[0])
+
+    return None
 
 
 def _normalize_text(value: Optional[str]) -> str:
@@ -45,12 +90,83 @@ def _clean_barrio_label(label: Optional[str]) -> str:
     return label.strip()
 
 
+def _load_geojson_for_barrios(geojson_path: Optional[Path]) -> Optional[Dict[int, str]]:
+    """
+    Carga un archivo GeoJSON y crea un diccionario que mapea barrio_id a geometría JSON.
+    
+    Args:
+        geojson_path: Ruta al archivo GeoJSON
+    
+    Returns:
+        Diccionario {barrio_id: geometry_json_string} o None si no se puede cargar
+    """
+    if geojson_path is None or not geojson_path.exists():
+        return None
+    
+    try:
+        with open(geojson_path, 'r', encoding='utf-8') as f:
+            geojson_data = json.load(f)
+        
+        if geojson_data.get('type') != 'FeatureCollection':
+            logger.warning(f"GeoJSON no es FeatureCollection: {geojson_path}")
+            return None
+        
+        geometry_map = {}
+        features = geojson_data.get('features', [])
+        
+        for feature in features:
+            if feature.get('type') != 'Feature':
+                continue
+            
+            properties = feature.get('properties', {})
+            geometry = feature.get('geometry')
+            
+            # Intentar obtener barrio_id de diferentes formas
+            barrio_id = None
+            if 'codi_barri' in properties:
+                barrio_id = properties.get('codi_barri')
+            elif 'Codi_Barri' in properties:
+                barrio_id = properties.get('Codi_Barri')
+            
+            if barrio_id is None or geometry is None:
+                continue
+            
+            # Convertir barrio_id a int
+            try:
+                barrio_id = int(barrio_id)
+            except (ValueError, TypeError):
+                continue
+            
+            # Convertir geometría a JSON string
+            geometry_json_str = json.dumps(geometry, ensure_ascii=False)
+            geometry_map[barrio_id] = geometry_json_str
+        
+        logger.info(
+            "GeoJSON cargado: %s features mapeados a barrios",
+            len(geometry_map)
+        )
+        return geometry_map
+        
+    except Exception as e:
+        logger.warning(f"Error cargando GeoJSON {geojson_path}: {e}")
+        return None
+
+
 def prepare_dim_barrios(
     demographics: pd.DataFrame,
     dataset_id: str,
     reference_time: datetime,
+    geojson_path: Optional[Path] = None,
 ) -> pd.DataFrame:
-    """Build the barrios dimension from the raw demographics dataframe."""
+    """
+    Build the barrios dimension from the raw demographics dataframe.
+    
+    Args:
+        demographics: DataFrame con datos demográficos
+        dataset_id: ID del dataset
+        reference_time: Timestamp de referencia
+        geojson_path: Ruta opcional al archivo GeoJSON con geometrías de barrios
+    """
 
     columns_list = [
         "Codi_Barri",
@@ -89,6 +205,23 @@ def prepare_dim_barrios(
     timestamp = reference_time.isoformat()
     dim["etl_created_at"] = timestamp
     dim["etl_updated_at"] = timestamp
+
+    # Cargar geometrías del GeoJSON si está disponible
+    if geojson_path:
+        geometry_map = _load_geojson_for_barrios(geojson_path)
+        if geometry_map:
+            # Mapear geometrías a barrios
+            dim["geometry_json"] = dim["barrio_id"].map(geometry_map)
+            geometries_loaded = dim["geometry_json"].notna().sum()
+            logger.info(
+                "Geometrías cargadas desde GeoJSON: %s de %s barrios",
+                geometries_loaded,
+                len(dim),
+            )
+        else:
+            logger.warning("No se pudieron cargar geometrías del GeoJSON")
+    else:
+        logger.debug("No se proporcionó ruta a GeoJSON, geometry_json permanece como None")
 
     dim = dim[
         [
@@ -246,10 +379,12 @@ def _prepare_venta_prices(
 
     unmatched = merged[merged["barrio_id"].isna()]
     if not unmatched.empty:
+        # Convertir a string para evitar errores de comparación con NaN/float
+        barrios_unicos = [str(b) for b in unmatched["Barris"].unique() if pd.notna(b)]
         logger.warning(
             "%s registros de venta no pudieron asociarse a un barrio: %s",
             len(unmatched),
-            sorted(unmatched["Barris"].unique()),
+            sorted(barrios_unicos),
         )
     source_series = (
         merged["source"] if "source" in merged.columns else pd.Series(index=merged.index, dtype="object")
@@ -292,74 +427,83 @@ def prepare_fact_precios(
     - Open Data BCN (venta, alquiler)
     - Portal de Dades (venta, alquiler)
     """
-    fact_venta = _prepare_venta_prices(venta, dim_barrios, dataset_id_venta, reference_time)
+    fact_venta_base = _prepare_venta_prices(
+        venta, dim_barrios, dataset_id_venta, reference_time
+    )
 
-    # Combinar datos de venta del Portal de Dades
+    venta_frames: List[pd.DataFrame] = []
+    if not fact_venta_base.empty:
+        venta_frames.append(fact_venta_base)
+
     if portaldades_venta is not None and not portaldades_venta.empty:
-        logger.info(f"Combinando {len(portaldades_venta)} registros de venta del Portal de Dades")
-        # Agregar datos del Portal de Dades, priorizando Open Data BCN si hay duplicados
-        fact_venta = pd.concat([fact_venta, portaldades_venta], ignore_index=True)
-        # Eliminar duplicados: si hay mismo barrio_id, anio, trimestre, mantener el de Open Data BCN
-        fact_venta = fact_venta.drop_duplicates(
-            subset=['barrio_id', 'anio', 'trimestre'],
-            keep='first'  # Mantener el primero (Open Data BCN tiene prioridad)
+        logger.info(
+            "Agregando %s registros de venta del Portal de Dades",
+            len(portaldades_venta),
         )
+        venta_frames.append(portaldades_venta.copy())
 
-    # Procesar datos de alquiler
-    fact_alquiler_list = []
-    
-    # Alquiler del Portal de Dades
+    if venta_frames:
+        fact_venta = pd.concat(venta_frames, ignore_index=True, sort=False)
+        fact_venta = (
+            fact_venta.sort_values(["anio", "barrio_id", "source"])
+            .drop_duplicates(
+                subset=["barrio_id", "anio", "trimestre", "dataset_id", "source"],
+                keep="first",
+            )
+            .reset_index(drop=True)
+        )
+    else:
+        fact_venta = pd.DataFrame()
+
+    alquiler_frames: List[pd.DataFrame] = []
     if portaldades_alquiler is not None and not portaldades_alquiler.empty:
-        logger.info(f"Agregando {len(portaldades_alquiler)} registros de alquiler del Portal de Dades")
-        fact_alquiler_list.append(portaldades_alquiler)
-    
-    # Alquiler de Open Data BCN (si está disponible en el futuro)
+        logger.info(
+            "Agregando %s registros de alquiler del Portal de Dades",
+            len(portaldades_alquiler),
+        )
+        alquiler_frames.append(portaldades_alquiler.copy())
+
     if alquiler is not None and not alquiler.empty:
         logger.warning(
             "Datos de alquiler de Open Data BCN encontrados pero sin métrica de precio identificable. Se omiten."
         )
 
-    # Combinar todos los datos de alquiler
-    if fact_alquiler_list:
-        fact_alquiler = pd.concat(fact_alquiler_list, ignore_index=True)
-        # Eliminar duplicados en alquiler también
-        fact_alquiler = fact_alquiler.drop_duplicates(
-            subset=['barrio_id', 'anio', 'trimestre'],
-            keep='first'
-        )
-        
-        # Si fact_venta tiene datos, combinar con alquiler
-        if not fact_venta.empty:
-            # Hacer merge para combinar venta y alquiler por barrio_id, anio, trimestre
-            # Usar outer join para mantener todos los registros
-            fact = fact_venta.merge(
-                fact_alquiler[['barrio_id', 'anio', 'trimestre', 'precio_mes_alquiler']],
-                on=['barrio_id', 'anio', 'trimestre'],
-                how='outer',
-                suffixes=('', '_alq')
+    fact_frames: List[pd.DataFrame] = []
+    if not fact_venta.empty:
+        fact_frames.append(fact_venta)
+
+    if alquiler_frames:
+        fact_alquiler = pd.concat(alquiler_frames, ignore_index=True, sort=False)
+        fact_alquiler = (
+            fact_alquiler.sort_values(["anio", "barrio_id", "source"])
+            .drop_duplicates(
+                subset=["barrio_id", "anio", "trimestre", "dataset_id", "source"],
+                keep="first",
             )
-            # Combinar precio_mes_alquiler
-            if 'precio_mes_alquiler_alq' in fact.columns:
-                fact['precio_mes_alquiler'] = fact['precio_mes_alquiler_alq'].fillna(fact['precio_mes_alquiler'])
-                fact = fact.drop(columns=['precio_mes_alquiler_alq'])
-            
-            # Para dataset_id y source: si el registro viene solo de alquiler, usar esos valores
-            # Si viene de ambos o solo de venta, mantener los de venta
-            fact_alquiler_only = fact[
-                (fact['precio_m2_venta'].isna()) & (fact['precio_mes_alquiler'].notna())
-            ]
-            if not fact_alquiler_only.empty:
-                # Para registros que solo tienen alquiler, actualizar dataset_id y source
-                alquiler_lookup = fact_alquiler.set_index(['barrio_id', 'anio', 'trimestre'])[['dataset_id', 'source']]
-                for idx in fact_alquiler_only.index:
-                    key = (fact.loc[idx, 'barrio_id'], fact.loc[idx, 'anio'], fact.loc[idx, 'trimestre'])
-                    if key in alquiler_lookup.index:
-                        fact.loc[idx, 'dataset_id'] = alquiler_lookup.loc[key, 'dataset_id']
-                        fact.loc[idx, 'source'] = alquiler_lookup.loc[key, 'source']
-        else:
-            fact = fact_alquiler
+            .reset_index(drop=True)
+        )
+        fact_frames.append(fact_alquiler)
+
+    if fact_frames:
+        fact = pd.concat(fact_frames, ignore_index=True, sort=False)
+        fact = (
+            fact.sort_values(["anio", "barrio_id", "source"])
+            .drop_duplicates(
+                subset=[
+                    "barrio_id",
+                    "anio",
+                    "trimestre",
+                    "dataset_id",
+                    "source",
+                    "precio_m2_venta",
+                    "precio_mes_alquiler",
+                ],
+                keep="first",
+            )
+            .reset_index(drop=True)
+        )
     else:
-        fact = fact_venta
+        fact = pd.DataFrame()
 
     # Asegurar que todas las columnas requeridas estén presentes
     required_columns = [
@@ -367,15 +511,18 @@ def prepare_fact_precios(
         'precio_m2_venta', 'precio_mes_alquiler',
         'dataset_id', 'source', 'etl_loaded_at'
     ]
+    if fact.empty:
+        return pd.DataFrame(columns=required_columns)
+
     for col in required_columns:
         if col not in fact.columns:
-            if col in ['precio_m2_venta', 'precio_mes_alquiler']:
+            if col in ["precio_m2_venta", "precio_mes_alquiler"]:
                 fact[col] = pd.NA
-            elif col == 'periodo':
-                fact[col] = fact['anio'].astype(str)
-            elif col == 'trimestre':
+            elif col == "periodo":
+                fact[col] = fact["anio"].astype(str)
+            elif col == "trimestre":
                 fact[col] = pd.NA
-            elif col == 'etl_loaded_at':
+            elif col == "etl_loaded_at":
                 fact[col] = reference_time.isoformat()
 
     fact = fact[required_columns].sort_values(["anio", "barrio_id"]).reset_index(drop=True)
@@ -402,6 +549,30 @@ def _load_portaldades_csv(filepath: Path) -> pd.DataFrame:
             continue
     
     raise ValueError(f"No se pudo leer el archivo {filepath} con ningún encoding")
+
+
+def _append_tag(current: Optional[str], new_tag: str) -> str:
+    """
+    Agrega una etiqueta de forma idempotente a una cadena delimitada por '|'.
+    """
+    if not new_tag:
+        return "" if current is None or pd.isna(current) else str(current)
+
+    tags: List[str] = []
+    if current is not None and not pd.isna(current):
+        tags = [token for token in str(current).split("|") if token]
+    if new_tag not in tags:
+        tags.append(new_tag)
+    return "|".join(tags)
+
+
+def _find_portaldades_file(portaldades_dir: Path, indicator_id: str) -> Optional[Path]:
+    """
+    Devuelve la última versión disponible de un indicador del Portal de Dades.
+    """
+    pattern = f"portaldades_*_{indicator_id}.csv"
+    candidates = sorted(portaldades_dir.glob(pattern), key=lambda p: p.stat().st_mtime)
+    return candidates[-1] if candidates else None
 
 
 def _extract_year_from_temps(temps_str: str) -> Optional[int]:
@@ -431,70 +602,80 @@ def _map_territorio_to_barrio_id(
         barrio_id si se encuentra, None si no
     """
     if territorio_type == "Barri":
-        # Normalizar el territorio
         territorio_normalizado = _normalize_text(territorio)
-        
-        # 1. Buscar coincidencia exacta normalizada
+
+        alias_target = BARRIO_ALIAS_OVERRIDES.get(territorio_normalizado)
+        if alias_target:
+            match = dim_barrios[
+                dim_barrios["barrio_nombre_normalizado"] == alias_target
+            ]
+            if not match.empty:
+                return int(match.iloc[0]["barrio_id"])
+
+        # 1. Coincidencia exacta normalizada
         match = dim_barrios[
             dim_barrios["barrio_nombre_normalizado"] == territorio_normalizado
         ]
         if not match.empty:
             return int(match.iloc[0]["barrio_id"])
-        
-        # 2. Buscar coincidencia exacta sin normalizar (case-insensitive)
+
+        # 2. Coincidencia exacta sin normalizar (case-insensitive)
         match = dim_barrios[
-            dim_barrios["barrio_nombre"].str.strip().str.lower() == territorio.strip().lower()
+            dim_barrios["barrio_nombre"]
+            .str.strip()
+            .str.lower()
+            == territorio.strip().lower()
         ]
         if not match.empty:
             return int(match.iloc[0]["barrio_id"])
-        
-        # 3. Buscar coincidencia parcial (contiene)
+
+        # 3. Coincidencia parcial (contiene)
         match = dim_barrios[
-            dim_barrios["barrio_nombre"].str.contains(territorio, case=False, na=False, regex=False)
+            dim_barrios["barrio_nombre"].str.contains(
+                territorio, case=False, na=False, regex=False
+            )
         ]
         if not match.empty:
-            # Si hay múltiples coincidencias, preferir la más corta (más específica)
-            match = match.sort_values('barrio_nombre', key=lambda x: x.str.len())
+            match = match.sort_values(
+                "barrio_nombre", key=lambda x: x.str.len()
+            )
             return int(match.iloc[0]["barrio_id"])
-        
-        # 4. Buscar por nombre normalizado parcial
+
+        # 4. Coincidencia parcial con texto normalizado
         territorio_parts = territorio_normalizado.split()
         if len(territorio_parts) > 1:
             for part in territorio_parts:
-                if len(part) > 3:  # Ignorar palabras muy cortas
+                if len(part) > 3:
                     match = dim_barrios[
-                        dim_barrios["barrio_nombre_normalizado"].str.contains(part, na=False, regex=False)
+                        dim_barrios["barrio_nombre_normalizado"].str.contains(
+                            part, na=False, regex=False
+                        )
                     ]
                     if not match.empty:
-                        match = match.sort_values('barrio_nombre', key=lambda x: x.str.len())
+                        match = match.sort_values(
+                            "barrio_nombre", key=lambda x: x.str.len()
+                        )
                         return int(match.iloc[0]["barrio_id"])
-    
+
+        # 5. Búsqueda aproximada (fuzzy)
+        candidates = (
+            dim_barrios["barrio_nombre_normalizado"].dropna().unique().tolist()
+        )
+        close = get_close_matches(
+            territorio_normalizado, candidates, n=1, cutoff=0.82
+        )
+        if close:
+            match = dim_barrios[
+                dim_barrios["barrio_nombre_normalizado"] == close[0]
+            ]
+            if not match.empty:
+                return int(match.iloc[0]["barrio_id"])
+
     elif territorio_type == "Districte":
-        # Para distritos, buscar el primer barrio del distrito
-        territorio_clean = territorio.strip()
-        
-        # Mapeo manual de variaciones comunes
-        distrito_mapping = {
-            'Les Corts': 'les Corts',
-            'Sant Andreu': 'Sant Andreu',
-            'Sant Martí': 'Sant Martí',
-            'Sants-Montjuïc': 'Sants-Montjuïc',
-            'Sarrià-Sant Gervasi': 'Sarrià-Sant Gervasi',
-            'Horta-Guinardó': 'Horta-Guinardó',
-            'Nou Barris': 'Nou Barris',
-        }
-        
-        territorio_to_search = distrito_mapping.get(territorio_clean, territorio_clean)
-        
-        match = dim_barrios[
-            dim_barrios["distrito_nombre"].str.contains(territorio_to_search, case=False, na=False, regex=False)
-        ]
-        if not match.empty:
-            # Retornar el primer barrio del distrito como representativo
-            # En el futuro se podría agregar a nivel de distrito
-            return int(match.iloc[0]["barrio_id"])
-    
-    # Para municipio, no mapeamos (es demasiado agregado)
+        # No asignamos distritos directamente a un solo barrio para evitar sesgos.
+        return None
+
+    # Para municipio u otros niveles agregados, no mapeamos.
     return None
 
 
@@ -662,3 +843,840 @@ def prepare_portaldades_precios(
     
     return venta_df, alquiler_df
 
+
+def _compute_household_metrics(
+    portaldades_dir: Path,
+    dim_barrios: pd.DataFrame,
+    fact_demografia: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calcula promedios de tamaño de hogar y totales a nivel de barrio."""
+
+    indicator_id = "hd7u1b68qj"
+    dataset_path = _find_portaldades_file(portaldades_dir, indicator_id)
+    if dataset_path is None:
+        logger.debug(
+            "No se encontró el dataset de hogares (%s) en %s",
+            indicator_id,
+            portaldades_dir,
+        )
+        return pd.DataFrame()
+
+    try:
+        raw_df = _load_portaldades_csv(dataset_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "No fue posible cargar el dataset de hogares %s: %s",
+            dataset_path.name,
+            exc,
+        )
+        return pd.DataFrame()
+
+    if raw_df.empty:
+        return pd.DataFrame()
+
+    allowed_types = {"Barri", "Districte", "Municipi"}
+    type_col = "Dim-01:TERRITORI (type)"
+    value_col = "VALUE"
+    category_col = "Dim-02:NOMBRE DE PERSONES DE LA LLAR"
+
+    missing_cols = {type_col, value_col, category_col} - set(raw_df.columns)
+    if missing_cols:
+        logger.warning(
+            "El dataset de hogares %s no contiene las columnas esperadas: %s",
+            dataset_path.name,
+            ", ".join(sorted(missing_cols)),
+        )
+        return pd.DataFrame()
+
+    df = raw_df[raw_df[type_col].isin(allowed_types)].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    df["anio"] = df["Dim-00:TEMPS"].apply(_extract_year_from_temps)
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+    df["personas_hogar"] = df[category_col].apply(_parse_household_size)
+
+    df = df.dropna(subset=["anio", value_col, "personas_hogar"])
+    if df.empty:
+        return pd.DataFrame()
+
+    df["personas_estimadas"] = df[value_col] * df["personas_hogar"]
+
+    aggregated = (
+        df.groupby(["Dim-01:TERRITORI", type_col, "anio"], as_index=False)
+        .agg(
+            hogares_observados=(value_col, "sum"),
+            personas_estimadas=("personas_estimadas", "sum"),
+        )
+        .assign(
+            avg_size=lambda frame: frame.apply(
+                lambda row: (
+                    row["personas_estimadas"] / row["hogares_observados"]
+                    if row["hogares_observados"]
+                    else pd.NA
+                ),
+                axis=1,
+            )
+        )
+    )
+
+    if aggregated.empty:
+        return pd.DataFrame()
+
+    population_by_year = (
+        fact_demografia.set_index(["anio", "barrio_id"])["poblacion_total"].to_dict()
+    )
+    population_mean = (
+        fact_demografia.groupby("barrio_id")["poblacion_total"].mean().to_dict()
+    )
+
+    district_lookup = (
+        dim_barrios.assign(
+            distrito_key=dim_barrios["distrito_nombre"].apply(_normalize_text)
+        )
+        .groupby("distrito_key")["barrio_id"]
+        .apply(list)
+        .to_dict()
+    )
+
+    barrio_rows: List[Dict[str, object]] = []
+
+    for _, row in aggregated.iterrows():
+        territorio = row["Dim-01:TERRITORI"]
+        tipo = row[type_col]
+        year = int(row["anio"])
+        hogares = float(row["hogares_observados"])
+        avg_size = row["avg_size"] if not pd.isna(row["avg_size"]) else None
+        priority = 1 if tipo == "Barri" else 0
+
+        if tipo == "Barri":
+            barrio_id = _map_territorio_to_barrio_id(territorio, tipo, dim_barrios)
+            if barrio_id is None:
+                continue
+            barrio_rows.append(
+                {
+                    "barrio_id": int(barrio_id),
+                    "anio": year,
+                    "hogares_observados": hogares,
+                    "avg_size": avg_size,
+                    "priority": 2,
+                }
+            )
+            continue
+
+        if tipo == "Districte":
+            key = _normalize_text(territorio)
+            barrio_ids = district_lookup.get(key, [])
+        elif tipo == "Municipi":
+            barrio_ids = dim_barrios["barrio_id"].astype(int).tolist()
+        else:
+            barrio_ids = []
+
+        if not barrio_ids:
+            continue
+
+        weights: List[float] = []
+        for barrio_id in barrio_ids:
+            pop = population_by_year.get((year, int(barrio_id)))
+            if pop is None or pd.isna(pop):
+                pop = population_mean.get(int(barrio_id), 0.0)
+            weights.append(float(pop) if pop is not None else 0.0)
+
+        total_weight = sum(weights)
+        if total_weight <= 0:
+            weights = [1.0 for _ in barrio_ids]
+            total_weight = float(len(barrio_ids))
+
+        for barrio_id, weight in zip(barrio_ids, weights):
+            share = hogares * (weight / total_weight) if total_weight else 0.0
+            barrio_rows.append(
+                {
+                    "barrio_id": int(barrio_id),
+                    "anio": year,
+                    "hogares_observados": share,
+                    "avg_size": avg_size,
+                    "priority": priority,
+                }
+            )
+
+    if not barrio_rows:
+        return pd.DataFrame()
+
+    households_df = pd.DataFrame(barrio_rows)
+
+    def _mean_or_na(values: pd.Series) -> float | pd.NA:
+        filtered = values.dropna()
+        return filtered.mean() if not filtered.empty else pd.NA
+
+    households_df = (
+        households_df.sort_values("priority", ascending=False)
+        .groupby(["barrio_id", "anio", "priority"], as_index=False)
+        .agg(
+            hogares_observados=("hogares_observados", "sum"),
+            avg_size=("avg_size", _mean_or_na),
+        )
+    )
+    households_df = households_df.sort_values(
+        ["barrio_id", "anio", "priority"], ascending=[True, True, False]
+    )
+    households_df = households_df.drop_duplicates(
+        subset=["barrio_id", "anio"], keep="first"
+    ).drop(columns=["priority"])
+
+    households_df["dataset_id"] = indicator_id
+    households_df["source"] = "portaldades"
+    return households_df
+
+
+def _compute_foreign_purchase_share(
+    portaldades_dir: Path, dim_barrios: pd.DataFrame
+) -> pd.DataFrame:
+    """Calcula el porcentaje de compras de vivienda realizadas por compradores extranjeros."""
+
+    indicator_id = "uuxbxa7onv"
+    dataset_path = _find_portaldades_file(portaldades_dir, indicator_id)
+    if dataset_path is None:
+        return pd.DataFrame()
+
+    try:
+        df = _load_portaldades_csv(dataset_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "No fue posible cargar el dataset de nacionalidad de compradores %s: %s",
+            dataset_path.name,
+            exc,
+        )
+        return pd.DataFrame()
+
+    type_col = "Dim-01:TERRITORI (type)"
+    value_col = "VALUE"
+    nationality_col = "Dim-02:GRUP DE NACIONALITAT DEL COMPRADOR"
+
+    required_cols = {type_col, value_col, nationality_col}
+    if not required_cols.issubset(df.columns):
+        return pd.DataFrame()
+
+    df = df[df[type_col] == "Barri"].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    df["anio"] = df["Dim-00:TEMPS"].apply(_extract_year_from_temps)
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+    df = df.dropna(subset=["anio", value_col])
+    if df.empty:
+        return pd.DataFrame()
+
+    pivot = (
+        df.pivot_table(
+            index=["Dim-01:TERRITORI", "anio"],
+            columns=nationality_col,
+            values=value_col,
+            aggfunc="sum",
+            fill_value=0,
+        )
+        .reset_index()
+    )
+
+    numeric_cols = pivot.select_dtypes(include=[np.number]).columns
+    pivot["total_transacciones"] = pivot[numeric_cols].sum(axis=1)
+    estranger_col = "Estranger"
+    if estranger_col not in pivot.columns:
+        pivot[estranger_col] = 0.0
+
+    pivot["porc_inmigracion"] = np.where(
+        pivot["total_transacciones"] > 0,
+        (pivot[estranger_col] / pivot["total_transacciones"]) * 100.0,
+        np.nan,
+    )
+
+    pivot["barrio_id"] = pivot["Dim-01:TERRITORI"].apply(
+        lambda terr: _map_territorio_to_barrio_id(str(terr), "Barri", dim_barrios)
+    )
+    pivot = pivot.dropna(subset=["barrio_id"])
+    if pivot.empty:
+        return pd.DataFrame()
+
+    pivot["barrio_id"] = pivot["barrio_id"].astype(int)
+    result = pivot[["barrio_id", "anio", "porc_inmigracion"]].copy()
+    result["dataset_id"] = indicator_id
+    result["source"] = "portaldades"
+    return result
+
+
+def _compute_building_age_proxy(
+    portaldades_dir: Path, dim_barrios: pd.DataFrame
+) -> pd.DataFrame:
+    """Obtiene la edad media del parque residencial como proxy de edad media demográfica."""
+
+    indicator_id = "ydtnyd6qhm"
+    dataset_path = _find_portaldades_file(portaldades_dir, indicator_id)
+    if dataset_path is None:
+        return pd.DataFrame()
+
+    try:
+        df = _load_portaldades_csv(dataset_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "No se pudo cargar el dataset de edad media de edificaciones %s: %s",
+            dataset_path.name,
+            exc,
+        )
+        return pd.DataFrame()
+
+    type_col = "Dim-01:TERRITORI (type)"
+    value_col = "VALUE"
+
+    if type_col not in df.columns or value_col not in df.columns:
+        return pd.DataFrame()
+
+    df = df[df[type_col] == "Barri"].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    df["anio"] = df["Dim-00:TEMPS"].apply(_extract_year_from_temps)
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+    df = df.dropna(subset=[value_col])
+    if df.empty:
+        return pd.DataFrame()
+
+    df["barrio_id"] = df["Dim-01:TERRITORI"].apply(
+        lambda terr: _map_territorio_to_barrio_id(str(terr), "Barri", dim_barrios)
+    )
+    df = df.dropna(subset=["barrio_id"])
+    if df.empty:
+        return pd.DataFrame()
+
+    df["barrio_id"] = df["barrio_id"].astype(int)
+    df = df.rename(columns={value_col: "edad_media_proxy"})
+    df["dataset_id"] = indicator_id
+    df["source"] = "portaldades"
+    return df[["barrio_id", "anio", "edad_media_proxy", "dataset_id", "source"]]
+
+
+def _compute_area_by_barrio(
+    portaldades_dir: Path, dim_barrios: pd.DataFrame
+) -> pd.DataFrame:
+    """Obtiene la superficie de suelo (m²) por barrio para calcular densidad."""
+
+    indicator_id = "wjnmk82jd9"
+    dataset_path = _find_portaldades_file(portaldades_dir, indicator_id)
+    if dataset_path is None:
+        return pd.DataFrame()
+
+    try:
+        df = _load_portaldades_csv(dataset_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "No se pudo cargar el dataset de superficie de suelo %s: %s",
+            dataset_path.name,
+            exc,
+        )
+        return pd.DataFrame()
+
+    type_col = "Dim-01:TERRITORI (type)"
+    value_col = "VALUE"
+
+    if type_col not in df.columns or value_col not in df.columns:
+        return pd.DataFrame()
+
+    df = df[df[type_col] == "Barri"].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    df["anio"] = df["Dim-00:TEMPS"].apply(_extract_year_from_temps)
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+    df = df.dropna(subset=[value_col])
+    if df.empty:
+        return pd.DataFrame()
+
+    df["barrio_id"] = df["Dim-01:TERRITORI"].apply(
+        lambda terr: _map_territorio_to_barrio_id(str(terr), "Barri", dim_barrios)
+    )
+    df = df.dropna(subset=["barrio_id"])
+    if df.empty:
+        return pd.DataFrame()
+
+    df["barrio_id"] = df["barrio_id"].astype(int)
+    df = df.rename(columns={value_col: "area_m2"})
+    df["dataset_id"] = indicator_id
+    df["source"] = "portaldades"
+    return df[["barrio_id", "anio", "area_m2", "dataset_id", "source"]]
+
+
+def enrich_fact_demografia(
+    fact: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    raw_base_dir: Path,
+    reference_time: datetime,
+) -> pd.DataFrame:
+    """
+    Completa campos faltantes de fact_demografia usando fuentes auxiliares.
+    """
+
+    enriched = fact.copy()
+    portaldades_dir = Path(raw_base_dir) / "portaldades"
+
+    if not portaldades_dir.exists():
+        logger.info(
+            "Sin datos del Portal de Dades en %s; se mantiene fact_demografia original",
+            portaldades_dir,
+        )
+        return enriched
+
+    hogares_initial_na = enriched["hogares_totales"].isna()
+    edad_initial_na = enriched["edad_media"].isna()
+    inmigracion_initial_na = enriched["porc_inmigracion"].isna()
+    densidad_initial_na = enriched["densidad_hab_km2"].isna()
+
+    households_info = _compute_household_metrics(
+        portaldades_dir, dim_barrios, enriched
+    )
+    if not households_info.empty:
+        enriched = enriched.merge(
+            households_info[["barrio_id", "anio", "hogares_observados"]],
+            on=["barrio_id", "anio"],
+            how="left",
+        )
+        hogares_combined = enriched["hogares_totales"].fillna(
+            enriched["hogares_observados"]
+        )
+        enriched["hogares_totales"] = hogares_combined.infer_objects(copy=False)
+        enriched = enriched.drop(columns=["hogares_observados"])
+
+        avg_size_series = (
+            households_info.dropna(subset=["avg_size"])
+            .sort_values("anio")
+            .groupby("barrio_id")["avg_size"]
+            .last()
+        )
+        city_avg_size = (
+            avg_size_series.dropna().mean()
+            if not avg_size_series.dropna().empty
+            else np.nan
+        )
+
+        missing_mask = enriched["hogares_totales"].isna() & enriched[
+            "poblacion_total"
+        ].notna()
+        if missing_mask.any() and (not avg_size_series.empty or not np.isnan(city_avg_size)):
+            size_values = enriched.loc[missing_mask, "barrio_id"].map(avg_size_series)
+            if not np.isnan(city_avg_size):
+                size_values = size_values.fillna(city_avg_size)
+            nonzero_sizes = size_values.replace(0, np.nan)
+            enriched.loc[missing_mask, "hogares_totales"] = (
+                enriched.loc[missing_mask, "poblacion_total"] / nonzero_sizes
+            )
+
+        enriched["hogares_totales"] = enriched["hogares_totales"].apply(
+            lambda val: round(val) if pd.notna(val) else val
+        )
+
+        hogares_filled = hogares_initial_na & enriched["hogares_totales"].notna()
+        if hogares_filled.any():
+            enriched.loc[hogares_filled, "dataset_id"] = enriched.loc[
+                hogares_filled, "dataset_id"
+            ].apply(lambda current: _append_tag(current, "hd7u1b68qj"))
+            enriched.loc[hogares_filled, "source"] = enriched.loc[
+                hogares_filled, "source"
+            ].apply(lambda current: _append_tag(current, "portaldades"))
+
+    immigration_info = _compute_foreign_purchase_share(portaldades_dir, dim_barrios)
+    if not immigration_info.empty:
+        enriched = enriched.merge(
+            immigration_info[["barrio_id", "anio", "porc_inmigracion"]],
+            on=["barrio_id", "anio"],
+            how="left",
+            suffixes=("", "_enriched"),
+        )
+        mask_imm = inmigracion_initial_na & enriched["porc_inmigracion_enriched"].notna()
+        if mask_imm.any():
+            enriched.loc[mask_imm, "porc_inmigracion"] = enriched.loc[
+                mask_imm, "porc_inmigracion_enriched"
+            ].clip(lower=0, upper=100)
+            enriched.loc[mask_imm, "dataset_id"] = enriched.loc[
+                mask_imm, "dataset_id"
+            ].apply(lambda current: _append_tag(current, "uuxbxa7onv"))
+            enriched.loc[mask_imm, "source"] = enriched.loc[
+                mask_imm, "source"
+            ].apply(lambda current: _append_tag(current, "portaldades"))
+        enriched = enriched.drop(columns=["porc_inmigracion_enriched"])
+
+    building_age = _compute_building_age_proxy(portaldades_dir, dim_barrios)
+    if not building_age.empty:
+        building_age_latest = (
+            building_age.sort_values("anio")
+            .groupby("barrio_id", as_index=False)
+            .last()[["barrio_id", "edad_media_proxy"]]
+        )
+        enriched = enriched.merge(
+            building_age_latest, on="barrio_id", how="left"
+        )
+        mask_age = edad_initial_na & enriched["edad_media_proxy"].notna()
+        if mask_age.any():
+            enriched.loc[mask_age, "edad_media"] = enriched.loc[
+                mask_age, "edad_media_proxy"
+            ]
+            enriched.loc[mask_age, "dataset_id"] = enriched.loc[
+                mask_age, "dataset_id"
+            ].apply(lambda current: _append_tag(current, "ydtnyd6qhm"))
+            enriched.loc[mask_age, "source"] = enriched.loc[
+                mask_age, "source"
+            ].apply(lambda current: _append_tag(current, "portaldades"))
+        enriched = enriched.drop(columns=["edad_media_proxy"])
+
+    area_info = _compute_area_by_barrio(portaldades_dir, dim_barrios)
+    if not area_info.empty:
+        area_latest = (
+            area_info.sort_values("anio")
+            .groupby("barrio_id", as_index=False)
+            .last()[["barrio_id", "area_m2"]]
+        )
+        enriched = enriched.merge(area_latest, on="barrio_id", how="left")
+        mask_density = (
+            densidad_initial_na
+            & enriched["area_m2"].notna()
+            & enriched["area_m2"].gt(0)
+            & enriched["poblacion_total"].notna()
+        )
+        if mask_density.any():
+            enriched.loc[mask_density, "densidad_hab_km2"] = (
+                enriched.loc[mask_density, "poblacion_total"] * 1_000_000.0
+                / enriched.loc[mask_density, "area_m2"]
+            )
+            enriched.loc[mask_density, "dataset_id"] = enriched.loc[
+                mask_density, "dataset_id"
+            ].apply(lambda current: _append_tag(current, "wjnmk82jd9"))
+            enriched.loc[mask_density, "source"] = enriched.loc[
+                mask_density, "source"
+            ].apply(lambda current: _append_tag(current, "portaldades"))
+        enriched = enriched.drop(columns=["area_m2"])
+
+    enriched["hogares_totales"] = enriched["hogares_totales"].astype("Float64")
+    enriched["porc_inmigracion"] = enriched["porc_inmigracion"].astype("Float64")
+    enriched["densidad_hab_km2"] = enriched["densidad_hab_km2"].astype("Float64")
+    enriched["edad_media"] = enriched["edad_media"].astype("Float64")
+
+    logger.info(
+        "Enriquecimiento demográfico completado: hogares=%s, edad=%s, inmigración=%s, densidad=%s",
+        int((hogares_initial_na & enriched["hogares_totales"].notna()).sum()),
+        int((edad_initial_na & enriched["edad_media"].notna()).sum()),
+        int((inmigracion_initial_na & enriched["porc_inmigracion"].notna()).sum()),
+        int((densidad_initial_na & enriched["densidad_hab_km2"].notna()).sum()),
+    )
+    return enriched
+
+
+def _edad_quinquenal_to_range(edad_q: int) -> Tuple[int, int]:
+    """
+    Convierte código de edad quinquenal (EDAT_Q) a rango de edad.
+    
+    Args:
+        edad_q: Código de edad quinquenal (0-20)
+            - 0 = 0-4 años
+            - 1 = 5-9 años
+            - 2 = 10-14 años
+            - ... (cada código representa 5 años)
+            - 20 = 100+ años
+    
+    Returns:
+        Tupla (edad_min, edad_max)
+    """
+    if edad_q < 0 or edad_q > 20:
+        return (0, 0)
+    edad_min = edad_q * 5
+    edad_max = edad_min + 4 if edad_q < 20 else 999
+    return (edad_min, edad_max)
+
+
+def _edad_quinquenal_to_custom_group(edad_q: int) -> Optional[str]:
+    """
+    Agrupa edad quinquenal en grupos personalizados.
+    
+    Args:
+        edad_q: Código de edad quinquenal (0-20)
+    
+    Returns:
+        Grupo de edad personalizado o None si no aplica
+    """
+    edad_min, _ = _edad_quinquenal_to_range(edad_q)
+    
+    if 18 <= edad_min <= 34:
+        return "18-34"
+    elif 35 <= edad_min <= 49:
+        return "35-49"
+    elif 50 <= edad_min <= 64:
+        return "50-64"
+    elif edad_min >= 65:
+        return "65+"
+    else:
+        return None  # Menores de 18 años
+
+
+def _map_continente_to_nacionalidad(continente_code: int) -> str:
+    """
+    Mapea código de continente de nacimiento a categoría de nacionalidad.
+    
+    Args:
+        continente_code: Código de continente
+            - 1 = Europa (probablemente incluye España)
+            - 2 = América
+            - 3 = África
+            - 4 = Asia
+            - 5 = Oceanía
+            - 999 = No consta / Desconocido
+    
+    Returns:
+        Categoría de nacionalidad
+    """
+    mapping = {
+        1: "Europa",
+        2: "América",
+        3: "África",
+        4: "Asia",
+        5: "Oceanía",
+        999: "No consta",
+    }
+    return mapping.get(continente_code, "Desconocido")
+
+
+def prepare_demografia_ampliada(
+    demographics_df: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    dataset_id: str,
+    reference_time: datetime,
+    source: str = "opendatabcn",
+) -> pd.DataFrame:
+    """
+    Procesa datos demográficos ampliados con edad quinquenal y nacionalidad.
+    
+    Args:
+        demographics_df: DataFrame con columnas:
+            - Data_Referencia, Codi_Barri, Nom_Barri
+            - Valor (población, puede ser ".." para no disponible)
+            - LLOC_NAIX_CONTINENT (código de continente)
+            - EDAT_Q (edad quinquenal: 0-20)
+            - SEXE (1=hombre, 2=mujer)
+        dim_barrios: DataFrame con dimensión de barrios
+        dataset_id: ID del dataset
+        reference_time: Timestamp de referencia
+        source: Fuente de datos
+    
+    Returns:
+        DataFrame con datos agregados por barrio, año, sexo, grupo de edad y nacionalidad
+    """
+    df = demographics_df.copy()
+    
+    # Validar columnas requeridas
+    required_cols = [
+        "Data_Referencia",
+        "Codi_Barri",
+        "Valor",
+        "LLOC_NAIX_CONTINENT",
+        "EDAT_Q",
+        "SEXE",
+    ]
+    missing = set(required_cols) - set(df.columns)
+    if missing:
+        raise ValueError(f"DataFrame faltan columnas: {missing}")
+    
+    # Extraer año de Data_Referencia
+    df["año"] = pd.to_datetime(df["Data_Referencia"], errors="coerce").dt.year
+    df = df.dropna(subset=["año"])
+    
+    # Limpiar y convertir Valor (puede ser ".." o número)
+    df["Valor"] = df["Valor"].replace("..", pd.NA)
+    df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce")
+    df = df.dropna(subset=["Valor", "Codi_Barri"])
+    
+    # Convertir tipos
+    df["Codi_Barri"] = pd.to_numeric(df["Codi_Barri"], errors="coerce").astype("Int64")
+    df["año"] = df["año"].astype("Int64")
+    df["EDAT_Q"] = pd.to_numeric(df["EDAT_Q"], errors="coerce").astype("Int64")
+    df["LLOC_NAIX_CONTINENT"] = pd.to_numeric(
+        df["LLOC_NAIX_CONTINENT"], errors="coerce"
+    ).astype("Int64")
+    
+    # Agregar grupos de edad personalizados
+    df["grupo_edad"] = df["EDAT_Q"].apply(_edad_quinquenal_to_custom_group)
+    
+    # Agregar categoría de nacionalidad
+    df["nacionalidad"] = df["LLOC_NAIX_CONTINENT"].apply(
+        _map_continente_to_nacionalidad
+    )
+    
+    # Mapear SEXE a texto
+    df["sexo"] = df["SEXE"].map({1: "hombre", 2: "mujer"}).fillna("desconocido")
+    
+    # Filtrar solo grupos de edad válidos (mayores de 18) antes de agregar
+    df = df[df["grupo_edad"].notna()]
+    
+    # Agregar por barrio, año, sexo, grupo de edad y nacionalidad
+    aggregated = (
+        df.groupby(
+            ["Codi_Barri", "año", "sexo", "grupo_edad", "nacionalidad"],
+            as_index=False,
+        )["Valor"]
+        .sum()
+        .rename(columns={"Codi_Barri": "barrio_id", "Valor": "poblacion", "año": "anio"})
+    )
+    
+    # Join con dim_barrios para validar barrios
+    aggregated = aggregated.merge(
+        dim_barrios[["barrio_id", "barrio_nombre_normalizado"]],
+        on="barrio_id",
+        how="inner",
+    )
+    
+    # Agregar metadatos
+    aggregated["dataset_id"] = dataset_id
+    aggregated["source"] = source
+    aggregated["etl_loaded_at"] = reference_time.isoformat()
+    
+    # Ordenar
+    aggregated = aggregated.sort_values(
+        ["anio", "barrio_id", "sexo", "grupo_edad", "nacionalidad"]
+    ).reset_index(drop=True)
+    
+    logger.info(
+        "Datos demográficos ampliados preparados: %s registros (%s barrios, %s años)",
+        len(aggregated),
+        aggregated["barrio_id"].nunique(),
+        aggregated["anio"].nunique(),
+    )
+    
+    return aggregated
+
+
+def prepare_renta_barrio(
+    renta_df: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    dataset_id: str,
+    reference_time: datetime,
+    source: str = "opendatabcn",
+    metric: str = "mean",
+) -> pd.DataFrame:
+    """
+    Procesa datos de renta por sección censal y los agrega a nivel de barrio.
+    
+    Args:
+        renta_df: DataFrame con columnas:
+            - Any (año)
+            - Codi_Barri, Nom_Barri
+            - Seccio_Censal
+            - Import_Euros o Import_Renda_Bruta_€ (renta en euros)
+        dim_barrios: DataFrame con dimensión de barrios
+        dataset_id: ID del dataset
+        reference_time: Timestamp de referencia
+        source: Fuente de datos
+        metric: Métrica a usar para agregación ("mean", "median", o "both")
+    
+    Returns:
+        DataFrame con renta agregada por barrio y año
+    """
+    df = renta_df.copy()
+    
+    # Validar columnas requeridas
+    required_cols = ["Any", "Codi_Barri"]
+    missing = set(required_cols) - set(df.columns)
+    if missing:
+        raise ValueError(f"DataFrame faltan columnas requeridas: {missing}")
+    
+    # Identificar columna de renta
+    renta_col = None
+    for col in ["Import_Euros", "Import_Renda_Bruta_€", "Import"]:
+        if col in df.columns:
+            renta_col = col
+            break
+    
+    if renta_col is None:
+        raise ValueError(
+            "No se encontró columna de renta (busca: Import_Euros, Import_Renda_Bruta_€, Import)"
+        )
+    
+    # Limpiar y convertir tipos
+    df["Any"] = pd.to_numeric(df["Any"], errors="coerce").astype("Int64")
+    df["Codi_Barri"] = pd.to_numeric(df["Codi_Barri"], errors="coerce").astype("Int64")
+    df[renta_col] = pd.to_numeric(df[renta_col], errors="coerce")
+    
+    # Filtrar datos válidos
+    df = df.dropna(subset=["Any", "Codi_Barri", renta_col])
+    
+    if df.empty:
+        logger.warning("No hay datos válidos de renta después de la limpieza")
+        return pd.DataFrame()
+    
+    # Agregar por barrio y año
+    aggregated = (
+        df.groupby(["Codi_Barri", "Any"], as_index=False)
+        .agg(
+            renta_promedio=(renta_col, "mean"),
+            renta_mediana=(renta_col, "median"),
+            renta_min=(renta_col, "min"),
+            renta_max=(renta_col, "max"),
+            num_secciones=(renta_col, "count"),
+        )
+        .reset_index(drop=True)
+    )
+    
+    # Renombrar Any a anio
+    aggregated = aggregated.rename(columns={"Any": "anio"})
+    
+    # Renombrar Codi_Barri a barrio_id
+    aggregated = aggregated.rename(columns={"Codi_Barri": "barrio_id"})
+    
+    # Seleccionar métrica principal según parámetro
+    if metric == "mean":
+        aggregated["renta_euros"] = aggregated["renta_promedio"]
+    elif metric == "median":
+        aggregated["renta_euros"] = aggregated["renta_mediana"]
+    elif metric == "both":
+        # Si se quiere ambas, mantener ambas columnas
+        aggregated["renta_euros"] = aggregated["renta_promedio"]
+    else:
+        logger.warning(f"Métrica '{metric}' no reconocida, usando promedio")
+        aggregated["renta_euros"] = aggregated["renta_promedio"]
+    
+    # Join con dim_barrios para validar barrios
+    aggregated = aggregated.merge(
+        dim_barrios[["barrio_id", "barrio_nombre_normalizado"]],
+        on="barrio_id",
+        how="inner",
+    )
+    
+    # Agregar metadatos
+    aggregated["dataset_id"] = dataset_id
+    aggregated["source"] = source
+    aggregated["etl_loaded_at"] = reference_time.isoformat()
+    
+    # Ordenar columnas
+    column_order = [
+        "barrio_id",
+        "anio",
+        "renta_euros",
+        "renta_promedio",
+        "renta_mediana",
+        "renta_min",
+        "renta_max",
+        "num_secciones",
+        "barrio_nombre_normalizado",
+        "dataset_id",
+        "source",
+        "etl_loaded_at",
+    ]
+    
+    # Solo incluir columnas que existen
+    available_columns = [col for col in column_order if col in aggregated.columns]
+    aggregated = aggregated[available_columns]
+    
+    # Ordenar
+    aggregated = aggregated.sort_values(["anio", "barrio_id"]).reset_index(drop=True)
+    
+    logger.info(
+        "Datos de renta preparados: %s registros (%s barrios, %s años, métrica: %s)",
+        len(aggregated),
+        aggregated["barrio_id"].nunique(),
+        aggregated["anio"].nunique(),
+        metric,
+    )
+    
+    return aggregated
