@@ -129,6 +129,38 @@ CREATE_TABLE_STATEMENTS = (
     ON fact_renta (barrio_id, anio);
     """,
     """
+    CREATE TABLE IF NOT EXISTS fact_oferta_idealista (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        operacion TEXT NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER NOT NULL,
+        num_anuncios INTEGER,
+        precio_medio REAL,
+        precio_mediano REAL,
+        precio_min REAL,
+        precio_max REAL,
+        precio_m2_medio REAL,
+        precio_m2_mediano REAL,
+        superficie_media REAL,
+        superficie_mediana REAL,
+        habitaciones_media REAL,
+        barrio_nombre_normalizado TEXT,
+        dataset_id TEXT,
+        source TEXT,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_oferta_idealista_unique
+    ON fact_oferta_idealista (barrio_id, operacion, anio, mes);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_oferta_idealista_barrio_fecha
+    ON fact_oferta_idealista (barrio_id, anio, mes);
+    """,
+    """
     CREATE TABLE IF NOT EXISTS etl_runs (
         run_id TEXT PRIMARY KEY,
         started_at TEXT NOT NULL,

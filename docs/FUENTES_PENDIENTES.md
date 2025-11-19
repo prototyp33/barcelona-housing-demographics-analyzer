@@ -39,8 +39,15 @@ Este documento rastrea el estado de búsqueda e integración de fuentes adiciona
 ### 4. Mercado Inmobiliario Privado
 - **Fuente**: Idealista API, Fotocasa, pisos.com
 - **Datos**: Oferta actual, tiempo en mercado, precios por tipología
-- **Estado**: ⏳ Pendiente
-- **Notas**: `IdealistaExtractor` existe pero no está implementado
+- **Estado**: ✅ COMPLETADO (requiere API credentials)
+- **Notas**: 
+  - `IdealistaExtractor` implementado con autenticación OAuth
+  - Script de extracción: `scripts/extract_idealista.py`
+  - Requiere `IDEALISTA_API_KEY` y `IDEALISTA_API_SECRET`
+  - Extrae oferta de venta y alquiler por barrio
+  - Función de procesamiento: `prepare_idealista_oferta()` en `data_processing.py`
+  - Tabla: `fact_oferta_idealista` en la base de datos
+  - Integrado en pipeline ETL: búsqueda automática, procesamiento y carga
 
 ### 5. Datos de Vivienda Pública
 - **Fuente**: INCASÒL, Observatori Metropolità de l'Habitatge

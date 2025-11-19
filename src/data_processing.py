@@ -1680,3 +1680,138 @@ def prepare_renta_barrio(
     )
     
     return aggregated
+
+
+def prepare_idealista_oferta(
+    idealista_df: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    dataset_id: str,
+    reference_time: datetime,
+    source: str = "idealista_api",
+) -> pd.DataFrame:
+    """
+    Procesa datos de oferta inmobiliaria de Idealista y los agrega por barrio.
+    
+    Args:
+        idealista_df: DataFrame con datos raw de Idealista (de extract_offer_by_barrio)
+        dim_barrios: DataFrame con la dimensión de barrios
+        dataset_id: ID del dataset
+        reference_time: Timestamp de referencia
+        source: Fuente de los datos
+        
+    Returns:
+        DataFrame procesado con datos agregados por barrio
+    """
+    if idealista_df.empty:
+        logger.warning("DataFrame de Idealista vacío")
+        return pd.DataFrame()
+    
+    df = idealista_df.copy()
+    
+    # Mapear barrios de Idealista a barrio_id
+    # Intentar usar 'barrio_idealista' primero, luego 'barrio_busqueda', luego 'district'
+    barrio_col = None
+    for col in ['barrio_idealista', 'barrio_busqueda', 'district', 'distrito']:
+        if col in df.columns:
+            barrio_col = col
+            break
+    
+    if barrio_col is None:
+        logger.warning("No se encontró columna de barrio en datos de Idealista")
+        return pd.DataFrame()
+    
+    logger.info(f"Mapeando barrios de Idealista usando columna '{barrio_col}'...")
+    
+    df['barrio_id'] = df[barrio_col].apply(
+        lambda x: _map_territorio_to_barrio_id(str(x), "Barri", dim_barrios) if pd.notna(x) else None
+    )
+    
+    # Filtrar solo los que tienen barrio_id válido
+    df = df.dropna(subset=['barrio_id'])
+    
+    if df.empty:
+        logger.warning("No se pudieron mapear barrios de Idealista a barrio_id")
+        return pd.DataFrame()
+    
+    logger.info(f"✓ {len(df)} propiedades mapeadas a {df['barrio_id'].nunique()} barrios")
+    
+    # Extraer fecha de extracción (usar fecha_extraccion o fecha_publicacion)
+    if 'fecha_extraccion' in df.columns:
+        df['fecha'] = pd.to_datetime(df['fecha_extraccion'], errors='coerce')
+    elif 'fecha_publicacion' in df.columns:
+        df['fecha'] = pd.to_datetime(df['fecha_publicacion'], errors='coerce')
+    else:
+        df['fecha'] = pd.to_datetime(reference_time)
+    
+    df['anio'] = df['fecha'].dt.year
+    df['mes'] = df['fecha'].dt.month
+    
+    # Limpiar y convertir tipos
+    numeric_cols = ['precio', 'precio_m2', 'superficie', 'habitaciones', 'banos']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Agregar por barrio, operación, año y mes
+    group_cols = ['barrio_id', 'operacion', 'anio', 'mes']
+    
+    # Calcular métricas agregadas
+    agg_dict = {}
+    
+    if 'precio' in df.columns:
+        agg_dict['precio_medio'] = ('precio', 'mean')
+        agg_dict['precio_mediano'] = ('precio', 'median')
+        agg_dict['precio_min'] = ('precio', 'min')
+        agg_dict['precio_max'] = ('precio', 'max')
+    
+    if 'precio_m2' in df.columns:
+        agg_dict['precio_m2_medio'] = ('precio_m2', 'mean')
+        agg_dict['precio_m2_mediano'] = ('precio_m2', 'median')
+    
+    if 'superficie' in df.columns:
+        agg_dict['superficie_media'] = ('superficie', 'mean')
+        agg_dict['superficie_mediana'] = ('superficie', 'median')
+    
+    if 'habitaciones' in df.columns:
+        agg_dict['habitaciones_media'] = ('habitaciones', 'mean')
+    
+    # Contar número de anuncios
+    agg_dict['num_anuncios'] = ('precio', 'count')
+    
+    # Agregar por tipología si está disponible
+    if 'tipologia' in df.columns:
+        # Agregar también por tipología
+        tipologia_counts = df.groupby(group_cols + ['tipologia']).size().reset_index(name='num_anuncios_tipologia')
+    else:
+        tipologia_counts = pd.DataFrame()
+    
+    # Realizar agregación
+    aggregated = df.groupby(group_cols).agg(agg_dict).reset_index()
+    
+    # Renombrar columnas multi-index
+    aggregated.columns = [col[0] if col[1] == '' else f"{col[0]}_{col[1]}" for col in aggregated.columns]
+    
+    # Merge con dim_barrios para obtener nombres normalizados
+    aggregated = aggregated.merge(
+        dim_barrios[['barrio_id', 'barrio_nombre_normalizado']],
+        on='barrio_id',
+        how='inner'
+    )
+    
+    # Agregar metadata
+    aggregated['dataset_id'] = dataset_id
+    aggregated['source'] = source
+    aggregated['etl_loaded_at'] = reference_time.isoformat()
+    
+    # Ordenar
+    aggregated = aggregated.sort_values(['anio', 'mes', 'barrio_id', 'operacion']).reset_index(drop=True)
+    
+    logger.info(
+        "Datos de Idealista preparados: %s registros (%s barrios, %s operaciones, %s años)",
+        len(aggregated),
+        aggregated['barrio_id'].nunique(),
+        aggregated['operacion'].nunique() if 'operacion' in aggregated.columns else 0,
+        aggregated['anio'].nunique(),
+    )
+    
+    return aggregated

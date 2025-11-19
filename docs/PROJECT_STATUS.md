@@ -1,12 +1,12 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 12 de noviembre de 2025
+**Última actualización**: 17 de noviembre de 2025
 
 ---
 
 ## 📊 Resumen Ejecutivo
 
-El proyecto ha completado exitosamente la **infraestructura de datos y el pipeline ETL**, consolidando datos de múltiples fuentes públicas en una base de datos SQLite normalizada. Se han procesado y validado **150 archivos CSV** de datos brutos, generando una base de datos con **1,119 registros de precios** y **657 registros demográficos** para **73 barrios** de Barcelona.
+El proyecto ha completado exitosamente la **infraestructura de datos y el pipeline ETL**, consolidando datos de múltiples fuentes públicas en una base de datos SQLite normalizada. Se han incorporado nuevas tablas (`fact_demografia_ampliada`, `fact_renta`, `fact_oferta_idealista`) y se han validado las integraciones con **IDESCAT** y **RapidAPI/Idealista**. La base de datos contiene datos históricos y está lista para incorporar la oferta inmobiliaria mensual una vez generado el mapa de `locationId` por barrio.
 
 ---
 
@@ -78,6 +78,13 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 - ✅ `scripts/process_and_load.py` - Pipeline ETL completo
 - ✅ `scripts/validate_portaldades_data.py` - Validación de calidad
 
+### 6. **Integraciones Recientes (Noviembre 2025)** ✅
+
+- ✅ **IDESCATExtractor** operativo (`scripts/extract_priority_sources.py` + `notebooks/test_idescat.py`). Permite validar demografía municipal y núcleo de Barcelona.
+- ✅ **IdealistaRapidAPIExtractor** (RapidAPI) añadido con autenticación OAuth y guardado automático en `data/raw/idealistarapidapi/`.
+- ✅ **Script de discovery** `scripts/build_idealista_location_ids.py` para mapear `locationId` ↔ barrio evitando 73 llamadas manuales.
+- ✅ **Tablas nuevas** en SQLite: `fact_demografia_ampliada`, `fact_renta`, `fact_oferta_idealista`.
+
 ---
 
 ## 📦 Datos Disponibles
@@ -140,10 +147,10 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 - barrio_id (FK)
 - anio (2015-2023)
 - poblacion_total, poblacion_hombres, poblacion_mujeres
-- hogares_totales (NULL - pendiente)
-- edad_media (NULL - pendiente)
-- porc_inmigracion (NULL - pendiente)
-- densidad_hab_km2 (NULL - pendiente)
+- hogares_totales (Portal de Dades `hd7u1b68qj` + estimación ponderada por población)
+- edad_media (proxy del parque residencial `ydtnyd6qhm`)
+- porc_inmigracion (transacciones a compradores extranjeros `uuxbxa7onv`)
+- densidad_hab_km2 (calculada con superficie catastral `wjnmk82jd9`)
 - dataset_id, source, etl_loaded_at
 ```
 
@@ -151,18 +158,14 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 ## ⚠️ Issues Identificados
 
-### 1. **Deduplicación Agresiva en fact_precios** 🔴
+### 1. **Deduplicación en fact_precios** ✅
 
-**Problema**: Se procesaron 65,644 registros de venta y 11,955 de alquiler del Portal de Dades, pero solo se cargaron 1,119 en la base de datos.
+**Acciones**:
+- La deduplicación ahora conserva la combinación `(barrio_id, anio, trimestre, dataset_id, source)`.
+- Se actualizó el índice único de SQLite para incluir `dataset_id` y `source`.
+- `prepare_fact_precios` concatena fuentes en modo long (un registro por indicador).
 
-**Causa**: La lógica de `drop_duplicates` elimina registros válidos cuando hay múltiples indicadores para el mismo barrio/año.
-
-**Impacto**: Se pierden datos valiosos de diferentes indicadores (por tipo de propietario, año de construcción, etc.).
-
-**Solución propuesta**:
-- Incluir `dataset_id` en la clave de deduplicación
-- O crear una tabla de agregación que preserve múltiples fuentes
-- O implementar una estrategia de "mejor fuente" por año/barrio
+**Resultado**: Se mantienen indicadores múltiples sin sacrificar integridad.
 
 ### 2. **Datos de Alquiler de Open Data BCN** 🟡
 
@@ -172,40 +175,40 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 **Solución**: Investigar estructura de datos de alquiler de Open Data BCN o depender solo de Portal de Dades.
 
-### 3. **Campos NULL en fact_demografia** 🟡
+### 3. **Campos NULL en fact_demografia** ✅
 
-**Problema**: Varios campos están NULL:
-- `hogares_totales`
-- `edad_media`
-- `porc_inmigracion`
-- `densidad_hab_km2`
+**Acciones**:
+- `enrich_fact_demografia` integra:
+  - Hogares (`hd7u1b68qj`) con ponderación por población de barrio/distrito.
+  - Proxy de edad media (`ydtnyd6qhm`).
+  - Porcentaje de compras extranjeras (`uuxbxa7onv`).
+  - Densidad con superficie catastral (`wjnmk82jd9`).
+- `dataset_id` y `source` reflejan todas las fuentes usadas (formato `foo|bar`).
 
-**Causa**: Los datos actuales de Open Data BCN solo incluyen población por sexo.
+**Resultado**: Columnas llenadas manteniendo trazabilidad y cálculos reproducibles.
 
-**Solución**: 
-- Buscar datasets adicionales en Portal de Dades o INE
-- O calcular algunos campos (densidad requiere superficie)
+### 4. **Mapeo de Territorios Portal de Dades** ✅
 
-### 4. **Mapeo de Territorios Portal de Dades** 🟡
+**Acciones**:
+- `_map_territorio_to_barrio_id` incorpora alias manuales y fuzzy matching (`difflib`).
+- Los territorios de tipo `Districte`/`Municipi` ya no se asignan a un único barrio; se documenta la distribución en `docs/TERRITORY_MAPPING_OVERRIDES.md`.
+- Nuevos logs informativos con conteo de enriquecimientos.
 
-**Problema**: Algunos territorios del Portal de Dades no se mapean correctamente a `barrio_id`.
+**Resultado**: Mayor cobertura y trazabilidad en casos especiales.
 
-**Estado**: Se registran warnings pero el proceso continúa.
+### 5. **Datos de INE (históricos) Pendientes** 🟡
 
-**Solución**: Mejorar el algoritmo de mapeo con:
-- Diccionario de mapeo manual para casos especiales
-- Fuzzy matching para nombres similares
-- Logging detallado de no mapeados para análisis
+**Problema**: `INEExtractor` sigue en versión base. No se han automatizado las descargas de precios históricos nacionales.
 
-### 5. **Datos de INE No Implementados** 🟡
+**Impacto**: Dependemos del Portal de Dades para series largas. Se requiere implementar `ine_extractor.py`.
 
-**Problema**: `INEExtractor` tiene estructura base pero no está completamente implementado.
+### 6. **Oferta Idealista (RapidAPI) - Etapa de Mapeo** 🟡
 
-**Impacto**: Falta una fuente importante de datos demográficos.
+**Estado**: `IdealistaRapidAPIExtractor` ya se autentica correctamente (Plan Basic, 150 peticiones/mes). Falta completar el `barrio_location_ids.csv` para los 73 barrios y ejecutar la extracción mensual.
 
-### 6. **Datos de Idealista No Implementados** 🟡
-
-**Problema**: `IdealistaExtractor` retorna DataFrame vacío.
+**Riesgos**:
+- Límite duro de 150 peticiones: discovery + extracción debe planificarse cuidadosamente.
+- API no oficial (scraperium): susceptible a cambios en el HTML de Idealista.
 
 **Impacto**: Falta fuente de precios de mercado actualizados.
 

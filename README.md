@@ -50,15 +50,43 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. (Optional) Set up environment variables:
+3. (Optional) Set up environment variables for Idealista API:
 ```bash
-# Create .env file for API keys
-export IDEALISTA_API_KEY=your_api_key_here  # Optional, for Idealista data
+# Register at https://developers.idealista.com/ to get API credentials
+# Then set environment variables:
+export IDEALISTA_API_KEY=your_api_key_here
+export IDEALISTA_API_SECRET=your_api_secret_here
 ```
 
 ### Data Extraction
 
-Extract data from all sources (INE, Open Data BCN, Idealista):
+#### Extract Priority Sources (GeoJSON, Demographics, Income)
+
+```bash
+# Extract priority datasets (GeoJSON, extended demographics, income)
+python scripts/extract_priority_sources.py
+
+# Extract with verbose logging
+python scripts/extract_priority_sources.py --log-level DEBUG
+```
+
+#### Extract Idealista Data (Requires API Credentials)
+
+```bash
+# Extract both sale and rent offers
+python scripts/extract_idealista.py --operation both
+
+# Extract only sale offers
+python scripts/extract_idealista.py --operation sale
+
+# Extract only rent offers
+python scripts/extract_idealista.py --operation rent
+
+# Extract for specific neighborhoods
+python scripts/extract_idealista.py --operation both --barrios "Eixample" "Gràcia"
+```
+
+#### Extract All Sources (Legacy)
 
 ```bash
 # Extract all data from 2015-2025

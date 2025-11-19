@@ -9,12 +9,13 @@ Prioridades:
 """
 
 import sys
+import os
 import json
 import logging
 import traceback
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Agregar el directorio raíz al path para imports
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -1375,11 +1376,10 @@ class IDESCATExtractor(BaseExtractor):
     # Código de Barcelona: 080193
     BARCELONA_CODE = "080193"
     
-    # Endpoints conocidos
+    # Endpoints soportados (formato incluido en la ruta)
     ENDPOINTS = {
-        "barrios": f"{API_BASE}/barri",
-        "distritos": f"{API_BASE}/districte",
-        "municipio": f"{API_BASE}/mun",
+        "cerca": f"{API_BASE}/cerca.json",
+        "sug": f"{API_BASE}/sug.json",
     }
     
     def __init__(self, rate_limit_delay: float = 1.5, output_dir: Optional[Path] = None):
@@ -1392,87 +1392,316 @@ class IDESCATExtractor(BaseExtractor):
         lang: str = "es"
     ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
         """
-        Extrae datos demográficos por barrios de Barcelona desde IDESCAT API.
+        Extrae datos demográficos por territorio desde IDESCAT API y filtra los pertenecientes a Barcelona.
         
         Args:
-            year: Año de referencia
+            year: Año de referencia (se filtra contra TIME_PERIOD devuelto por la API)
             lang: Idioma ('es', 'ca', 'en')
             
         Returns:
             Tupla con (DataFrame o None, metadata)
         """
-        logger.info(f"=== Extrayendo demografía IDESCAT para barrios (año {year}) ===")
+        logger.info(f"=== Extrayendo demografía IDESCAT (año {year}) ===")
         
         metadata = {
             "extraction_date": datetime.now().isoformat(),
             "success": False,
             "year": year,
             "source": "idescat_api",
-            "endpoint": self.ENDPOINTS["barrios"],
+            "endpoint": self.ENDPOINTS["cerca"],
         }
         
         try:
-            # Construir URL con parámetros
-            url = self.ENDPOINTS["barrios"]
-            params = {
-                "date": str(year),
-                "id": self.BARCELONA_CODE,
-                "lang": lang,
-            }
+            entries_np = self._fetch_entries_by_tipus("np", lang=lang)
+            entries_es = self._fetch_entries_by_tipus("es", lang=lang)
+            all_entries = entries_np + entries_es
             
-            logger.info(f"Consultando API IDESCAT: {url}")
-            logger.info(f"Parámetros: {params}")
-            
-            self._rate_limit()
-            response = self.session.get(url, params=params, timeout=60)
-            
-            if not self._validate_response(response):
-                metadata["error"] = f"Error HTTP {response.status_code}"
+            if not all_entries:
+                metadata["error"] = "No se recibieron datos de IDESCAT"
                 return None, metadata
             
-            # IDESCAT API devuelve JSON
-            data = response.json()
+            logger.info(
+                "✓ IDESCAT devolvió %s registros (np=%s, es=%s)",
+                len(all_entries),
+                len(entries_np),
+                len(entries_es),
+            )
             
-            # La estructura de respuesta de IDESCAT puede variar
-            # Intentar parsear según estructura esperada
-            if isinstance(data, dict):
-                # Guardar respuesta raw para inspección
-                filepath = self._save_raw_data(
-                    data,
-                    f"idescat_barrios_{year}",
-                    'json'
+            records = []
+            for entry in all_entries:
+                record = self._entry_to_record(entry, lang)
+                if record is None:
+                    continue
+                if self._belongs_to_barcelona(record):
+                    records.append(record)
+            
+            if not records:
+                logger.warning(
+                    "No se encontraron núcleos dentro de Barcelona; usando registro municipal como fallback"
                 )
-                metadata["raw_filepath"] = str(filepath)
-                
-                # Intentar convertir a DataFrame
-                # La estructura exacta depende de la API
-                # Por ahora, guardamos el JSON y documentamos
-                logger.info("✓ Datos de IDESCAT descargados")
-                logger.info("⚠️  Nota: La estructura de datos requiere inspección manual")
-                logger.info(f"   Archivo guardado en: {filepath}")
-                
-                metadata["success"] = True
-                metadata["data_structure"] = type(data).__name__
-                
-                # Intentar extraer DataFrame si es posible
-                df = None
-                if isinstance(data, dict) and "result" in data:
-                    # Estructura típica de API
-                    result = data["result"]
-                    if isinstance(result, list):
-                        df = pd.DataFrame(result)
-                    elif isinstance(result, dict):
-                        df = pd.DataFrame([result])
-                
-                return df, metadata
-            else:
-                metadata["error"] = "Formato de respuesta inesperado"
+                for entry in all_entries:
+                    record = self._entry_to_record(entry, lang)
+                    if record and record["area_code"].startswith(self.BARCELONA_CODE):
+                        records.append(record)
+                        break
+            
+            if not records:
+                metadata["error"] = "No se pudo identificar ningún registro para Barcelona"
                 return None, metadata
-                
+            
+            df = pd.DataFrame(records)
+            if df.empty:
+                metadata["error"] = "No se generaron registros normalizados"
+                return None, metadata
+            
+            df["anio"] = pd.to_datetime(df["time_period"], errors="coerce").dt.year
+            if year:
+                filtered = df[df["anio"] == year]
+                if filtered.empty:
+                    logger.warning(
+                        "No hay registros para el año %s, devolviendo todos los disponibles",
+                        year,
+                    )
+                else:
+                    df = filtered
+            
+            filepath = self._save_raw_data(
+                df.to_dict(orient="records"),
+                f"idescat_barcelona_{year}",
+                "json",
+            )
+            metadata["raw_filepath"] = str(filepath)
+            metadata["success"] = True
+            metadata["num_records"] = len(df)
+            
+            logger.info(
+                "✓ IDESCAT normalizado: %s registros (años %s-%s)",
+                len(df),
+                df["anio"].min(),
+                df["anio"].max(),
+            )
+            return df, metadata
+        
         except Exception as e:
             logger.error(f"Error extrayendo datos IDESCAT: {e}")
             logger.debug(traceback.format_exc())
             metadata["error"] = str(e)
+            return None, metadata
+    
+    def _fetch_entries_by_tipus(self, tipus: str, lang: str) -> List[Dict[str, Any]]:
+        """Recupera todas las entradas para un determinado tipus (np, es, mun...)."""
+        entries: List[Dict[str, Any]] = []
+        posicio = 0
+        
+        while True:
+            params = {
+                "p": f"tipus/{tipus};posicio/{posicio}",
+                "lang": lang,
+            }
+            self._rate_limit()
+            response = self.session.get(self.ENDPOINTS["cerca"], params=params, timeout=60)
+            if not self._validate_response(response):
+                logger.warning(
+                    "Respuesta inválida de IDESCAT (tipus=%s, posicio=%s)", tipus, posicio
+                )
+                break
+            
+            data = response.json()
+            feed = data.get("feed", {})
+            entry = feed.get("entry")
+            if not entry:
+                break
+            
+            if isinstance(entry, list):
+                entries.extend(entry)
+            else:
+                entries.append(entry)
+            
+            total = int(feed.get("opensearch:totalResults", len(entries)))
+            items_per_page = int(feed.get("opensearch:itemsPerPage", len(entries)))
+            if posicio + items_per_page >= total:
+                break
+            posicio += items_per_page or len(entries)
+        
+        return entries
+    
+    def _entry_to_record(self, entry: Dict[str, Any], lang: str) -> Optional[Dict[str, Any]]:
+        """Convierte una entrada del feed en un registro plano."""
+        dataset = entry.get("cross:DataSet", {})
+        section = dataset.get("cross:Section", {})
+        if not section:
+            return None
+        
+        area_code = section.get("AREA")
+        time_period = section.get("TIME_PERIOD")
+        observations = section.get("cross:Obs", [])
+        if isinstance(observations, dict):
+            observations = [observations]
+        
+        sexo_map = {"M": None, "F": None, "T": None}
+        for obs in observations:
+            sex = obs.get("SEX")
+            try:
+                sexo_map[sex] = int(obs.get("OBS_VALUE"))
+            except (TypeError, ValueError):
+                sexo_map[sex] = None
+        
+        categories = entry.get("category", [])
+        if isinstance(categories, dict):
+            categories = [categories]
+        category_terms = [c.get("term") for c in categories if isinstance(c, dict)]
+        
+        content = entry.get("content", {})
+        content_text = None
+        if isinstance(content, dict):
+            content_text = content.get("content")
+        elif isinstance(content, str):
+            content_text = content
+        
+        return {
+            "area_code": area_code,
+            "nombre": entry.get("title"),
+            "tipo": category_terms,
+            "content_text": content_text,
+            "time_period": time_period,
+            "poblacion_total": sexo_map.get("T"),
+            "poblacion_hombres": sexo_map.get("M"),
+            "poblacion_mujeres": sexo_map.get("F"),
+            "idioma": lang,
+        }
+    
+    def _belongs_to_barcelona(self, record: Dict[str, Any]) -> bool:
+        """Determina si el registro corresponde a Barcelona (municipio o núcleo)."""
+        area_code = record.get("area_code") or ""
+        content_text = (record.get("content_text") or "").lower()
+        
+        if area_code.startswith(self.BARCELONA_CODE):
+            return True
+        
+        if "barcelona" in content_text and "(barcelona)" in content_text:
+            return True
+        
+        nombre = (record.get("nombre") or "").lower()
+        if "barcelona" in nombre and area_code:
+            return True
+        
+        return False
+
+
+class IdealistaRapidAPIExtractor(BaseExtractor):
+    """
+    Extractor para la API de Idealista accesible mediante RapidAPI (scraperium).
+    
+    Necesita las variables de entorno:
+      - IDEALISTA_RAPIDAPI_KEY
+      - IDEALISTA_RAPIDAPI_HOST (opcional, por defecto idealista7.p.rapidapi.com)
+    """
+    
+    BASE_URL = "https://idealista7.p.rapidapi.com"
+    LIST_ENDPOINT = "/listhomes"
+    
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_host: Optional[str] = None,
+        rate_limit_delay: float = 1.0,
+        output_dir: Optional[Path] = None,
+    ):
+        super().__init__("IdealistaRapidAPI", rate_limit_delay, output_dir)
+        self.api_key = api_key or os.getenv("IDEALISTA_RAPIDAPI_KEY")
+        self.api_host = api_host or os.getenv("IDEALISTA_RAPIDAPI_HOST") or "idealista7.p.rapidapi.com"
+        
+        if not self.api_key:
+            logger.warning(
+                "IDEALISTA_RAPIDAPI_KEY no está definida. Configura la clave antes de llamar al extractor."
+            )
+    
+    def list_home_properties(
+        self,
+        location_id: str,
+        operation: str = "sale",
+        order: str = "relevance",
+        num_page: int = 1,
+        max_items: int = 40,
+        locale: str = "es",
+        **extra_params: Any,
+    ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+        """
+        Invoca el endpoint listhomes y devuelve un DataFrame con la oferta recibida.
+        """
+        metadata = {
+            "extraction_date": datetime.now().isoformat(),
+            "success": False,
+            "source": "idealista_rapidapi",
+            "endpoint": self.LIST_ENDPOINT,
+            "location_id": location_id,
+            "operation": operation,
+            "num_page": num_page,
+            "max_items": max_items,
+        }
+        
+        if not self.api_key:
+            metadata["error"] = "RapidAPI key no configurada"
+            return None, metadata
+        
+        headers = {
+            "x-rapidapi-key": self.api_key,
+            "x-rapidapi-host": self.api_host,
+        }
+        params = {
+            "order": order,
+            "operation": operation,
+            "locationId": location_id,
+            "numPage": num_page,
+            "maxItems": max_items,
+            "locale": locale,
+        }
+        params.update(extra_params)
+        
+        url = f"{self.BASE_URL}{self.LIST_ENDPOINT}"
+        
+        try:
+            self._rate_limit()
+            response = self.session.get(url, headers=headers, params=params, timeout=60)
+            if not self._validate_response(response):
+                metadata["error"] = f"Error HTTP {response.status_code}"
+                return None, metadata
+            
+            data = response.json()
+            raw_filepath = self._save_raw_data(
+                data,
+                f"idealista_rapidapi_{operation}_{location_id}_p{num_page}",
+                "json",
+            )
+            metadata["raw_filepath"] = str(raw_filepath)
+            
+            elements = data.get("elementList", [])
+            if not elements:
+                logger.warning("Idealista RapidAPI devolvió respuesta sin elementList")
+                metadata["success"] = True
+                metadata["num_results"] = 0
+                return pd.DataFrame(), metadata
+            
+            df = pd.DataFrame(elements)
+            metadata["success"] = True
+            metadata["num_results"] = len(df)
+            metadata["total_results"] = data.get("total", len(elements))
+            
+            usage = data.get("usage") or {}
+            metadata["rapidapi_usage"] = usage
+            
+            logger.info(
+                "✓ RapidAPI Idealista: %s propiedades (operación=%s, página=%s)",
+                len(df),
+                operation,
+                num_page,
+            )
+            return df, metadata
+        
+        except Exception as exc:
+            logger.error("Error llamando a Idealista RapidAPI: %s", exc)
+            logger.debug(traceback.format_exc())
+            metadata["error"] = str(exc)
             return None, metadata
 
 

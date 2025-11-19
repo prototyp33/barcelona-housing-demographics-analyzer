@@ -73,6 +73,7 @@ def run_etl(
     try:
         opendata_dir = raw_base_dir / "opendatabcn"
         geojson_dir = raw_base_dir / "geojson"
+        idealista_dir = raw_base_dir / "idealista"
         
         # Buscar archivos de datos (prioridad: nuevos datasets, luego legacy)
         demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_*.csv")
@@ -88,6 +89,10 @@ def run_etl(
         
         # Buscar GeoJSON
         geojson_path = _find_latest_file(geojson_dir, "barrios_geojson_*.json")
+        
+        # Buscar archivos de Idealista (oferta inmobiliaria)
+        idealista_venta_path = _find_latest_file(idealista_dir, "idealista_oferta_sale_*.csv")
+        idealista_rent_path = _find_latest_file(idealista_dir, "idealista_oferta_rent_*.csv")
 
         if demographics_path is None:
             raise FileNotFoundError(
@@ -257,6 +262,52 @@ def run_etl(
                 logger.warning("Error procesando renta: %s", e)
                 logger.debug(traceback.format_exc())
                 fact_renta = None
+        
+        # Procesar datos de Idealista si están disponibles
+        fact_oferta_idealista = None
+        idealista_data_combined = []
+        
+        if idealista_venta_path and idealista_venta_path.exists():
+            try:
+                logger.info("Cargando datos de oferta de venta de Idealista...")
+                idealista_venta_df = _safe_read_csv(idealista_venta_path)
+                if not idealista_venta_df.empty:
+                    idealista_data_combined.append(idealista_venta_df)
+                    logger.info("✓ Datos de venta Idealista cargados: %s", idealista_venta_path.name)
+            except Exception as e:
+                logger.warning("Error cargando datos de venta de Idealista: %s", e)
+                logger.debug(traceback.format_exc())
+        
+        if idealista_rent_path and idealista_rent_path.exists():
+            try:
+                logger.info("Cargando datos de oferta de alquiler de Idealista...")
+                idealista_rent_df = _safe_read_csv(idealista_rent_path)
+                if not idealista_rent_df.empty:
+                    idealista_data_combined.append(idealista_rent_df)
+                    logger.info("✓ Datos de alquiler Idealista cargados: %s", idealista_rent_path.name)
+            except Exception as e:
+                logger.warning("Error cargando datos de alquiler de Idealista: %s", e)
+                logger.debug(traceback.format_exc())
+        
+        if idealista_data_combined:
+            logger.info("Procesando datos de oferta de Idealista...")
+            try:
+                idealista_df = pd.concat(idealista_data_combined, ignore_index=True)
+                
+                fact_oferta_idealista = data_processing.prepare_idealista_oferta(
+                    idealista_df,
+                    dim_barrios,
+                    dataset_id="idealista_api",
+                    reference_time=reference_time,
+                    source="idealista_api",
+                )
+                logger.info("✓ Oferta Idealista procesada: %s registros", len(fact_oferta_idealista))
+            except Exception as e:
+                logger.warning("Error procesando oferta de Idealista: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_oferta_idealista = None
+        else:
+            logger.debug("No se encontraron datos de Idealista (opcional, requiere API credentials)")
 
         params.update(
             {
@@ -265,11 +316,14 @@ def run_etl(
                 "alquiler_file": alquiler_path.name if alquiler_path else None,
                 "renta_file": renta_path.name if renta_path else None,
                 "geojson_file": geojson_path.name if geojson_path else None,
+                "idealista_venta_file": idealista_venta_path.name if idealista_venta_path and idealista_venta_path.exists() else None,
+                "idealista_rent_file": idealista_rent_path.name if idealista_rent_path and idealista_rent_path.exists() else None,
                 "dim_barrios_rows": len(dim_barrios),
                 "fact_demografia_rows": len(fact_demografia) if fact_demografia is not None else 0,
                 "fact_demografia_ampliada_rows": len(fact_demografia_ampliada) if fact_demografia_ampliada is not None else 0,
                 "fact_precios_rows": len(fact_precios),
                 "fact_renta_rows": len(fact_renta) if fact_renta is not None else 0,
+                "fact_oferta_idealista_rows": len(fact_oferta_idealista) if fact_oferta_idealista is not None else 0,
             }
         )
 
@@ -287,6 +341,8 @@ def run_etl(
             tables_to_truncate.append("fact_demografia")
         if fact_renta is not None:
             tables_to_truncate.append("fact_renta")
+        if fact_oferta_idealista is not None:
+            tables_to_truncate.append("fact_oferta_idealista")
         tables_to_truncate.append("fact_precios")
         # dim_barrios se trunca al final porque otras tablas tienen foreign keys hacia ella
         tables_to_truncate.append("dim_barrios")
@@ -333,6 +389,17 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_renta (no disponible o vacío)")
+        
+        if fact_oferta_idealista is not None and not fact_oferta_idealista.empty:
+            logger.info("Cargando tabla de hechos de oferta Idealista")
+            fact_oferta_idealista.to_sql(
+                "fact_oferta_idealista",
+                conn,
+                if_exists="append",
+                index=False,
+            )
+        else:
+            logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
 
     except Exception as exc:  # noqa: BLE001
         status = "FAILED"

@@ -75,6 +75,7 @@ data/processed/
 │                        #   - fact_demografia_ampliada (edad quinquenal y nacionalidad)
 │                        #   - fact_precios (precios de venta y alquiler)
 │                        #   - fact_renta (renta por barrio)
+│                        #   - fact_oferta_idealista (oferta inmobiliaria actual)
 │                        #   - etl_runs (auditoría de ejecuciones)
 └── backups/             # Carpeta opcional para snapshots (crear según necesidad)
 ```
@@ -90,18 +91,20 @@ python scripts/process_and_load.py \
 ```
 
 El script:
-- Detecta automáticamente los últimos archivos en `data/raw/opendatabcn/` y `data/raw/geojson/`
+- Detecta automáticamente los últimos archivos en `data/raw/opendatabcn/`, `data/raw/geojson/` y `data/raw/idealista/`
 - Construye la dimensión de barrios (`dim_barrios`) con geometrías GeoJSON
 - Genera las tablas de hechos:
   - `fact_demografia` (demografía estándar) o `fact_demografia_ampliada` (edad quinquenal y nacionalidad)
   - `fact_precios` (precios de venta y alquiler)
   - `fact_renta` (renta familiar disponible por barrio)
+  - `fact_oferta_idealista` (oferta inmobiliaria actual de Idealista API)
 - Registra la ejecución en `etl_runs`
 - Crea/actualiza `data/processed/database.db`
 
 **Notas**:
 - `fact_demografia_ampliada` se usa cuando está disponible el dataset `pad_mdb_lloc-naix-continent_edat-q_sexe`
 - `fact_renta` contiene renta agregada por barrio desde datos de sección censal
+- `fact_oferta_idealista` requiere API credentials de Idealista y se actualiza ejecutando `scripts/extract_idealista.py`
 - `dim_barrios` incluye geometrías GeoJSON cuando está disponible el archivo `barrios_geojson_*.json`
 - Cada ejecución registra métricas y parámetros en `etl_runs` para trazabilidad.
 
@@ -403,6 +406,57 @@ FROM fact_renta r
 JOIN dim_barrios b ON r.barrio_id = b.barrio_id
 WHERE r.anio = 2022
 ORDER BY r.renta_euros DESC;
+```
+
+#### `fact_oferta_idealista` ⭐ NUEVO
+Oferta inmobiliaria actual de Idealista API agregada por barrio, operación (venta/alquiler), año y mes.
+
+```sql
+CREATE TABLE fact_oferta_idealista (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barrio_id INTEGER NOT NULL,
+    operacion TEXT NOT NULL,              -- 'sale' o 'rent'
+    anio INTEGER NOT NULL,
+    mes INTEGER NOT NULL,
+    num_anuncios INTEGER,                 -- Número de anuncios activos
+    precio_medio REAL,
+    precio_mediano REAL,
+    precio_min REAL,
+    precio_max REAL,
+    precio_m2_medio REAL,
+    precio_m2_mediano REAL,
+    superficie_media REAL,
+    superficie_mediana REAL,
+    habitaciones_media REAL,
+    barrio_nombre_normalizado TEXT,
+    dataset_id TEXT,
+    source TEXT,
+    etl_loaded_at TEXT,
+    FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+);
+```
+
+**Ejemplo de uso**:
+```sql
+-- Oferta de venta por barrio en el último mes disponible
+SELECT 
+    b.barrio_nombre,
+    b.distrito_nombre,
+    o.anio,
+    o.mes,
+    o.num_anuncios,
+    o.precio_medio,
+    o.precio_m2_medio,
+    o.superficie_media
+FROM fact_oferta_idealista o
+JOIN dim_barrios b ON o.barrio_id = b.barrio_id
+WHERE o.operacion = 'sale'
+  AND (o.anio, o.mes) = (
+      SELECT MAX(anio), MAX(mes) 
+      FROM fact_oferta_idealista 
+      WHERE operacion = 'sale'
+  )
+ORDER BY o.precio_m2_medio DESC;
 ```
 
 #### `fact_precios`
