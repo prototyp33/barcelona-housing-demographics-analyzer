@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 NORMALIZATION_PATTERN = re.compile(r"[^a-z0-9]+")
 LEADING_INDEX_PATTERN = re.compile(r"^\d+[\.,]?\s*")
-AEI_SUFFIX_PATTERN = re.compile(r"-AEI.*$")
+AEI_SUFFIX_PATTERN = re.compile(r"\s*-\s*AEI.*$", re.IGNORECASE)
 FOOTNOTE_PATTERN = re.compile(r"\s*\(\d+\)$")
 
 BARRIO_ALIAS_OVERRIDES = {
@@ -65,15 +65,39 @@ def _parse_household_size(label: Optional[str]) -> Optional[float]:
     return None
 
 
+def _fix_mojibake(text: str) -> str:
+    """Fix common encoding issues (Mojibake) where UTF-8 was interpreted as Latin-1."""
+    if not isinstance(text, str):
+        return text
+    try:
+        # Attempt to fix double encoding: encode latin-1, decode utf-8
+        # e.g., "GÃ²tic" -> bytes(c3 b2) -> "Gòtic"
+        return text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+
 def _normalize_text(value: Optional[str]) -> str:
     """Return a normalized key for matching barrio names."""
 
     if value is None:
         return ""
-    value = str(value).strip().lower()
+    
+    # Convert to string and strip whitespace
+    value = str(value).strip()
+    
+    # Apply cleaning patterns BEFORE lowercasing/stripping non-alphanumeric
+    # This handles "2. el Barri..." and "... - AEI ..." cases
+    value = LEADING_INDEX_PATTERN.sub("", value)
+    value = AEI_SUFFIX_PATTERN.sub("", value)
+    value = FOOTNOTE_PATTERN.sub("", value)
+    
+    # Standard normalization
+    value = value.lower()
     value = unicodedata.normalize("NFKD", value)
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
     value = NORMALIZATION_PATTERN.sub("", value)
+    
     return value
 
 
@@ -83,6 +107,7 @@ def _clean_barrio_label(label: Optional[str]) -> str:
     if label is None:
         return ""
     label = str(label).strip()
+    label = _fix_mojibake(label)
     label = LEADING_INDEX_PATTERN.sub("", label)
     label = AEI_SUFFIX_PATTERN.sub("", label)
     label = FOOTNOTE_PATTERN.sub("", label)
@@ -195,6 +220,10 @@ def prepare_dim_barrios(
     dim["distrito_id"] = pd.to_numeric(dim["distrito_id"], errors="coerce").astype("Int64")
     dim = dim.dropna(subset=["barrio_id"])
 
+    # Fix encoding issues in barrio names
+    dim["barrio_nombre"] = dim["barrio_nombre"].apply(_fix_mojibake)
+    dim["distrito_nombre"] = dim["distrito_nombre"].apply(_fix_mojibake)
+    
     dim["barrio_nombre_normalizado"] = dim["barrio_nombre"].apply(_normalize_text)
     dim["codi_barri"] = dim["barrio_id"].astype(str).str.zfill(2)
     dim["codi_districte"] = dim["distrito_id"].astype(str).str.zfill(2)
@@ -532,7 +561,11 @@ def prepare_fact_precios(
 
 def _load_portaldades_csv(filepath: Path) -> pd.DataFrame:
     """Carga un archivo CSV del Portal de Dades con detección automática de encoding."""
-    import chardet
+    try:
+        import chardet
+    except ImportError:
+        logger.warning("Module 'chardet' not found. Falling back to 'utf-8'. Install it with 'pip install chardet'.")
+        return pd.read_csv(filepath, encoding="utf-8", low_memory=False)
     
     # Detectar encoding
     with open(filepath, 'rb') as f:
@@ -661,15 +694,21 @@ def _map_territorio_to_barrio_id(
         candidates = (
             dim_barrios["barrio_nombre_normalizado"].dropna().unique().tolist()
         )
+        # Usamos un cutoff de 0.8 para permitir variaciones leves pero evitar falsos positivos
         close = get_close_matches(
-            territorio_normalizado, candidates, n=1, cutoff=0.82
+            territorio_normalizado, candidates, n=1, cutoff=0.8
         )
         if close:
             match = dim_barrios[
                 dim_barrios["barrio_nombre_normalizado"] == close[0]
             ]
             if not match.empty:
+                logger.info(f"Fuzzy match: '{territorio}' -> '{match.iloc[0]['barrio_nombre']}'")
                 return int(match.iloc[0]["barrio_id"])
+
+        # Si llegamos aquí, no se pudo mapear
+        logger.warning(f"No se pudo mapear el territorio '{territorio}' (normalizado: '{territorio_normalizado}') a ningún barrio conocido.")
+        return None
 
     elif territorio_type == "Districte":
         # No asignamos distritos directamente a un solo barrio para evitar sesgos.

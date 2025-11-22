@@ -1,0 +1,43 @@
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Usando metadata de extracción: extraction_metadata_20251111_160033.json
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Leyendo archivo opendatabcn_pad_mdb_lloc-naix-continent_edat-q_sexe_2015_2024_20251115_160631_568143.csv
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Leyendo archivo opendatabcn_venta_2015_2023_20251111_163430_491101.csv
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Leyendo archivo opendatabcn_alquiler_2015_2023_20251111_160032_123408.csv
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Leyendo archivo opendatabcn_renda-disponible-llars-bcn_2015_2024_20251115_160557_297571.csv
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - ✓ Datos de renta cargados: opendatabcn_renda-disponible-llars-bcn_2015_2024_20251115_160557_297571.csv
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Preparando dimensión de barrios...
+2025-11-21 14:15:37 - src.etl.pipeline - INFO -   Usando GeoJSON: barrios_geojson_20251115_162533_398394.json
+2025-11-21 14:15:37 - src.data_processing - INFO - GeoJSON cargado: 73 features mapeados a barrios
+2025-11-21 14:15:37 - src.data_processing - INFO - Geometrías cargadas desde GeoJSON: 73 de 73 barrios
+2025-11-21 14:15:37 - src.data_processing - INFO - Dimensión de barrios preparada con 73 registros
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Procesando demografía ampliada (edad quinquenal y nacionalidad)...
+2025-11-21 14:15:37 - src.data_processing - INFO - Datos demográficos ampliados preparados: 2256 registros (73 barrios, 1 años)
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - ✓ Demografía ampliada procesada: 2256 registros
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - === Procesando datos del Portal de Dades ===
+2025-11-21 14:15:37 - src.data_processing - INFO - Procesando 141 archivos del Portal de Dades...
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_de_les_compravendes_dhabitatge_registrades_u25rr7oxh6.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_dels_habitatges_transmesos_per_compravenda_per_tipus_de_propietat_mrslyp5pcq.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_del_lloguer_dhabitatges_b37xv8wcjh.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_de_les_compravendes_dhabitatge_registrades_la6s9fp57r.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_dels_habitatges_transmesos_per_compravenda_bxtvnxvukh.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_dels_habitatges_transmesos_per_compravenda_per_any_de_construcció_de_ledifici_idjhkx1ruj.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_doferta_dhabitatges_de_segona_mà_en_venda_bhl3ulphi5.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_de_lloguer_per_superfície_m²_dels_béns_immobles_arrendats_per_a_habitatge_habitual_per_tipus_dimmoble_i_percentil_estadístic_jc3tvqfyum.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_de_les_compravendes_dhabitatge_registrades_per_estat_9ap8lewvtt.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_unitari_mitjà_dels_habitatges_transmesos_per_compravenda_hostlmjrdo.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_del_lloguer_dhabitatges_5ibudgqbrb.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_de_lloguer_dels_béns_immobles_arrendats_per_a_habitatge_habitual_per_tipus_dimmoble_i_percentil_estadístic_4waxpjj3uo.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - Error procesando portaldades_Preu_mitjà_per_superfície_m²_de_les_compravendes_dhabitatge_registrades_per_estat_cq4causxvu.csv: No module named 'chardet'
+2025-11-21 14:15:37 - src.data_processing - WARNING - 17 registros de venta no pudieron asociarse a un barrio: ['2. el Barri Gòtic', '27. el Putxet i el Farró', '33. el Baix Guinardó', '34. Can Baró', '35. el Guinardó', '39. Sant Genís dels Agudells (1)', '46. el Turó de la Peira (3)', '54. Torre Baró (5)', '58. Baró de Viver', '6. la Sagrada Família', '62. el Congrés i els Indians', '67. la Vila Olímpica del Poblenou', '69. Diagonal Mar i el Front Marítim del Poblenou', '70. el Besòs i el Maresme', '71. Provençals del Poblenou', '72. Sant Martí de Provençals']
+2025-11-21 14:15:37 - src.data_processing - WARNING - Datos de alquiler de Open Data BCN encontrados pero sin métrica de precio identificable. Se omiten.
+2025-11-21 14:15:37 - src.data_processing - INFO - Tabla de hechos de precios preparada con 45 registros
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Procesando datos de renta...
+2025-11-21 14:15:37 - src.data_processing - INFO - Datos de renta preparados: 73 registros (73 barrios, 1 años, métrica: mean)
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - ✓ Renta procesada: 73 registros
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Cargando dimensión de barrios en SQLite
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Cargando tabla de hechos demográficos ampliados
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Cargando tabla de hechos de precios
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - Cargando tabla de hechos de renta
+2025-11-21 14:15:37 - src.database_setup - INFO - Registrando ejecución ETL etl_20251121_131537_038360 con estado SUCCESS
+2025-11-21 14:15:37 - src.etl.pipeline - INFO - ETL completado correctamente. Base de datos disponible en data/processed/database.db
+2025-11-21 14:15:37 - root - INFO - ETL finalizado. Base de datos disponible en data/processed/database.db
+✅ ETL completado. Base de datos: data/processed/database.db

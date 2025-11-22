@@ -78,3 +78,7 @@ xyzservices==2025.10.0
 zope.interface==8.1
 playwright==1.48.0
 shapely>=2.0.0
+pytest
+seaborn
+nbformat
+ipykernel
