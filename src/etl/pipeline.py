@@ -331,9 +331,9 @@ def run_etl(
         params["database_path"] = str(database_path.resolve())
 
         conn = create_connection(database_path)
-        create_database_schema(conn)
-
-        # Determinar qué tablas truncar (orden: primero tablas con foreign keys, luego dim_barrios)
+        
+        # Truncate tables BEFORE creating schema to avoid unique constraint errors
+        # on existing duplicate data
         tables_to_truncate = []
         if fact_demografia_ampliada is not None:
             tables_to_truncate.append("fact_demografia_ampliada")
@@ -348,6 +348,9 @@ def run_etl(
         tables_to_truncate.append("dim_barrios")
         
         truncate_tables(conn, tables_to_truncate)
+        
+        # Create schema AFTER truncating to ensure no duplicate data exists
+        create_database_schema(conn)
 
         logger.info("Cargando dimensión de barrios en SQLite")
         dim_barrios.to_sql("dim_barrios", conn, if_exists="append", index=False)

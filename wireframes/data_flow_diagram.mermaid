@@ -1,0 +1,93 @@
+flowchart TD
+    %% Global Styles - Nano Banana Pro Theme
+    classDef default fill:#ffffff,stroke:#333,stroke-width:1px,rx:5,ry:5,font-family:Helvetica;
+    classDef source fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1,font-weight:bold;
+    classDef script fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#f57f17,font-weight:bold;
+    classDef db fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20,shape:cylinder,font-weight:bold;
+    classDef config fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c,font-weight:bold;
+
+    %% Extract Phase
+    subgraph Extract ["fa:fa-cloud-download-alt Extract Phase"]
+        direction TB
+        config["fa:fa-cog config.yaml<br/>(Dataset Definitions)"]:::config
+        ckan_api[("fa:fa-server CKAN API<br/>(Open Data BCN)")]:::source
+        ine_api[("fa:fa-globe-europe INE API<br/>(Demographics)")]:::source
+        
+        subgraph Extraction_Scripts ["fa:fa-code Extraction Scripts"]
+            direction TB
+            ode["fa:fa-file-import OpenDataBCNExtractor"]:::script
+            inee["fa:fa-file-import INEExtractor"]:::script
+        end
+    end
+
+    %% Transform Phase
+    subgraph Transform ["fa:fa-cogs Transform Phase"]
+        direction TB
+        
+        subgraph Cleaning ["fa:fa-broom Cleaning"]
+            direction TB
+            cleaner["fa:fa-soap HousingCleaner"]:::script
+            norm["fa:fa-font normalize_neighborhoods"]:::script
+            geom["fa:fa-map-marked-alt process_geometry"]:::script
+        end
+        
+        subgraph Processing ["fa:fa-microchip Processing"]
+            direction TB
+            prep_dim["fa:fa-table prepare_dim_barrios"]:::script
+            prep_fact_demo["fa:fa-users prepare_fact_demografia"]:::script
+            prep_fact_price["fa:fa-euro-sign prepare_fact_precios"]:::script
+            prep_portal["fa:fa-building prepare_portaldades_precios"]:::script
+        end
+    end
+
+    %% Load Phase
+    subgraph Load ["fa:fa-database Load Phase"]
+        direction TB
+        schema_def["fa:fa-scroll sql/schema/<br/>(src/database_setup.py)"]:::config
+        
+        subgraph Dimensions ["Dimensions"]
+            direction TB
+            dim_barrios[("dim_barrios")]:::db
+        end
+        
+        subgraph Facts ["Fact Tables"]
+            direction TB
+            fact_precios[("fact_precios")]:::db
+            fact_demografia[("fact_demografia")]:::db
+            fact_demo_amp[("fact_demografia_ampliada")]:::db
+            fact_renta[("fact_renta")]:::db
+            fact_idealista[("fact_oferta_idealista")]:::db
+            etl_runs[("etl_runs")]:::db
+        end
+    end
+
+    %% Data Flow Connections
+    config ==>|Configures| ode
+    ckan_api ==>|JSON/CSV| ode
+    ine_api ==>|JSON/CSV| inee
+    
+    ode -->|Raw DataFrames| cleaner
+    inee -->|Raw DataFrames| cleaner
+    
+    cleaner -->|Calls| norm
+    cleaner -->|Calls| geom
+    norm -->|Cleaned Data| Processing
+    geom -->|Cleaned Data| Processing
+    
+    Processing -->|Orchestrates| prep_dim
+    Processing -->|Orchestrates| prep_fact_demo
+    Processing -->|Orchestrates| prep_fact_price
+    Processing -->|Orchestrates| prep_portal
+    
+    prep_dim -.->|Inserts| dim_barrios
+    prep_fact_price -.->|Inserts| fact_precios
+    prep_fact_demo -.->|Inserts| fact_demografia
+    
+    %% Implicit flows
+    Processing -.->|Populates| fact_demo_amp
+    Processing -.->|Populates| fact_renta
+    Processing -.->|Populates| fact_idealista
+    Processing -.->|Logs| etl_runs
+
+    %% Link Styling
+    linkStyle default stroke:#607d8b,stroke-width:2px;

@@ -1,0 +1,461 @@
+---
+description: Python ETL standards. Focus on Pandas, data cleaning, deduplication logic, and multi-source data handling.
+globs: ["src/**/*.py", "scripts/*.py"]
+alwaysApply: false
+---
+
+# 100 - ETL & Data Processing Rules
+
+## 🛑 Critical: Multi-Source Deduplication Logic
+
+We handle data from multiple sources (Open Data BCN, Portal de Dades, Idealista). **Source identity must be preserved** throughout the ETL pipeline.
+
+### ✅ Best Practice: Preserve Source Granularity
+
+**Rule:** Uniqueness is defined by `(barrio_id, anio, trimestre, dataset_id, source)`, not just `(barrio_id, anio, trimestre)`.
+
+```python
+# GOOD: Includes source/dataset_id in the key
+df_deduped = df.drop_duplicates(
+    subset=['barrio_id', 'anio', 'trimestre', 'source', 'dataset_id'],
+    keep='last'  # Or implement specific logic to keep the most robust source
+)
+```
+
+### ❌ Anti-Pattern: Aggressive Deduplication (DO NOT DO THIS)
+
+Merging sources blindly causes data loss. **Never deduplicate without including `dataset_id` and `source` in the key.**
+
+```python
+# BAD: This destroys the distinction between 'OpenData' and 'PortalDades'
+df_grouped = df.groupby(['barrio_id', 'anio', 'trimestre'])['precio'].mean()
+
+# BAD: This loses source information
+df_clean = df.drop_duplicates(subset=['barrio_id', 'anio', 'trimestre'])
+
+# BAD: This averages different metrics from different sources
+df_merged = df.groupby(['barrio_id', 'anio']).agg({'precio': 'mean'})
+```
+
+### ✅ Correct Pattern: Combine Sources with Traceability
+
+When combining multiple sources for the same barrio-year, preserve source information:
+
+```python
+# GOOD: Combine sources while preserving traceability
+fact = (
+    fact.groupby(["barrio_id", "anio", "trimestre_normalized"], as_index=False)
+    .agg({
+        "precio_m2_venta": "first",  # Take first non-null
+        "precio_mes_alquiler": "first",
+        "dataset_id": lambda x: "|".join(sorted(set(x.dropna().astype(str)))),  # Combine IDs
+        "source": lambda x: "|".join(sorted(set(x.dropna().astype(str)))),  # Combine sources
+        "etl_loaded_at": "max",
+    })
+)
+```
+
+**Result**: One row per `(barrio_id, anio, trimestre)` with combined metrics and full source traceability in `dataset_id` and `source` fields.
+
+## Data Cleaning Patterns
+
+### 🗺️ Neighborhood Normalization
+
+**There are exactly 73 neighborhoods in Barcelona.**
+
+**Always use `HousingCleaner` for neighborhood name normalization:**
+
+```python
+from src.transform.cleaners import HousingCleaner
+
+cleaner = HousingCleaner()
+df['barrio_nombre_normalized'] = df['barrio_nombre'].apply(cleaner.normalize_neighborhoods)
+```
+
+**Key Features**:
+- Removes leading indices (e.g., "1. ")
+- Removes AEI suffixes
+- Removes footnotes (e.g., "(1)")
+- Normalizes accents and special characters
+- Applies known alias overrides
+
+**Validation: If a transformation results in < 73 or > 73 unique IDs, raise a ValueError:**
+
+```python
+# GOOD: Validate neighborhood count
+unique_barrios = df['barrio_id'].nunique()
+if unique_barrios != 73:
+    raise ValueError(
+        f"Expected exactly 73 neighborhoods, found {unique_barrios}. "
+        f"Check normalization logic."
+    )
+```
+
+**Input variations to handle:**
+- "El Raval" vs "Raval"
+- "Sant Gervasi" vs "S. Gervasi"
+- "L'Antiga Esquerra de l'Eixample" vs "Antiga Esquerra Eixample"
+
+### Encoding Issues (Mojibake)
+
+**Always fix encoding issues before processing:**
+
+```python
+# GOOD: Fix double-encoding issues
+cleaned_df[name_col] = cleaned_df[name_col].apply(cleaner._fix_mojibake)
+```
+
+### Geometry Processing
+
+**Validate GeoJSON before storing:**
+
+```python
+# GOOD: Validate geometry structure
+geometry_obj = cleaner.process_geometry(geometry_json, barrio_id=row['barrio_id'])
+if geometry_obj is None:
+    logger.warning(f"Invalid geometry for barrio {barrio_id}")
+```
+
+## 🐼 Pandas ETL Best Practices
+
+### Explicit Types
+
+**Cast columns immediately after load:**
+
+```python
+# GOOD: Explicit type casting
+df['anio'] = df['anio'].astype(int)
+df['precio'] = pd.to_numeric(df['precio'], errors='coerce')
+df['barrio_id'] = df['barrio_id'].astype(int)
+```
+
+### Null Safety
+
+**Always check for NaN in critical columns (Keys, Values) before loading:**
+
+```python
+# GOOD: Validate nulls in critical columns
+critical_cols = ['barrio_id', 'anio', 'precio']
+null_counts = df[critical_cols].isnull().sum()
+if null_counts.any():
+    logger.warning(f"Valores nulos en columnas críticas:\n{null_counts}")
+    # Decide: drop, fill, or raise error
+```
+
+### Chained Assignment
+
+**Use `.copy()` when filtering to avoid SettingWithCopyWarning:**
+
+```python
+# GOOD: Avoid SettingWithCopyWarning
+cleaned_df = df.copy()
+cleaned_df['new_column'] = cleaned_df['existing_column'] * 2
+
+# BAD: Chained assignment warning
+df[df['anio'] > 2020]['new_column'] = 100  # DON'T DO THIS
+```
+
+### DataFrame Operations
+
+**Check for empty DataFrames before operations:**
+
+```python
+# GOOD: Handle empty DataFrames gracefully
+if df.empty:
+    logger.warning("DataFrame vacío recibido")
+    return pd.DataFrame()
+
+# GOOD: Filter empty frames before concatenation
+non_empty_frames = [f for f in frames if not f.empty]
+if non_empty_frames:
+    result = pd.concat(non_empty_frames, ignore_index=True)
+```
+
+### Null Handling
+
+**Normalize NULL values for database compatibility:**
+
+```python
+# GOOD: Normalize NULL trimestre for database index
+fact["trimestre_normalized"] = fact["trimestre"].fillna(-1).infer_objects(copy=False)
+# ... groupby operations ...
+# Restore NULL after operations
+fact["trimestre"] = fact["trimestre"].replace(-1, pd.NA)
+```
+
+**Validate required columns exist:**
+
+```python
+# GOOD: Ensure required columns with defaults
+required_columns = ['barrio_id', 'anio', 'precio', 'source']
+for col in required_columns:
+    if col not in df.columns:
+        if col == 'precio':
+            df[col] = pd.NA
+        elif col == 'source':
+            df[col] = 'unknown'
+```
+
+### Concatenation Patterns
+
+**Always use `ignore_index=True` and `sort=False` for ETL concatenations:**
+
+```python
+# GOOD: Safe concatenation
+combined = pd.concat([df1, df2, df3], ignore_index=True, sort=False)
+```
+
+**Sort before deduplication for deterministic results:**
+
+```python
+# GOOD: Sort before deduplication
+df = (
+    df.sort_values(["anio", "barrio_id", "source"])
+    .drop_duplicates(subset=["barrio_id", "anio"], keep="first")
+    .reset_index(drop=True)
+)
+```
+
+## Source Data Loading
+
+### File Reading
+
+**Always validate file existence and handle errors:**
+
+```python
+# GOOD: Safe file reading with validation
+def _safe_read_csv(path: Path) -> pd.DataFrame:
+    if not path or not path.exists():
+        raise FileNotFoundError(f"El archivo requerido no existe: {path}")
+    logger.info("Leyendo archivo %s", path.name)
+    return pd.read_csv(path)
+```
+
+**Use automatic encoding detection for CSV files:**
+
+```python
+# GOOD: Detect encoding automatically
+import chardet
+
+with open(filepath, 'rb') as f:
+    raw_data = f.read()
+    detected = chardet.detect(raw_data)
+    encoding = detected.get('encoding', 'utf-8')
+
+df = pd.read_csv(filepath, encoding=encoding)
+```
+
+### Finding Latest Files
+
+**Use timestamp-based file discovery for latest extractions:**
+
+```python
+# GOOD: Find latest file by modification time
+def _find_latest_file(directory: Path, pattern: str) -> Optional[Path]:
+    files = sorted(directory.glob(pattern), key=lambda p: p.stat().st_mtime)
+    return files[-1] if files else None
+```
+
+## Data Validation
+
+### Required Columns
+
+**Always validate required columns before processing:**
+
+```python
+# GOOD: Validate required columns
+required_cols = ['barrio_id', 'anio', 'precio']
+missing = set(required_cols) - set(df.columns)
+if missing:
+    raise ValueError(f"Columnas faltantes: {missing}")
+```
+
+### Data Type Validation
+
+**Validate and convert data types explicitly:**
+
+```python
+# GOOD: Explicit type conversion with error handling
+df['precio'] = pd.to_numeric(df['precio'], errors='coerce')
+df['anio'] = df['anio'].astype(int)
+df['barrio_id'] = df['barrio_id'].astype(int)
+```
+
+### Foreign Key Validation
+
+**Validate foreign keys before database insertion:**
+
+```python
+# GOOD: Validate barrio_id exists in dim_barrios
+valid_barrios = set(dim_barrios['barrio_id'].unique())
+invalid = set(df['barrio_id'].unique()) - valid_barrios
+if invalid:
+    logger.warning(f"Barrios inválidos encontrados: {invalid}")
+    df = df[df['barrio_id'].isin(valid_barrios)]
+```
+
+## Logging in ETL
+
+### Progress Logging
+
+**Log progress at key stages:**
+
+```python
+# GOOD: Informative logging
+logger.info("Procesando %s registros de venta del Portal de Dades", len(df))
+logger.info("✓ Datos de renta cargados: %s", filepath.name)
+logger.warning("No se encontró archivo de venta. La tabla fact_precios se cargará vacía.")
+```
+
+### Error Logging
+
+**Log errors with full context:**
+
+```python
+# GOOD: Error logging with context
+try:
+    df = process_data(source_df)
+except Exception as e:
+    logger.error(f"Error procesando datos del Portal de Dades: {e}")
+    logger.debug(traceback.format_exc())
+    raise
+```
+
+## Database Loading
+
+### Transaction Management
+
+**Always use transactions for multi-step database operations:**
+
+```python
+# GOOD: Transaction-based loading
+conn = sqlite3.connect(db_path)
+try:
+    df.to_sql("fact_precios", conn, if_exists="append", index=False)
+    conn.commit()
+except Exception as e:
+    conn.rollback()
+    logger.error(f"Error cargando datos: {e}")
+    raise
+finally:
+    conn.close()
+```
+
+### Truncate Before Load
+
+**Truncate tables before loading to avoid constraint violations:**
+
+```python
+# GOOD: Truncate before load
+tables_to_truncate = ["fact_precios", "fact_demografia"]
+truncate_tables(conn, tables_to_truncate)
+create_database_schema(conn)  # Recreate indexes
+df.to_sql("fact_precios", conn, if_exists="append", index=False)
+```
+
+## ETL Pipeline Structure
+
+### Function Organization
+
+**Organize ETL functions by data domain:**
+
+```python
+# GOOD: Clear function naming and organization
+def prepare_fact_precios(...) -> pd.DataFrame:
+    """Build the housing prices fact table from multiple sources."""
+    
+def prepare_fact_demografia(...) -> pd.DataFrame:
+    """Build the demographics fact table."""
+    
+def prepare_dim_barrios(...) -> pd.DataFrame:
+    """Build the neighborhoods dimension table."""
+```
+
+### Error Recovery
+
+**Implement graceful degradation for optional data sources:**
+
+```python
+# GOOD: Handle optional sources gracefully
+if idealista_path and idealista_path.exists():
+    try:
+        idealista_df = _safe_read_csv(idealista_path)
+        # Process idealista data
+    except Exception as e:
+        logger.warning("Error cargando datos de Idealista: %s", e)
+        # Continue without Idealista data
+else:
+    logger.debug("No se encontraron datos de Idealista (opcional)")
+```
+
+## Performance Considerations
+
+### Memory Management
+
+**Process large datasets in chunks when possible:**
+
+```python
+# GOOD: Process large files in chunks
+chunk_size = 10000
+for chunk in pd.read_csv(large_file, chunksize=chunk_size):
+    processed_chunk = process_data(chunk)
+    # Append to database or combine
+```
+
+### Avoid Unnecessary Copies
+
+**Use `inplace=True` or direct assignment when safe:**
+
+```python
+# GOOD: Direct assignment when safe
+df['normalized_name'] = df['name'].apply(normalize)
+# Instead of: df = df.assign(normalized_name=df['name'].apply(normalize))
+```
+
+## Testing ETL Functions
+
+### Test Data Validation
+
+**Test with realistic data structures:**
+
+```python
+# GOOD: Test with realistic data
+def test_prepare_fact_precios():
+    """Test fact_precios preparation with multiple sources."""
+    venta_df = pd.DataFrame({
+        'barrio_id': [1, 2],
+        'anio': [2020, 2020],
+        'precio': [3000, 4000],
+        'source': ['opendatabcn', 'opendatabcn']
+    })
+    # ... test logic
+```
+
+### Test Edge Cases
+
+**Test empty DataFrames, NULL values, and missing columns:**
+
+```python
+# GOOD: Test edge cases
+def test_prepare_fact_precios_empty():
+    """Test with empty input."""
+    result = prepare_fact_precios(
+        venta=pd.DataFrame(),
+        dim_barrios=dim_barrios,
+        ...
+    )
+    assert result.empty
+```
+
+## 🔍 AI Verification Step
+
+**Before outputting code, ask yourself:**
+
+> "Does this transformation preserve the 73 unique neighborhood IDs, or does it accidentally filter some out due to string mismatches?"
+
+**Checklist:**
+- ✅ Are all 73 barrios present after normalization?
+- ✅ Are source identities preserved in deduplication?
+- ✅ Are NULL values handled explicitly?
+- ✅ Are data types explicitly cast?
+- ✅ Is `.copy()` used when modifying DataFrames?

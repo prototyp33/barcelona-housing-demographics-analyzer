@@ -1,0 +1,320 @@
+---
+description: SQL schema standards, column naming, and database interactions.
+globs: ["sql/**/*.sql", "src/database*.py", "**/*db*.py"]
+alwaysApply: false
+---
+
+# 200 - Database & Schema Standards
+
+## 🗄️ The Star Schema
+
+We use a centralized SQLite database: `data/processed/database.db`.
+
+### Table: `dim_barrios`
+
+- **PK:** `barrio_id` (Integer, 1-73)
+- **Key Columns:** `barrio_nombre`, `distrito_nombre`, `codi_barri`, `geometry_json`
+- **Constraint:** `geometry_json` must be valid GeoJSON string (EPSG:4326).
+- **Unique Index:** `barrio_nombre_normalizado`
+
+### Table: `fact_precios`
+
+- **PK:** `id` (AUTOINCREMENT)
+- **Columns:** `barrio_id`, `anio`, `trimestre`, `precio_m2_venta`, `precio_mes_alquiler`, `dataset_id`, `source`, `etl_loaded_at`
+- **Constraint:** Unique Index on `(barrio_id, anio, COALESCE(trimestre, -1))`.
+- **Foreign Key:** `barrio_id` → `dim_barrios.barrio_id`
+
+### Table: `fact_demografia`
+
+- **PK:** `id` (AUTOINCREMENT)
+- **Columns:** `barrio_id`, `anio`, `poblacion_total`, `poblacion_hombres`, `poblacion_mujeres`, `hogares_totales`, `edad_media`, `porc_inmigracion`, `densidad_hab_km2`, `dataset_id`, `source`, `etl_loaded_at`
+- **Constraint:** Unique Index on `(barrio_id, anio)`.
+- **Foreign Key:** `barrio_id` → `dim_barrios.barrio_id`
+
+### Table: `fact_demografia_ampliada`
+
+- **PK:** `id` (AUTOINCREMENT)
+- **Columns:** `barrio_id`, `anio`, `sexo`, `grupo_edad`, `nacionalidad`, `poblacion`, `dataset_id`, `source`, `etl_loaded_at`
+- **Index:** `(barrio_id, anio)`
+- **Foreign Key:** `barrio_id` → `dim_barrios.barrio_id`
+
+### Table: `fact_renta`
+
+- **PK:** `id` (AUTOINCREMENT)
+- **Columns:** `barrio_id`, `anio`, `renta_euros`, `renta_promedio`, `renta_mediana`, `num_secciones`, `dataset_id`, `source`, `etl_loaded_at`
+- **Constraint:** Unique Index on `(barrio_id, anio)`.
+- **Foreign Key:** `barrio_id` → `dim_barrios.barrio_id`
+
+### Table: `fact_oferta_idealista`
+
+- **PK:** `id` (AUTOINCREMENT)
+- **Columns:** `barrio_id`, `operacion`, `anio`, `mes`, `num_anuncios`, `precio_medio`, `precio_m2_medio`, `dataset_id`, `source`, `etl_loaded_at`
+- **Constraint:** Unique Index on `(barrio_id, operacion, anio, mes)`.
+- **Foreign Key:** `barrio_id` → `dim_barrios.barrio_id`
+
+### Table: `etl_runs`
+
+- **PK:** `run_id` (TEXT)
+- **Columns:** `started_at`, `finished_at`, `status`, `parameters` (JSON)
+
+## 🔄 Mapping Strategy (Spanish -> English)
+
+When loading data, map these raw headers to DB columns:
+
+| Raw CSV Header (Spanish) | DB Column (English) | Notes |
+| :--- | :--- | :--- |
+| `Anio` / `Any` | `anio` | Integer year |
+| `Trimestre` | `trimestre` | Integer 1-4, or NULL |
+| `Nom_Barri` / `Barrio` | `barrio_nombre` | Original name |
+| `Codi_Barri` | `codi_barri` | Official neighborhood code |
+| `Preu_Venda` / `Precio_Venta` | `precio_m2_venta` | Price per m² (sale) |
+| `Preu_Lloguer` / `Precio_Alquiler` | `precio_mes_alquiler` | Monthly rent price |
+| `Població` / `Poblacion` | `poblacion_total` | Total population |
+| `Homes` / `Hombres` | `poblacion_hombres` | Male population |
+| `Dones` / `Mujeres` | `poblacion_mujeres` | Female population |
+| `Renda` / `Renta` | `renta_euros` | Household income in euros |
+
+**Important:** Always normalize neighborhood names using `HousingCleaner` before mapping to `barrio_id`.
+
+## 🛡️ Security & Performance
+
+### Parameterized Queries
+
+**Always use parameterized queries to prevent SQL injection:**
+
+```python
+# YES: Parameterized query
+cursor.execute("SELECT * FROM dim_barrios WHERE barrio_id = ?", (barrio_id,))
+
+# NO: String formatting (SQL injection risk)
+cursor.execute(f"SELECT * FROM dim_barrios WHERE barrio_id = {barrio_id}")
+```
+
+### Transactions
+
+**Always wrap write operations in transaction blocks:**
+
+```python
+# GOOD: Transaction-based operations
+conn = sqlite3.connect(db_path)
+try:
+    with conn:
+        cursor.execute("INSERT INTO fact_precios (...) VALUES (?, ?, ?)", values)
+        # Multiple operations are atomic
+    conn.commit()
+except sqlite3.Error as e:
+    conn.rollback()
+    logger.error(f"Database error: {e}")
+    raise
+finally:
+    conn.close()
+```
+
+### Foreign Key Constraints
+
+**Always enable foreign keys and validate before inserts:**
+
+```python
+# GOOD: Enable foreign keys
+conn = sqlite3.connect(db_path)
+conn.execute("PRAGMA foreign_keys = ON;")
+
+# GOOD: Validate foreign key exists
+cursor.execute("SELECT 1 FROM dim_barrios WHERE barrio_id = ?", (barrio_id,))
+if not cursor.fetchone():
+    raise ValueError(f"Barrio {barrio_id} no existe en dim_barrios")
+```
+
+### Idempotency
+
+**Use INSERT OR REPLACE or check existence to allow re-running scripts safely:**
+
+```python
+# GOOD: Idempotent insert
+cursor.execute("""
+    INSERT OR REPLACE INTO fact_precios 
+    (barrio_id, anio, trimestre, precio_m2_venta, source)
+    VALUES (?, ?, ?, ?, ?)
+""", (barrio_id, anio, trimestre, precio, source))
+
+# GOOD: Check before insert
+cursor.execute("SELECT 1 FROM fact_precios WHERE barrio_id = ? AND anio = ?", 
+               (barrio_id, anio))
+if cursor.fetchone():
+    cursor.execute("UPDATE fact_precios SET precio_m2_venta = ? WHERE barrio_id = ? AND anio = ?",
+                   (precio, barrio_id, anio))
+else:
+    cursor.execute("INSERT INTO fact_precios (...) VALUES (...)", values)
+```
+
+## Database Connection Management
+
+### Connection Creation
+
+**Use helper function to create connections with proper settings:**
+
+```python
+# GOOD: Use project helper
+from src.database_setup import create_connection
+
+conn = create_connection(db_path)
+# Foreign keys are automatically enabled
+```
+
+### Connection Closing
+
+**Always close connections explicitly or use context managers:**
+
+```python
+# GOOD: Explicit close
+conn = create_connection(db_path)
+try:
+    # ... operations ...
+finally:
+    conn.close()
+
+# GOOD: Context manager (if available)
+with create_connection(db_path) as conn:
+    # ... operations ...
+```
+
+## Schema Creation
+
+### Table Creation
+
+**Use centralized schema creation function:**
+
+```python
+# GOOD: Use project helper
+from src.database_setup import create_database_schema
+
+conn = create_connection(db_path)
+create_database_schema(conn)
+```
+
+### Index Management
+
+**Create indexes after data loading for better performance:**
+
+```python
+# GOOD: Create indexes after bulk inserts
+df.to_sql("fact_precios", conn, if_exists="append", index=False)
+# Indexes are created by create_database_schema()
+```
+
+## Data Loading Patterns
+
+### Bulk Loading with pandas
+
+**Use pandas `.to_sql()` for bulk inserts:**
+
+```python
+# GOOD: Bulk insert with pandas
+df.to_sql(
+    "fact_precios",
+    conn,
+    if_exists="append",  # or "replace" for full reload
+    index=False,  # Don't write DataFrame index
+)
+
+# GOOD: Validate row count
+expected_rows = len(df)
+actual_rows = cursor.execute("SELECT COUNT(*) FROM fact_precios").fetchone()[0]
+if actual_rows < expected_rows:
+    logger.warning(f"Expected {expected_rows} rows, inserted {actual_rows}")
+```
+
+### Truncate Before Load
+
+**Truncate tables before loading to avoid constraint violations:**
+
+```python
+# GOOD: Truncate before load
+from src.database_setup import truncate_tables
+
+tables_to_truncate = ["fact_precios", "fact_demografia"]
+truncate_tables(conn, tables_to_truncate)
+create_database_schema(conn)  # Recreate indexes
+df.to_sql("fact_precios", conn, if_exists="append", index=False)
+```
+
+## Query Patterns
+
+### Joining with Dimensions
+
+**Always join with dimension tables to get readable names:**
+
+```python
+# GOOD: Join with dim_barrios for readable output
+query = """
+    SELECT 
+        d.barrio_id,
+        b.barrio_nombre,
+        b.distrito_nombre,
+        d.anio,
+        d.precio_m2_venta,
+        d.source
+    FROM fact_precios d
+    JOIN dim_barrios b ON d.barrio_id = b.barrio_id
+    WHERE d.anio = ?
+    ORDER BY d.precio_m2_venta DESC
+"""
+df = pd.read_sql_query(query, conn, params=(2023,))
+```
+
+### Handling NULL Values
+
+**Use COALESCE for NULL handling in unique constraints:**
+
+```python
+# GOOD: Handle NULL in unique index
+CREATE UNIQUE INDEX idx_fact_precios_unique
+ON fact_precios (
+    barrio_id,
+    anio,
+    COALESCE(trimestre, -1)  # Normalize NULL to -1 for index
+);
+```
+
+## Error Handling
+
+### Database Errors
+
+**Catch specific database errors:**
+
+```python
+# GOOD: Specific error handling
+try:
+    df.to_sql("fact_precios", conn, if_exists="append", index=False)
+except sqlite3.IntegrityError as e:
+    logger.error(f"Integrity constraint violation: {e}")
+    # Handle duplicate key or foreign key violation
+except sqlite3.OperationalError as e:
+    logger.error(f"Database operation failed: {e}")
+    # Handle table doesn't exist, etc.
+```
+
+## ETL Audit Trail
+
+### Recording ETL Runs
+
+**Always record ETL execution metadata:**
+
+```python
+# GOOD: Record ETL run
+from src.database_setup import register_etl_run
+from datetime import datetime
+
+started_at = datetime.utcnow()
+# ... ETL operations ...
+finished_at = datetime.utcnow()
+
+register_etl_run(
+    conn,
+    run_id=f"etl_{started_at.strftime('%Y%m%d_%H%M%S')}",
+    started_at=started_at,
+    finished_at=finished_at,
+    status="SUCCESS",
+    parameters={"source": "opendatabcn", "year": 2023}
+)
+```

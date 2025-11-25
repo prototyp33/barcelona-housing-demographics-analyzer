@@ -1,0 +1,113 @@
+erDiagram
+    %% Barcelona Housing Market - Entity Relationship Diagram
+
+    dim_barrios {
+        INTEGER barrio_id PK
+        TEXT barrio_nombre
+        TEXT barrio_nombre_normalizado
+        INTEGER distrito_id
+        TEXT distrito_nombre
+        TEXT municipio
+        TEXT ambito
+        TEXT codi_districte
+        TEXT codi_barri
+        TEXT geometry_json
+        TEXT source_dataset
+        TEXT etl_created_at
+        TEXT etl_updated_at
+    }
+
+    fact_precios {
+        INTEGER id PK
+        INTEGER barrio_id FK
+        INTEGER anio
+        TEXT periodo
+        INTEGER trimestre
+        REAL precio_m2_venta
+        REAL precio_mes_alquiler
+        TEXT dataset_id
+        TEXT source
+        TEXT etl_loaded_at
+    }
+
+    fact_demografia {
+        INTEGER id PK
+        INTEGER barrio_id FK
+        INTEGER anio
+        INTEGER poblacion_total
+        INTEGER poblacion_hombres
+        INTEGER poblacion_mujeres
+        INTEGER hogares_totales
+        REAL edad_media
+        REAL porc_inmigracion
+        REAL densidad_hab_km2
+        TEXT dataset_id
+        TEXT source
+        TEXT etl_loaded_at
+    }
+
+    fact_demografia_ampliada {
+        INTEGER id PK
+        INTEGER barrio_id FK
+        INTEGER anio
+        TEXT sexo
+        TEXT grupo_edad
+        TEXT nacionalidad
+        INTEGER poblacion
+        TEXT barrio_nombre_normalizado
+        TEXT dataset_id
+        TEXT source
+        TEXT etl_loaded_at
+    }
+
+    fact_renta {
+        INTEGER id PK
+        INTEGER barrio_id FK
+        INTEGER anio
+        REAL renta_euros
+        REAL renta_promedio
+        REAL renta_mediana
+        REAL renta_min
+        REAL renta_max
+        INTEGER num_secciones
+        TEXT barrio_nombre_normalizado
+        TEXT dataset_id
+        TEXT source
+        TEXT etl_loaded_at
+    }
+
+    fact_oferta_idealista {
+        INTEGER id PK
+        INTEGER barrio_id FK
+        TEXT operacion
+        INTEGER anio
+        INTEGER mes
+        INTEGER num_anuncios
+        REAL precio_medio
+        REAL precio_mediano
+        REAL precio_min
+        REAL precio_max
+        REAL precio_m2_medio
+        REAL precio_m2_mediano
+        REAL superficie_media
+        REAL superficie_mediana
+        REAL habitaciones_media
+        TEXT barrio_nombre_normalizado
+        TEXT dataset_id
+        TEXT source
+        TEXT etl_loaded_at
+    }
+
+    etl_runs {
+        TEXT run_id PK
+        TEXT started_at
+        TEXT finished_at
+        TEXT status
+        TEXT parameters
+    }
+
+    dim_barrios ||--o{ fact_precios : "records prices for"
+    dim_barrios ||--o{ fact_demografia : "records demographics for"
+    dim_barrios ||--o{ fact_demografia_ampliada : "records detailed demographics for"
+    dim_barrios ||--o{ fact_renta : "records income data for"
+    dim_barrios ||--o{ fact_oferta_idealista : "records listings for"

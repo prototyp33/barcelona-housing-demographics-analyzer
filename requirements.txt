@@ -35,7 +35,7 @@ lxml==6.0.2
 MarkupSafe==3.0.3
 matplotlib==3.10.7
 narwhals==2.11.0
-numpy==2.3.4
+numpy>=2.3.5
 packaging==25.0
 pandas==2.3.3
 parsel==1.10.0
@@ -78,7 +78,8 @@ xyzservices==2025.10.0
 zope.interface==8.1
 playwright==1.48.0
 shapely>=2.0.0
-pytest
+pytest>=9.0.1
 seaborn
 nbformat
 ipykernel
+torch>=2.9.1

@@ -1,6 +1,6 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 17 de noviembre de 2025
+**Última actualización**: 24 de noviembre de 2025
 
 ---
 
@@ -33,12 +33,13 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 - **Base de datos SQLite** (`data/processed/database.db`):
   - ✅ `dim_barrios` - 73 barrios con metadatos completos
-  - ✅ `fact_precios` - 1,119 registros (venta y alquiler)
+- ✅ `fact_precios` - 1,014 registros (venta y alquiler)
   - ✅ `fact_demografia` - 657 registros (2015-2023)
   - ✅ `etl_runs` - Auditoría de ejecuciones ETL
 
 - **Procesamiento de datos** (`src/data_processing.py`):
   - ✅ Normalización de nombres de barrios
+  - ✅ Módulo reutilizable `HousingCleaner` (`src/transform/cleaners.py`) con pruebas unitarias dedicadas
   - ✅ Agregación de datos demográficos
   - ✅ Mapeo de territorios Portal de Dades → barrio_id
   - ✅ Combinación de múltiples fuentes (Open Data BCN + Portal de Dades)
@@ -116,18 +117,18 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 ### Base de Datos Procesada (`data/processed/database.db`)
 
-#### `dim_barrios` (73 registros)
+#### `dim_barrios` (73 registros con geometría)
 ```sql
 - barrio_id (PK)
 - barrio_nombre
 - barrio_nombre_normalizado
 - distrito_id, distrito_nombre
 - codi_districte, codi_barri
-- geometry_json (NULL por ahora)
+- geometry_json (GeoJSON válido por barrio, cargado desde `barrios_geojson_*.json`)
 - source_dataset, etl_created_at, etl_updated_at
 ```
 
-#### `fact_precios` (1,119 registros)
+#### `fact_precios` (1,014 registros)
 ```sql
 - barrio_id (FK)
 - anio (2000-2025)
@@ -140,7 +141,7 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 **Fuentes**:
 - `opendatabcn_idealista`: 59 registros (2015)
-- `portaldades`: 1,060 registros (2000-2025)
+- `portaldades`: 955 registros (2012-2025)
 
 #### `fact_demografia` (657 registros)
 ```sql
@@ -161,11 +162,11 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 ### 1. **Deduplicación en fact_precios** ✅
 
 **Acciones**:
-- La deduplicación ahora conserva la combinación `(barrio_id, anio, trimestre, dataset_id, source)`.
-- Se actualizó el índice único de SQLite para incluir `dataset_id` y `source`.
-- `prepare_fact_precios` concatena fuentes en modo long (un registro por indicador).
+- La deduplicación normaliza `trimestre` (NULL→-1) antes de agrupar para reflejar exactamente el índice único de SQLite `(barrio_id, anio, trimestre)`.
+- Se añadió una verificación final para eliminar duplicados residuales y se reorganizó el orden de truncado/creación de índices en `pipeline.py`.
+- `prepare_fact_precios` concatena únicamente dataframes no vacíos y preserva las fuentes/datasets en campos concatenados (`foo|bar`).
 
-**Resultado**: Se mantienen indicadores múltiples sin sacrificar integridad.
+**Resultado**: Se mantiene una sola fila por barrio-año-trimestre sin violaciones de índice y con trazabilidad completa de fuentes.
 
 ### 2. **Datos de Alquiler de Open Data BCN** 🟡
 

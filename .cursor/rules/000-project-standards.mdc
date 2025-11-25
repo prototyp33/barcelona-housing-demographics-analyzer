@@ -1,0 +1,293 @@
+---
+description: Core project context for Barcelona Housing Demographics Analyzer. Essential information about data sources, scope, and current priorities.
+alwaysApply: true
+---
+# Barcelona Housing Demographics Analyzer - Project Context
+
+## Project Overview
+Data analysis platform combining demographic and real estate data for Barcelona's 73 neighborhoods (barrios).
+
+### Tech Stack
+- **Language**: Python 3.9+
+- **Data Processing**: pandas, geopandas
+- **Database**: SQLite (`data/processed/database.db`)
+- **Analysis**: Jupyter notebooks
+- **Testing**: pytest
+- **Future**: Streamlit dashboard (post-sprint)
+
+### Data Sources & Constraints
+| Source | Coverage | Constraints |
+|--------|----------|-------------|
+| Open Data BCN | 2015-2023 | CKAN API, 10 req/sec |
+| Portal de Dades | 2000-2025 | Custom REST API, quarterly data |
+| IDESCAT | Municipal level | Census every 5 years |
+| Idealista (RapidAPI) | Current market | **150 calls/month limit** |
+
+### Critical Business Rules
+- **73 neighborhoods** (barrios) total in Barcelona
+- Use `codi_barri` (official code) for all neighborhood matching
+- Never modify files in `data/raw/` (immutable source of truth)
+- All extractors inherit from `BaseExtractor` pattern
+- Database has referential integrity enforced via foreign keys
+
+## Current Sprint Focus: Data Integrity (Nov 2025)
+
+**Priority Tasks (MUST complete before new features)**:
+1. Fix deduplication in `fact_precios` table (data loss issue)
+2. Inject GeoJSON geometries into `dim_barrios.geometry_json`
+3. Enrich demographic fields in `fact_demografia`
+
+**Blocked Until Sprint Complete**:
+- ❌ Streamlit dashboard development
+- ❌ New Idealista scraping features
+- ❌ Machine learning models
+- ❌ Advanced visualizations
+
+**Sprint Success Criteria**:
+- `fact_precios`: Multi-source records preserved (>1014 rows)
+- `dim_barrios`: 73/73 barrios have valid geometry_json
+- `fact_demografia`: <10% null values in key fields
+
+## Key Files Reference
+- Main database schema: `src/database_setup.py`
+- ETL pipeline: `src/data_processing.py`
+- Data cleaners: `src/transform/cleaners.py`
+- Logging utility: `src/utils/logger.py`
+
+## Directory Structure (DO NOT VIOLATE)
+barcelona-housing-demographics-analyzer/
+├── src/ # Source code modules
+├── scripts/ # Executable CLI scripts
+├── notebooks/ # Jupyter analysis notebooks
+├── data/
+│ ├── raw/ # Original data (NEVER modify)
+│ ├── processed/ # Transformed data + database.db
+│ └── logs/ # Extraction metadata
+├── docs/ # Documentation
+├── tests/ # Unit and integration tests
+└── .cursor/rules/ # These rules (version controlled)
+
+## Code Style Standards
+
+### Python Conventions
+- **PEP 8**: Follow Python PEP 8 style guide strictly
+- **Type Hints**: All function signatures MUST include type hints
+- **String Formatting**: Prefer f-strings over `.format()` or `%` formatting
+- **Line Length**: Maximum 100 characters per line
+- **Imports**: Group imports (stdlib, third-party, local) with blank lines between groups
+
+### Example
+```python
+from typing import Optional, Dict, List
+import pandas as pd
+from src.transform.cleaners import HousingCleaner
+
+def process_demographics(
+    df: pd.DataFrame,
+    barrio_id: int,
+    year: Optional[int] = None
+) -> Dict[str, float]:
+    """Procesa datos demográficos para un barrio específico."""
+    # Implementation
+```
+
+## Documentation Standards
+
+### Docstrings
+- **Format**: Google-style docstrings for all functions and classes
+- **Required Sections**: `Args`, `Returns`, `Raises` (when applicable)
+- **Language**: Spanish for docstrings and comments (technical terms in English)
+
+### Example
+```python
+def normalize_barrio_name(name: str) -> str:
+    """
+    Normaliza el nombre de un barrio eliminando acentos y caracteres especiales.
+    
+    Args:
+        name: Nombre del barrio a normalizar
+    
+    Returns:
+        Nombre normalizado en minúsculas sin acentos
+    
+    Raises:
+        ValueError: Si el nombre está vacío o es None
+    """
+```
+
+### Inline Comments
+- Add comments for complex logic blocks
+- Explain "why" not "what" (code should be self-documenting)
+- Use Spanish for comments
+
+## Error Handling Standards
+
+### Exception Handling
+- **NEVER** use bare `except:` clauses
+- Always catch specific exceptions (e.g., `ValueError`, `KeyError`, `FileNotFoundError`)
+- Log errors with context using the `logging` module (never use `print()`)
+- Include error recovery strategies when possible
+
+### Example
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    df = pd.read_csv(file_path)
+except FileNotFoundError:
+    logger.error(f"Archivo no encontrado: {file_path}")
+    raise
+except pd.errors.EmptyDataError:
+    logger.warning(f"Archivo vacío: {file_path}")
+    return pd.DataFrame()
+except Exception as e:
+    logger.error(f"Error inesperado al leer {file_path}: {e}", exc_info=True)
+    raise
+```
+
+## Data Processing Standards
+
+### Pandas Best Practices
+- **Validation**: Always validate data types after loading DataFrames
+- **Null Checks**: Explicitly check for null values using `.isna()` or `.isnull()`
+- **Copy Operations**: Use `.copy()` when modifying DataFrames to avoid `SettingWithCopyWarning`
+- **Documentation**: Document data transformations with comments
+
+### Example
+```python
+def clean_housing_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Limpia y valida datos de vivienda.
+    
+    Args:
+        df: DataFrame con datos brutos de vivienda
+    
+    Returns:
+        DataFrame limpio y validado
+    """
+    # Validar tipos de datos
+    if df.empty:
+        logger.warning("DataFrame vacío recibido")
+        return df.copy()
+    
+    # Crear copia para evitar SettingWithCopyWarning
+    df_clean = df.copy()
+    
+    # Validar columnas requeridas
+    required_cols = ['barrio_id', 'precio', 'anio']
+    missing = set(required_cols) - set(df_clean.columns)
+    if missing:
+        raise ValueError(f"Columnas faltantes: {missing}")
+    
+    # Verificar valores nulos
+    null_counts = df_clean[required_cols].isnull().sum()
+    if null_counts.any():
+        logger.warning(f"Valores nulos detectados:\n{null_counts}")
+    
+    # Transformaciones
+    df_clean['precio'] = pd.to_numeric(df_clean['precio'], errors='coerce')
+    
+    return df_clean
+```
+
+## Logging Standards
+
+### Logging Configuration
+- Use `logging.getLogger(__name__)` for module-level loggers
+- Log levels: `DEBUG` (detailed), `INFO` (general), `WARNING` (issues), `ERROR` (failures), `CRITICAL` (system failures)
+- Include context in log messages (file paths, IDs, counts)
+- Use `exc_info=True` when logging exceptions
+
+### Example
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+logger.info(f"Procesando {len(df)} registros de barrios")
+logger.debug(f"Columnas detectadas: {df.columns.tolist()}")
+logger.warning(f"Valores nulos en 'precio': {df['precio'].isnull().sum()}")
+```
+
+## Testing Standards
+
+### Test Organization
+- Tests in `tests/` directory mirroring `src/` structure
+- Test files: `test_*.py` or `*_test.py`
+- Use pytest fixtures for common setup
+- Test both happy paths and edge cases
+
+### Example
+```python
+import pytest
+import pandas as pd
+from src.transform.cleaners import HousingCleaner
+
+def test_housing_cleaner_deduplication():
+    """Verifica que el cleaner elimina duplicados correctamente."""
+    cleaner = HousingCleaner()
+    df = pd.DataFrame({
+        'barrio_id': [1, 1, 2],
+        'precio': [100, 100, 200]
+    })
+    result = cleaner.deduplicate(df)
+    assert len(result) == 2
+```
+
+## Language Conventions
+
+### Comments and Documentation
+- **Spanish**: Use Spanish for all comments, docstrings, and commit messages
+- **English**: Keep technical terms, function names, and variable names in English
+- **Mixed**: Code is in English, explanations are in Spanish
+
+### Example
+```python
+# Calcula el precio medio por barrio agrupando por año
+def calculate_average_price(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calcula el precio medio de vivienda por barrio y año.
+    
+    Agrupa los datos por barrio_id y anio, calculando la media
+    de los precios. Filtra valores atípicos antes del cálculo.
+    """
+    # Filtrar outliers usando IQR method
+    q1 = df['precio'].quantile(0.25)
+    q3 = df['precio'].quantile(0.75)
+    iqr = q3 - q1
+    # ... más código
+```
+
+## Database Standards
+
+### SQLite Conventions
+- Use parameterized queries to prevent SQL injection
+- Always use transactions for multi-step operations
+- Validate foreign key constraints before inserts
+- Use `codi_barri` as the canonical identifier for neighborhoods
+
+### Example
+```python
+def insert_barrio_data(conn: sqlite3.Connection, barrio_id: int, data: Dict):
+    """Inserta datos de barrio con validación de integridad referencial."""
+    cursor = conn.cursor()
+    try:
+        # Validar que el barrio existe
+        cursor.execute("SELECT 1 FROM dim_barrios WHERE barrio_id = ?", (barrio_id,))
+        if not cursor.fetchone():
+            raise ValueError(f"Barrio {barrio_id} no existe en dim_barrios")
+        
+        # Insertar con transacción
+        cursor.execute(
+            "INSERT INTO fact_demografia (barrio_id, anio, poblacion) VALUES (?, ?, ?)",
+            (barrio_id, data['anio'], data['poblacion'])
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        conn.rollback()
+        logger.error(f"Error de integridad al insertar barrio {barrio_id}: {e}")
+        raise
+```
+

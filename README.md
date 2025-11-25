@@ -22,11 +22,15 @@ barcelona-housing-demographics-analyzer/
 ├── data/
 │   ├── raw/           # Raw data from sources
 │   └── processed/     # Cleaned and normalized data
-├── docs/              # Documentation
+├── docs/              # Documentation (planning assets + visuals/wireframes)
+│   ├── planning/      # Roadmaps, discovery notes, sprint backlogs
+│   └── visuals/       # Wireframes, diagrams, exploratory figures
 ├── notebooks/         # Jupyter notebooks for analysis
 ├── src/               # Source code
 │   ├── data_extraction.py    # Data extraction from sources
 │   ├── data_processing.py    # Data cleaning and normalization
+│   ├── transform/
+│   │   └── cleaners.py       # HousingCleaner class used across ETL & notebooks
 │   ├── database_setup.py     # Database schema and setup
 │   ├── analysis.py           # Analytical functions
 │   └── app.py                # Streamlit dashboard
@@ -43,12 +47,14 @@ git clone https://github.com/yourusername/barcelona-housing-demographics-analyze
 cd barcelona-housing-demographics-analyzer
 ```
 
-2. Create a virtual environment and install dependencies:
+2. Create (or reuse) the project virtual environment and install dependencies:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+> 💡 Tip: in VS Code/Cursor run `Python: Select Interpreter` and pick `.venv` so notebooks, tests, and the run button always use the same interpreter.
 
 3. (Optional) Set up environment variables for Idealista API:
 ```bash
@@ -162,7 +168,7 @@ This creates `data/processed/database.db` with:
 - **dim_barrios**: Neighborhood dimension table (73 barrios with GeoJSON geometries)
 - **fact_demografia**: Standard demographic facts (population by year and barrio)
 - **fact_demografia_ampliada**: Extended demographics (age groups and nationality by barrio, year, sex)
-- **fact_precios**: Housing prices facts (sale and rental prices by year and barrio)
+- **fact_precios**: Housing prices facts (sale and rental prices by year and barrio, deduplicated via `HousingCleaner`)
 - **fact_renta**: Income facts (household disposable income by barrio and year)
 - **etl_runs**: ETL execution audit log
 

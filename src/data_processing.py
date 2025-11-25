@@ -10,30 +10,17 @@ import unicodedata
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
+from src.transform.cleaners import HousingCleaner
+
 logger = logging.getLogger(__name__)
 
-NORMALIZATION_PATTERN = re.compile(r"[^a-z0-9]+")
-LEADING_INDEX_PATTERN = re.compile(r"^\d+[\.,]?\s*")
-AEI_SUFFIX_PATTERN = re.compile(r"\s*-\s*AEI.*$", re.IGNORECASE)
-FOOTNOTE_PATTERN = re.compile(r"\s*\(\d+\)$")
-
-BARRIO_ALIAS_OVERRIDES = {
-    "antigaesquerraeixample": "lantigaesquerradeleixample",
-    "novaesquerraeixample": "lanovaesquerradeleixample",
-    "vilaolimpicadelpoblenou": "lavilolimpicadelpoblenou",
-    "fontdenfargues": "lafontdenfargues",
-    "bordeta": "labordeta",
-    "marinadeport": "lamarinadeport",
-    "marinadelpratvermell": "lamarinadelpratvermell",
-    "trinitatnova": "latrinitatnova",
-    "trinitatvella": "latrinitatvella",
-    "guineueta": "laguineueta",
-}
+# Initialize cleaner
+cleaner = HousingCleaner()
 
 
 def _parse_household_size(label: Optional[str]) -> Optional[float]:
@@ -63,56 +50,6 @@ def _parse_household_size(label: Optional[str]) -> Optional[float]:
         return float(digits[0])
 
     return None
-
-
-def _fix_mojibake(text: str) -> str:
-    """Fix common encoding issues (Mojibake) where UTF-8 was interpreted as Latin-1."""
-    if not isinstance(text, str):
-        return text
-    try:
-        # Attempt to fix double encoding: encode latin-1, decode utf-8
-        # e.g., "GÃ²tic" -> bytes(c3 b2) -> "Gòtic"
-        return text.encode("latin-1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return text
-
-
-def _normalize_text(value: Optional[str]) -> str:
-    """Return a normalized key for matching barrio names."""
-
-    if value is None:
-        return ""
-    
-    # Convert to string and strip whitespace
-    value = str(value).strip()
-    
-    # Apply cleaning patterns BEFORE lowercasing/stripping non-alphanumeric
-    # This handles "2. el Barri..." and "... - AEI ..." cases
-    value = LEADING_INDEX_PATTERN.sub("", value)
-    value = AEI_SUFFIX_PATTERN.sub("", value)
-    value = FOOTNOTE_PATTERN.sub("", value)
-    
-    # Standard normalization
-    value = value.lower()
-    value = unicodedata.normalize("NFKD", value)
-    value = "".join(ch for ch in value if not unicodedata.combining(ch))
-    value = NORMALIZATION_PATTERN.sub("", value)
-    
-    return value
-
-
-def _clean_barrio_label(label: Optional[str]) -> str:
-    """Clean barrio labels coming from legacy housing datasets."""
-
-    if label is None:
-        return ""
-    label = str(label).strip()
-    label = _fix_mojibake(label)
-    label = LEADING_INDEX_PATTERN.sub("", label)
-    label = AEI_SUFFIX_PATTERN.sub("", label)
-    label = FOOTNOTE_PATTERN.sub("", label)
-    label = re.sub(r"\s+", " ", label)
-    return label.strip()
 
 
 def _load_geojson_for_barrios(geojson_path: Optional[Path]) -> Optional[Dict[int, str]]:
@@ -221,10 +158,10 @@ def prepare_dim_barrios(
     dim = dim.dropna(subset=["barrio_id"])
 
     # Fix encoding issues in barrio names
-    dim["barrio_nombre"] = dim["barrio_nombre"].apply(_fix_mojibake)
-    dim["distrito_nombre"] = dim["distrito_nombre"].apply(_fix_mojibake)
+    dim["barrio_nombre"] = dim["barrio_nombre"].apply(cleaner._fix_mojibake)
+    dim["distrito_nombre"] = dim["distrito_nombre"].apply(cleaner._fix_mojibake)
     
-    dim["barrio_nombre_normalizado"] = dim["barrio_nombre"].apply(_normalize_text)
+    dim["barrio_nombre_normalizado"] = dim["barrio_nombre"].apply(cleaner.normalize_neighborhoods)
     dim["codi_barri"] = dim["barrio_id"].astype(str).str.zfill(2)
     dim["codi_districte"] = dim["distrito_id"].astype(str).str.zfill(2)
     dim["municipio"] = "Barcelona"
@@ -397,8 +334,8 @@ def _prepare_venta_prices(
 
     venta_df["año"] = pd.to_numeric(venta_df.get("año"), errors="coerce").astype("Int64")
 
-    venta_df["barrio_nombre_limpio"] = venta_df["Barris"].apply(_clean_barrio_label)
-    venta_df["match_key"] = venta_df["barrio_nombre_limpio"].apply(_normalize_text)
+    # Use normalize_neighborhoods directly as it handles cleaning patterns too
+    venta_df["match_key"] = venta_df["Barris"].apply(cleaner.normalize_neighborhoods)
 
     dim_lookup = dim_barrios[["barrio_id", "barrio_nombre_normalizado"]].rename(
         columns={"barrio_nombre_normalizado": "match_key"}
@@ -514,23 +451,48 @@ def prepare_fact_precios(
         fact_frames.append(fact_alquiler)
 
     if fact_frames:
-        fact = pd.concat(fact_frames, ignore_index=True, sort=False)
-        fact = (
-            fact.sort_values(["anio", "barrio_id", "source"])
-            .drop_duplicates(
-                subset=[
-                    "barrio_id",
-                    "anio",
-                    "trimestre",
-                    "dataset_id",
-                    "source",
-                    "precio_m2_venta",
-                    "precio_mes_alquiler",
-                ],
-                keep="first",
+        # Filter out empty DataFrames before concatenation to avoid FutureWarning
+        non_empty_frames = [f for f in fact_frames if not f.empty]
+        if non_empty_frames:
+            fact = pd.concat(non_empty_frames, ignore_index=True, sort=False)
+        else:
+            fact = pd.DataFrame()
+        
+        if not fact.empty:
+            # Normalize trimestre: replace pd.NA/None with -1 to match database index logic
+            # This ensures NULL trimestre values are treated consistently
+            fact["trimestre_normalized"] = fact["trimestre"].fillna(-1).infer_objects(copy=False)
+            
+            # Merge/Upsert logic: Group by key and combine non-null values
+            # This ensures we have one row per (barrio_id, anio, trimestre) with combined metrics
+            fact = (
+                fact.groupby(["barrio_id", "anio", "trimestre_normalized"], as_index=False)
+                .agg({
+                    "precio_m2_venta": "first",  # Take first non-null
+                    "precio_mes_alquiler": "first", # Take first non-null
+                    "dataset_id": lambda x: "|".join(sorted(set(x.dropna().astype(str)))), # Combine source IDs
+                    "source": lambda x: "|".join(sorted(set(x.dropna().astype(str)))), # Combine sources
+                    "etl_loaded_at": "max", # Keep latest timestamp
+                    "trimestre": "first"  # Keep original trimestre value (or first if multiple)
+                })
             )
-            .reset_index(drop=True)
-        )
+            
+            # Restore trimestre: convert -1 back to pd.NA for consistency with schema
+            fact["trimestre"] = fact["trimestre"].replace(-1, pd.NA)
+            fact = fact.drop(columns=["trimestre_normalized"])
+            
+            # Final deduplication check: ensure no duplicates on (barrio_id, anio, trimestre)
+            # This matches the database unique constraint
+            duplicates = fact.duplicated(subset=["barrio_id", "anio", "trimestre"], keep=False)
+            if duplicates.any():
+                logger.warning(
+                    "Found %s duplicate rows after deduplication. Removing duplicates...",
+                    duplicates.sum()
+                )
+                fact = fact.drop_duplicates(
+                    subset=["barrio_id", "anio", "trimestre"],
+                    keep="first"
+                ).reset_index(drop=True)
     else:
         fact = pd.DataFrame()
 
@@ -635,9 +597,9 @@ def _map_territorio_to_barrio_id(
         barrio_id si se encuentra, None si no
     """
     if territorio_type == "Barri":
-        territorio_normalizado = _normalize_text(territorio)
+        territorio_normalizado = cleaner.normalize_neighborhoods(territorio)
 
-        alias_target = BARRIO_ALIAS_OVERRIDES.get(territorio_normalizado)
+        alias_target = cleaner.barrio_alias_overrides.get(territorio_normalizado)
         if alias_target:
             match = dim_barrios[
                 dim_barrios["barrio_nombre_normalizado"] == alias_target
@@ -971,7 +933,7 @@ def _compute_household_metrics(
 
     district_lookup = (
         dim_barrios.assign(
-            distrito_key=dim_barrios["distrito_nombre"].apply(_normalize_text)
+            distrito_key=dim_barrios["distrito_nombre"].apply(cleaner.normalize_neighborhoods)
         )
         .groupby("distrito_key")["barrio_id"]
         .apply(list)
@@ -1004,7 +966,7 @@ def _compute_household_metrics(
             continue
 
         if tipo == "Districte":
-            key = _normalize_text(territorio)
+            key = cleaner.normalize_neighborhoods(territorio)
             barrio_ids = district_lookup.get(key, [])
         elif tipo == "Municipi":
             barrio_ids = dim_barrios["barrio_id"].astype(int).tolist()

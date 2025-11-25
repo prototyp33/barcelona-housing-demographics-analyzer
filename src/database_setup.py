@@ -55,7 +55,7 @@ CREATE_TABLE_STATEMENTS = (
     DROP INDEX IF EXISTS idx_fact_precios_unique;
     """,
     """
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_precios_unique_dataset
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_precios_unique
     ON fact_precios (
         barrio_id,
         anio,

@@ -1,0 +1,379 @@
+---
+description: Guidelines for Jupyter notebooks, Plotly Mapbox visualizations, and EDA.
+globs: ["notebooks/*.ipynb", "src/analysis/*.py"]
+alwaysApply: false
+---
+
+# 300 - Visualization Standards
+
+## 📊 Plotly Mapbox Configuration
+
+All maps must use this standard configuration to ensure consistency:
+
+```python
+map_config = {
+    "mapbox_style": "carto-positron",
+    "zoom": 10.5,
+    "center": {"lat": 41.39, "lon": 2.17},  # Barcelona center
+    "opacity": 0.7
+}
+```
+
+**Usage in choropleth_mapbox:**
+
+```python
+import plotly.express as px
+
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",
+    color="precio_m2_venta",
+    featureidkey="id",  # CRITICAL: Must match GeoJSON feature 'id'
+    mapbox_style="carto-positron",
+    zoom=10.5,
+    center={"lat": 41.39, "lon": 2.17},
+    opacity=0.7,
+    color_continuous_scale="Viridis",
+    labels={"precio_m2_venta": "Precio (€/m²)"}
+)
+fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
+fig.show()
+```
+
+## 🗺️ GeoJSON Linking
+
+To successfully link data to the map:
+
+### Source: Load geometry from `dim_barrios.geometry_json`
+
+```python
+# GOOD: Load geometries from database
+import sqlite3
+import json
+
+conn = sqlite3.connect("data/processed/database.db")
+df_geometries = pd.read_sql_query("""
+    SELECT barrio_id, geometry_json 
+    FROM dim_barrios 
+    WHERE geometry_json IS NOT NULL
+""", conn)
+
+# Parse JSON strings to dictionaries
+geometries = {}
+for _, row in df_geometries.iterrows():
+    geometries[row['barrio_id']] = json.loads(row['geometry_json'])
+
+# Create FeatureCollection
+geojson_data = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "id": barrio_id,  # CRITICAL: Must match locations parameter
+            "geometry": geom
+        }
+        for barrio_id, geom in geometries.items()
+    ]
+}
+```
+
+### Key: Use `barrio_id` (1-73)
+
+**The `locations` parameter in `choropleth_mapbox` must match the `id` field in GeoJSON features:**
+
+```python
+# GOOD: barrio_id matches GeoJSON feature 'id'
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",  # DataFrame column
+    featureidkey="id",      # GeoJSON feature property
+    # ... other parameters
+)
+```
+
+### Argument: You MUST set `featureidkey="id"` in `px.choropleth_mapbox`
+
+**Without this, Plotly cannot link DataFrame rows to GeoJSON features:**
+
+```python
+# GOOD: Explicit featureidkey
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",
+    featureidkey="id",  # REQUIRED
+    # ...
+)
+
+# BAD: Missing featureidkey (will fail to link)
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",
+    # Missing featureidkey!
+)
+```
+
+## 🎨 Aesthetic Standards
+
+### Color Scales
+
+**Choose color scales based on data semantics:**
+
+```python
+# Viridis: For neutral data (Prices, Population)
+color_continuous_scale="Viridis"
+
+# RdYlGn: For "Good vs Bad" (Income, Affordability)
+color_continuous_scale="RdYlGn"
+
+# RdYlGn_r (Reversed): For "Bad vs Good" (Effort Rate, Crime)
+color_continuous_scale="RdYlGn_r"
+```
+
+### Outlier Handling
+
+**Always calculate `.quantile(0.05)` and `.quantile(0.95)` for `range_color` to prevent Pedralbes/Ciutat Vella from skewing the scale:**
+
+```python
+# GOOD: Clip outliers for better visualization
+q05 = df['precio_m2_venta'].quantile(0.05)
+q95 = df['precio_m2_venta'].quantile(0.95)
+
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",
+    featureidkey="id",
+    color="precio_m2_venta",
+    range_color=[q05, q95],  # Clip outliers
+    color_continuous_scale="Viridis",
+    # ...
+)
+```
+
+**Why:** Barcelona has extreme outliers (Pedralbes: very high prices, Ciutat Vella: very low prices) that compress the color scale for most neighborhoods.
+
+## 📝 Notebook Flow
+
+### 1. Load: Imports & DB Connection
+
+```python
+from pathlib import Path
+import sqlite3
+import json
+
+import pandas as pd
+import plotly.express as px
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Database connection
+PROJECT_ROOT = Path.cwd().resolve().parent
+DB_PATH = PROJECT_ROOT / "data" / "processed" / "database.db"
+conn = sqlite3.connect(DB_PATH)
+
+# Display options
+pd.set_option("display.float_format", lambda v: f"{v:,.2f}")
+pd.set_option("display.max_columns", 30)
+sns.set_theme(style="whitegrid")
+```
+
+### 2. Validate: assert len(df) > 0 and assert df['geom'].notna().all()
+
+```python
+# GOOD: Validate data before plotting
+df = pd.read_sql_query("""
+    SELECT b.barrio_id, b.barrio_nombre, p.precio_m2_venta
+    FROM fact_precios p
+    JOIN dim_barrios b ON p.barrio_id = b.barrio_id
+    WHERE p.anio = 2023
+""", conn)
+
+assert len(df) > 0, "DataFrame is empty"
+assert df['barrio_id'].notna().all(), "Missing barrio_id values"
+assert df['precio_m2_venta'].notna().any(), "All precio values are NULL"
+
+# Validate geometry availability
+df_geometries = pd.read_sql_query("""
+    SELECT barrio_id, geometry_json 
+    FROM dim_barrios 
+    WHERE geometry_json IS NOT NULL
+""", conn)
+assert len(df_geometries) == 73, f"Expected 73 geometries, found {len(df_geometries)}"
+```
+
+### 3. Plot: Generate figure
+
+```python
+# GOOD: Complete plotting workflow
+# Load geometries
+geometries = {}
+for _, row in df_geometries.iterrows():
+    geometries[row['barrio_id']] = json.loads(row['geometry_json'])
+
+geojson_data = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "id": barrio_id,
+            "geometry": geom
+        }
+        for barrio_id, geom in geometries.items()
+    ]
+}
+
+# Calculate color range (clip outliers)
+q05 = df['precio_m2_venta'].quantile(0.05)
+q95 = df['precio_m2_venta'].quantile(0.95)
+
+# Create map
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",
+    featureidkey="id",
+    color="precio_m2_venta",
+    range_color=[q05, q95],
+    color_continuous_scale="Viridis",
+    mapbox_style="carto-positron",
+    zoom=10.5,
+    center={"lat": 41.39, "lon": 2.17},
+    opacity=0.7,
+    labels={"precio_m2_venta": "Precio (€/m²)"}
+)
+fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
+fig.show()
+```
+
+### 4. Insight: Markdown block explaining the business value (in Spanish)
+
+```markdown
+## Análisis: Precios de Vivienda por Barrio (2023)
+
+**Hallazgos principales:**
+- Los barrios del Eixample y Sarrià-Sant Gervasi muestran los precios más altos (>4,000 €/m²)
+- Ciutat Vella presenta precios significativamente más bajos (<2,500 €/m²)
+- Existe una correlación clara entre precio y ubicación céntrica
+
+**Implicaciones:**
+- La accesibilidad económica varía dramáticamente entre distritos
+- Los barrios periféricos ofrecen mayor asequibilidad pero menor conectividad
+```
+
+## Common Visualization Patterns
+
+### Time Series by Neighborhood
+
+```python
+# GOOD: Time series with multiple neighborhoods
+fig = px.line(
+    df,
+    x="anio",
+    y="precio_m2_venta",
+    color="barrio_nombre",
+    title="Evolución de Precios por Barrio",
+    labels={"anio": "Año", "precio_m2_venta": "Precio (€/m²)"}
+)
+fig.show()
+```
+
+### Distribution Comparison
+
+```python
+# GOOD: Distribution comparison
+fig = px.box(
+    df,
+    x="distrito_nombre",
+    y="precio_m2_venta",
+    title="Distribución de Precios por Distrito",
+    labels={"precio_m2_venta": "Precio (€/m²)"}
+)
+fig.update_xaxes(tickangle=45)
+fig.show()
+```
+
+### Correlation Heatmap
+
+```python
+# GOOD: Correlation analysis
+import numpy as np
+
+corr_matrix = df[['precio_m2_venta', 'poblacion_total', 'densidad_hab_km2', 'renta_euros']].corr()
+
+fig = px.imshow(
+    corr_matrix,
+    color_continuous_scale="RdBu",
+    aspect="auto",
+    title="Matriz de Correlación"
+)
+fig.show()
+```
+
+## Error Handling in Visualizations
+
+### Missing Data
+
+```python
+# GOOD: Handle missing data gracefully
+if df['precio_m2_venta'].isna().all():
+    print("⚠️ No hay datos de precios disponibles para visualizar")
+    return
+
+# Filter out NULL values for visualization
+df_plot = df[df['precio_m2_venta'].notna()].copy()
+if len(df_plot) < len(df):
+    logger.warning(f"Filtrando {len(df) - len(df_plot)} filas con valores NULL")
+```
+
+### Geometry Validation
+
+```python
+# GOOD: Validate geometries before plotting
+invalid_geoms = []
+for barrio_id, geom in geometries.items():
+    if not isinstance(geom, dict) or 'type' not in geom:
+        invalid_geoms.append(barrio_id)
+
+if invalid_geoms:
+    logger.warning(f"Geometrías inválidas para barrios: {invalid_geoms}")
+    # Remove invalid geometries
+    geometries = {k: v for k, v in geometries.items() if k not in invalid_geoms}
+```
+
+## Performance Tips
+
+### Large Datasets
+
+**For large datasets, aggregate before plotting:**
+
+```python
+# GOOD: Aggregate for performance
+df_agg = df.groupby(['barrio_id', 'anio']).agg({
+    'precio_m2_venta': 'mean',
+    'precio_mes_alquiler': 'mean'
+}).reset_index()
+
+# Then plot aggregated data
+fig = px.choropleth_mapbox(df_agg, ...)
+```
+
+### Interactive Features
+
+**Add hover information for better UX:**
+
+```python
+# GOOD: Rich hover information
+fig = px.choropleth_mapbox(
+    df,
+    geojson=geojson_data,
+    locations="barrio_id",
+    featureidkey="id",
+    color="precio_m2_venta",
+    hover_data=["barrio_nombre", "distrito_nombre", "anio"],
+    # ...
+)
+```
