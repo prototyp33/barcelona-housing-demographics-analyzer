@@ -1549,21 +1549,36 @@ class PortalDadesExtractor(BaseExtractor):
     1. Usa Playwright para hacer scraping del portal (navegación JavaScript)
     2. Extrae IDs de indicadores del tema "Habitatge"
     3. Descarga datos usando la API con Client ID proporcionado
+    
+    Requiere la variable de entorno PORTALDADES_CLIENT_ID para autenticación con la API.
     """
     
     BASE_URL = "https://portaldades.ajuntament.barcelona.cat"
     API_EXPORT_URL = f"{BASE_URL}/services/backend/rest/statistic/export"
-    CLIENT_ID = "22a421cfc4cf7e3dc07e1feb2a96fdbf"
     
-    def __init__(self, rate_limit_delay: float = 2.0, output_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        client_id: Optional[str] = None,
+        rate_limit_delay: float = 2.0,
+        output_dir: Optional[Path] = None
+    ):
         """
         Inicializa el extractor del Portal de Dades.
         
         Args:
+            client_id: Client ID para la API (por defecto lee de PORTALDADES_CLIENT_ID)
             rate_limit_delay: Tiempo de espera entre peticiones
             output_dir: Directorio donde guardar los datos
         """
         super().__init__("PortalDades", rate_limit_delay, output_dir)
+        
+        # Obtener Client ID de parámetro o variable de entorno
+        self.client_id = client_id or os.getenv("PORTALDADES_CLIENT_ID")
+        if not self.client_id:
+            logger.warning(
+                "PORTALDADES_CLIENT_ID no encontrado. "
+                "Configura la variable de entorno o pasa client_id al constructor."
+            )
         
         if not PLAYWRIGHT_AVAILABLE:
             logger.warning(
@@ -1573,7 +1588,7 @@ class PortalDadesExtractor(BaseExtractor):
         
         # Headers para la API
         self.api_headers = {
-            "X-IBM-Client-Id": self.CLIENT_ID
+            "X-IBM-Client-Id": self.client_id or ""
         }
     
     @staticmethod
