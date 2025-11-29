@@ -1,0 +1,27 @@
+# Streamlit Configuration - Barcelona Housing Analytics
+# See: https://docs.streamlit.io/develop/api-reference/configuration/config.toml
+
+[theme]
+# Design System - Fundamentos Visuales
+primaryColor = "#2F80ED"          # accent-blue (Botones, estados activos)
+backgroundColor = "#F4F5F7"       # bg-canvas (Fondo general)
+secondaryBackgroundColor = "#FFFFFF"  # bg-card (Tarjetas y contenedores)
+textColor = "#1A1A1A"            # text-primary (Títulos y cifras)
+font = "sans serif"
+
+[server]
+headless = true
+enableXsrfProtection = true
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = true
+toolbarMode = "auto"
+
+[runner]
+magicEnabled = true
+fastReruns = true
+
