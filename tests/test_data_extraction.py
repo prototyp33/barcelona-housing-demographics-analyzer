@@ -6,7 +6,7 @@ import pandas as pd
 import json
 from unittest.mock import MagicMock, patch, PropertyMock
 from pathlib import Path
-from src.data_extraction import OpenDataBCNExtractor, IdealistaExtractor
+from src.extraction import OpenDataBCNExtractor, IdealistaExtractor
 
 # --- Fixtures ---
 
@@ -25,7 +25,7 @@ def mock_response():
 
 @pytest.fixture
 def opendata_extractor():
-    with patch('src.data_extraction.requests.Session') as mock_session_cls:
+    with patch('src.extraction.base.requests.Session') as mock_session_cls:
         extractor = OpenDataBCNExtractor(output_dir=Path("/tmp"))
         # We need to mock the session instance created inside __init__
         extractor.session = MagicMock()
@@ -33,7 +33,7 @@ def opendata_extractor():
 
 @pytest.fixture
 def idealista_extractor():
-    with patch('src.data_extraction.requests.Session') as mock_session_cls:
+    with patch('src.extraction.base.requests.Session') as mock_session_cls:
         # Mock env vars if needed, or pass them in constructor
         extractor = IdealistaExtractor(
             api_key="fake_key", 

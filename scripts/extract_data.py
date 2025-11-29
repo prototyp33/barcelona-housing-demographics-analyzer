@@ -15,7 +15,7 @@ from pathlib import Path
 # Agregar src al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data_extraction import extract_all_sources
+from src.extraction import extract_all_sources
 
 
 def main():

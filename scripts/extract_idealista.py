@@ -24,7 +24,7 @@ from pathlib import Path
 # Agregar el directorio raíz al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data_extraction import IdealistaExtractor
+from src.extraction import IdealistaExtractor
 
 # Configurar logging
 logging.basicConfig(
