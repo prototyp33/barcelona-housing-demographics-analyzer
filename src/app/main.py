@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2
+from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2, DB_PATH
 from src.app.data_loader import load_distritos, load_available_years, load_kpis, load_precios
 from src.app.components import card_standard, card_chart, card_snapshot, card_metric
 from src.app.styles import inject_global_css, render_responsive_kpi_grid, render_ranking_item
@@ -95,6 +95,18 @@ def render_sidebar() -> tuple[int, str | None, str]:
             st.caption("📡 **Fuentes:** OpenData BCN, Idealista, IDESCAT")
             st.caption("🔢 **Registros:** +9,000 puntos de datos")
             st.caption("v2.1 - Cockpit Release")
+            
+            st.markdown("---")
+            if DB_PATH.exists():
+                with open(DB_PATH, "rb") as fp:
+                    st.download_button(
+                        label="📥 Descargar Base de Datos",
+                        data=fp,
+                        file_name="barcelona_housing.db",
+                        mime="application/x-sqlite3",
+                        use_container_width=True,
+                        help="Descarga el archivo SQLite completo con todas las tablas procesadas."
+                    )
         
         # --- 4. FOOTER ---
         st.markdown(

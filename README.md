@@ -64,6 +64,34 @@ export IDEALISTA_API_KEY=your_api_key_here
 export IDEALISTA_API_SECRET=your_api_secret_here
 ```
 
+### 🏠 Interactive Dashboard (The Cockpit)
+
+The project features a modern, modular Streamlit dashboard for visual analysis.
+
+#### Run Locally
+
+```bash
+streamlit run src/app/main.py
+```
+
+#### Run with Docker
+
+```bash
+# Build the container
+docker build -t barcelona-housing-analytics .
+
+# Run the container
+docker run -p 8501:8501 barcelona-housing-analytics
+```
+
+Access the dashboard at `http://localhost:8501`.
+
+**Key Features:**
+- **Market Cockpit:** Real-time KPIs, Gross Yield Analysis, and YoY Price Variation.
+- **Interactive Maps:** Price distribution and Affordability heatmaps (Choropleth).
+- **Demographic Deep-dive:** Age structure, migration, and household composition.
+- **Data Export:** Download the full cleaned database (SQLite) directly from the sidebar.
+
 ### Data Extraction
 
 #### Extract Priority Sources (GeoJSON, Demographics, Income)
