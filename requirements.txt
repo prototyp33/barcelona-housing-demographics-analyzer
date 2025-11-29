@@ -82,4 +82,3 @@ pytest>=9.0.1
 seaborn
 nbformat
 ipykernel
-torch>=2.9.1
