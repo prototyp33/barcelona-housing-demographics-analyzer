@@ -68,12 +68,28 @@ def load_fact_demografia(conn: sqlite3.Connection) -> pd.DataFrame:
     Returns:
         DataFrame con fact_demografia ordenada por barrio y año.
     """
-
-    query = """
-        SELECT id, barrio_id, anio, poblacion_total, poblacion_hombres,
-               poblacion_mujeres, hogares_totales, edad_media,
-               porc_inmigracion, densidad_hab_km2, dataset_id, source,
-               etl_loaded_at
+    # Obtener columnas disponibles dinámicamente
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(fact_demografia)")
+    available_cols = [row[1] for row in cursor.fetchall()]
+    
+    # Columnas base requeridas
+    base_cols = [
+        "id", "barrio_id", "anio", "poblacion_total", "poblacion_hombres",
+        "poblacion_mujeres", "hogares_totales", "edad_media",
+        "porc_inmigracion", "densidad_hab_km2", "dataset_id", "source",
+        "etl_loaded_at"
+    ]
+    
+    # Columnas adicionales opcionales (nuevas métricas de edad)
+    optional_cols = ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]
+    
+    # Construir lista de columnas a seleccionar
+    select_cols = [col for col in base_cols if col in available_cols]
+    select_cols.extend([col for col in optional_cols if col in available_cols])
+    
+    query = f"""
+        SELECT {', '.join(select_cols)}
         FROM fact_demografia
         ORDER BY barrio_id, anio
     """
@@ -235,6 +251,7 @@ def enrich_demographics(
             )
             return False
 
+        # Columnas base a comparar
         compare_columns = [
             "hogares_totales",
             "edad_media",
@@ -243,6 +260,12 @@ def enrich_demographics(
             "dataset_id",
             "source",
         ]
+        
+        # Añadir columnas de edad si existen en el DataFrame enriquecido
+        age_columns = ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]
+        for col in age_columns:
+            if col in enriched.columns and col in fact_original.columns:
+                compare_columns.append(col)
 
         change_mask = detect_changes(fact_original, enriched, compare_columns)
         updates = enriched.loc[change_mask].copy()
