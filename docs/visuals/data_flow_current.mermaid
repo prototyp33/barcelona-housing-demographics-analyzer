@@ -1,0 +1,97 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#2F80ED', 'primaryTextColor': '#1A1A1A', 'primaryBorderColor': '#2F80ED', 'lineColor': '#8E92BC', 'secondaryColor': '#F4F5F7', 'tertiaryColor': '#FFFFFF'}}}%%
+
+flowchart TB
+    subgraph SOURCES["🌐 FUENTES DE DATOS"]
+        direction TB
+        ODB["📊 Open Data BCN<br/>(CKAN API)"]
+        PD["📈 Portal de Dades<br/>(REST API + Client ID)"]
+        IDE["🏠 Idealista<br/>(API - Vacía)"]
+        INE["📋 INE<br/>(Placeholder)"]
+    end
+
+    subgraph EXTRACTION["⬇️ EXTRACCIÓN (src/extraction/)"]
+        direction TB
+        E_ODB["OpenDataBCNExtractor"]
+        E_PD["PortalDadesExtractor"]
+        E_IDE["IdealistaExtractor"]
+        E_INE["INEExtractor"]
+    end
+
+    subgraph RAW["📁 DATA/RAW"]
+        direction TB
+        R_DEM["opendatabcn/<br/>demographics*.csv"]
+        R_VENTA["opendatabcn/<br/>venta*.csv"]
+        R_ALQ["opendatabcn/<br/>alquiler*.csv"]
+        R_PD["portaldades/<br/>indicadores*.csv"]
+        R_MAN["manifest.json"]
+    end
+
+    subgraph ETL["🔄 ETL PIPELINE (src/etl/pipeline.py)"]
+        direction TB
+        LOAD["1. Cargar CSVs"]
+        CLEAN["2. Limpiar & Normalizar<br/>(src/data_processing.py)"]
+        TRANSFORM["3. Transformar a Star Schema"]
+        ENRICH["4. Enriquecer<br/>(calcular métricas)"]
+    end
+
+    subgraph DB["🗄️ DATABASE (SQLite)"]
+        direction TB
+        DIM["dim_barrios<br/>(73 barrios)"]
+        FP["fact_precios<br/>(6,358 registros)"]
+        FD["fact_demografia<br/>(657 registros)"]
+        FDA["fact_demografia_ampliada<br/>(2,256 registros)"]
+        FR["fact_renta<br/>(73 registros)"]
+    end
+
+    subgraph APP["🖥️ DASHBOARD (Streamlit)"]
+        direction TB
+        DL["data_loader.py<br/>(Cache + SQL)"]
+        VIEWS["views/<br/>overview, map, demographics"]
+        UI["main.py<br/>(UI Components)"]
+    end
+
+    subgraph OUTPUT["📊 ANÁLISIS"]
+        direction TB
+        KPI["KPIs:<br/>• Precio medio<br/>• Yield<br/>• YoY Change"]
+        MAP["Mapas:<br/>• Choropleth precios<br/>• Distribución"]
+        RANK["Rankings:<br/>• Top barrios<br/>• Por distrito"]
+    end
+
+    %% Connections
+    ODB --> E_ODB
+    PD --> E_PD
+    IDE --> E_IDE
+    INE --> E_INE
+
+    E_ODB --> R_DEM & R_VENTA & R_ALQ
+    E_PD --> R_PD
+    E_ODB & E_PD --> R_MAN
+
+    R_DEM & R_VENTA & R_ALQ & R_PD --> LOAD
+    R_MAN --> LOAD
+
+    LOAD --> CLEAN --> TRANSFORM --> ENRICH
+
+    ENRICH --> DIM & FP & FD & FDA & FR
+
+    DIM & FP & FD & FR --> DL
+    DL --> VIEWS --> UI
+    UI --> KPI & MAP & RANK
+
+    %% Styling
+    classDef source fill:#E3F2FD,stroke:#2F80ED,stroke-width:2px
+    classDef extraction fill:#FFF3E0,stroke:#FF9800,stroke-width:2px
+    classDef raw fill:#F3E5F5,stroke:#9C27B0,stroke-width:2px
+    classDef etl fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px
+    classDef db fill:#FFEBEE,stroke:#F44336,stroke-width:2px
+    classDef app fill:#E0F7FA,stroke:#00BCD4,stroke-width:2px
+    classDef output fill:#FFF8E1,stroke:#FFC107,stroke-width:2px
+
+    class ODB,PD,IDE,INE source
+    class E_ODB,E_PD,E_IDE,E_INE extraction
+    class R_DEM,R_VENTA,R_ALQ,R_PD,R_MAN raw
+    class LOAD,CLEAN,TRANSFORM,ENRICH etl
+    class DIM,FP,FD,FDA,FR db
+    class DL,VIEWS,UI app
+    class KPI,MAP,RANK output
+
