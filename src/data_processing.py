@@ -451,7 +451,7 @@ def prepare_fact_precios(
         fact_frames.append(fact_alquiler)
 
     if fact_frames:
-        # Filter out empty DataFrames before concatenation to avoid FutureWarning
+        # Filtrar DataFrames vacíos antes de concatenar para evitar FutureWarning
         non_empty_frames = [f for f in fact_frames if not f.empty]
         if non_empty_frames:
             fact = pd.concat(non_empty_frames, ignore_index=True, sort=False)
@@ -459,40 +459,55 @@ def prepare_fact_precios(
             fact = pd.DataFrame()
         
         if not fact.empty:
-            # Normalize trimestre: replace pd.NA/None with -1 to match database index logic
-            # This ensures NULL trimestre values are treated consistently
-            fact["trimestre_normalized"] = fact["trimestre"].fillna(-1).infer_objects(copy=False)
+            # =================================================================
+            # DEDUPLICACIÓN SEMÁNTICA (Preserva granularidad multi-fuente)
+            # =================================================================
+            # Granularidad objetivo: (barrio_id, anio, trimestre, dataset_id, source)
+            # 
+            # Esto permite que coexistan múltiples registros para el mismo
+            # barrio-año-trimestre cuando provienen de diferentes datasets o fuentes.
+            # Ejemplo: El Raval 2023 puede tener 11 filas, una por cada indicador
+            # de precio del Portal de Dades.
+            #
+            # Solo eliminamos duplicados EXACTOS (mismo valor, misma fuente, misma fecha)
+            # =================================================================
             
-            # Merge/Upsert logic: Group by key and combine non-null values
-            # This ensures we have one row per (barrio_id, anio, trimestre) with combined metrics
+            dedup_columns = [
+                "barrio_id",
+                "anio",
+                "trimestre",
+                "dataset_id",
+                "source",
+            ]
+            
+            rows_before = len(fact)
             fact = (
-                fact.groupby(["barrio_id", "anio", "trimestre_normalized"], as_index=False)
-                .agg({
-                    "precio_m2_venta": "first",  # Take first non-null
-                    "precio_mes_alquiler": "first", # Take first non-null
-                    "dataset_id": lambda x: "|".join(sorted(set(x.dropna().astype(str)))), # Combine source IDs
-                    "source": lambda x: "|".join(sorted(set(x.dropna().astype(str)))), # Combine sources
-                    "etl_loaded_at": "max", # Keep latest timestamp
-                    "trimestre": "first"  # Keep original trimestre value (or first if multiple)
-                })
+                fact.sort_values(["anio", "barrio_id", "etl_loaded_at"], ascending=[True, True, False])
+                .drop_duplicates(subset=dedup_columns, keep="first")
+                .reset_index(drop=True)
             )
+            rows_after = len(fact)
             
-            # Restore trimestre: convert -1 back to pd.NA for consistency with schema
-            fact["trimestre"] = fact["trimestre"].replace(-1, pd.NA)
-            fact = fact.drop(columns=["trimestre_normalized"])
-            
-            # Final deduplication check: ensure no duplicates on (barrio_id, anio, trimestre)
-            # This matches the database unique constraint
-            duplicates = fact.duplicated(subset=["barrio_id", "anio", "trimestre"], keep=False)
-            if duplicates.any():
-                logger.warning(
-                    "Found %s duplicate rows after deduplication. Removing duplicates...",
-                    duplicates.sum()
+            if rows_before != rows_after:
+                logger.info(
+                    "Deduplicación semántica: %s -> %s registros (eliminados %s duplicados exactos)",
+                    rows_before,
+                    rows_after,
+                    rows_before - rows_after,
                 )
-                fact = fact.drop_duplicates(
-                    subset=["barrio_id", "anio", "trimestre"],
-                    keep="first"
-                ).reset_index(drop=True)
+            
+            # Validación de integridad: verificar que no hay pipes en source/dataset_id
+            # (esto indicaría que el anti-patrón de concatenación sigue activo)
+            if fact["source"].astype(str).str.contains(r"\|").any():
+                logger.error(
+                    "⚠️ ALERTA: Se detectaron pipes '|' en columna 'source'. "
+                    "Esto indica un problema de agregación upstream."
+                )
+            if fact["dataset_id"].astype(str).str.contains(r"\|").any():
+                logger.error(
+                    "⚠️ ALERTA: Se detectaron pipes '|' en columna 'dataset_id'. "
+                    "Esto indica un problema de agregación upstream."
+                )
     else:
         fact = pd.DataFrame()
 
@@ -813,19 +828,19 @@ def prepare_portaldades_precios(
                 if is_venta:
                     if is_precio_m2:
                         record['precio_m2_venta'] = float(row['VALUE'])
+                        venta_records.append(record)
                     else:
-                        # Si es precio total, intentar calcular m² si tenemos superficie
-                        # Por ahora, lo guardamos como precio total aproximado
-                        record['precio_m2_venta'] = float(row['VALUE'])  # Asumimos que es por m²
-                    venta_records.append(record)
+                        # Skip total price indicators to avoid polluting m2 metrics
+                        # logger.debug(f"Skipping total price record from {file_id} for m2 column")
+                        pass
                 elif is_alquiler:
-                    if is_precio_m2:
-                        # Precio por m² de alquiler - convertir a precio mensual estimado
-                        # (necesitaríamos superficie promedio, por ahora lo dejamos como está)
+                    if not is_precio_m2:
                         record['precio_mes_alquiler'] = float(row['VALUE'])
+                        alquiler_records.append(record)
                     else:
-                        record['precio_mes_alquiler'] = float(row['VALUE'])
-                    alquiler_records.append(record)
+                        # Skip m2 price indicators for total rent column
+                        # logger.debug(f"Skipping rent/m2 record from {file_id} for total rent column")
+                        pass
             
             logger.debug(f"Procesado {csv_file.name}: {len(df)} registros válidos")
             
@@ -1204,6 +1219,141 @@ def _compute_area_by_barrio(
     return df[["barrio_id", "anio", "area_m2", "dataset_id", "source"]]
 
 
+def _compute_age_metrics_from_raw(
+    raw_base_dir: Path,
+    dim_barrios: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Calcula métricas demográficas basadas en edad desde los datos raw.
+    
+    Calcula por barrio y año:
+    - pct_mayores_65: Porcentaje de población ≥65 años
+    - pct_menores_15: Porcentaje de población <15 años
+    - indice_envejecimiento: (Población 65+ / Población 0-14) * 100
+    
+    Args:
+        raw_base_dir: Directorio base de datos raw
+        dim_barrios: DataFrame con la dimensión de barrios
+    
+    Returns:
+        DataFrame con métricas por barrio y año
+    """
+    opendata_dir = Path(raw_base_dir) / "opendatabcn"
+    
+    if not opendata_dir.exists():
+        logger.debug("Directorio OpenDataBCN no encontrado: %s", opendata_dir)
+        return pd.DataFrame()
+    
+    # Buscar archivo demográfico con edad quinquenal
+    pattern = "opendatabcn_pad_mdb_lloc-naix-continent_edat-q_sexe_*.csv"
+    candidates = sorted(opendata_dir.glob(pattern), key=lambda p: p.stat().st_mtime)
+    
+    if not candidates:
+        # Intentar con patrón alternativo
+        pattern_alt = "opendatabcn_pad_mdb_nacionalitat-contintent_edat-q_sexe_*.csv"
+        candidates = sorted(opendata_dir.glob(pattern_alt), key=lambda p: p.stat().st_mtime)
+    
+    if not candidates:
+        logger.debug("No se encontró archivo demográfico con edad quinquenal")
+        return pd.DataFrame()
+    
+    raw_path = candidates[-1]  # Usar el más reciente
+    logger.info("Calculando métricas de edad desde: %s", raw_path.name)
+    
+    try:
+        df = pd.read_csv(raw_path)
+    except Exception as e:
+        logger.warning("Error leyendo archivo demográfico: %s", e)
+        return pd.DataFrame()
+    
+    # Validar columnas requeridas
+    required_cols = {"Codi_Barri", "EDAT_Q", "Valor", "Data_Referencia"}
+    if not required_cols.issubset(df.columns):
+        logger.warning("Archivo demográfico no tiene columnas requeridas: %s", required_cols)
+        return pd.DataFrame()
+    
+    # Limpiar datos
+    df["Valor"] = df["Valor"].replace("..", pd.NA)
+    df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce")
+    df = df.dropna(subset=["Valor", "Codi_Barri", "EDAT_Q"])
+    
+    df["Codi_Barri"] = pd.to_numeric(df["Codi_Barri"], errors="coerce").astype("Int64")
+    df["EDAT_Q"] = pd.to_numeric(df["EDAT_Q"], errors="coerce").astype("Int64")
+    
+    # Extraer año
+    df["anio"] = pd.to_datetime(df["Data_Referencia"], errors="coerce").dt.year
+    df = df.dropna(subset=["anio"])
+    df["anio"] = df["anio"].astype(int)
+    
+    # Clasificar por grupos de edad demográficos
+    def clasificar_grupo_edad(edad_q: int) -> str:
+        """Clasifica código de edad quinquenal en grupo demográfico."""
+        edad_min = edad_q * 5
+        if edad_min < 15:
+            return "menores_15"
+        elif edad_min >= 65:
+            return "mayores_65"
+        else:
+            return "otros"
+    
+    df["grupo_demo"] = df["EDAT_Q"].apply(clasificar_grupo_edad)
+    
+    # Agregar por barrio, año y grupo demográfico
+    pivot = (
+        df.groupby(["Codi_Barri", "anio", "grupo_demo"])["Valor"]
+        .sum()
+        .reset_index()
+        .pivot(index=["Codi_Barri", "anio"], columns="grupo_demo", values="Valor")
+        .reset_index()
+    )
+    
+    # Asegurar que todas las columnas existan
+    for col in ["menores_15", "mayores_65", "otros"]:
+        if col not in pivot.columns:
+            pivot[col] = 0
+    
+    # Calcular totales y métricas
+    pivot["poblacion_total"] = pivot["menores_15"] + pivot["mayores_65"] + pivot["otros"]
+    
+    # Evitar división por cero
+    pivot["pct_mayores_65"] = np.where(
+        pivot["poblacion_total"] > 0,
+        (pivot["mayores_65"] / pivot["poblacion_total"]) * 100,
+        np.nan,
+    )
+    
+    pivot["pct_menores_15"] = np.where(
+        pivot["poblacion_total"] > 0,
+        (pivot["menores_15"] / pivot["poblacion_total"]) * 100,
+        np.nan,
+    )
+    
+    pivot["indice_envejecimiento"] = np.where(
+        pivot["menores_15"] > 0,
+        (pivot["mayores_65"] / pivot["menores_15"]) * 100,
+        np.nan,
+    )
+    
+    # Renombrar y seleccionar columnas
+    result = pivot.rename(columns={"Codi_Barri": "barrio_id"})[
+        ["barrio_id", "anio", "pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]
+    ]
+    
+    # Filtrar solo barrios válidos
+    valid_barrios = set(dim_barrios["barrio_id"].unique())
+    result = result[result["barrio_id"].isin(valid_barrios)]
+    
+    logger.info(
+        "Métricas de edad calculadas: %s registros (%s barrios, años %s-%s)",
+        len(result),
+        result["barrio_id"].nunique(),
+        result["anio"].min(),
+        result["anio"].max(),
+    )
+    
+    return result
+
+
 def enrich_fact_demografia(
     fact: pd.DataFrame,
     dim_barrios: pd.DataFrame,
@@ -1356,6 +1506,91 @@ def enrich_fact_demografia(
     enriched["porc_inmigracion"] = enriched["porc_inmigracion"].astype("Float64")
     enriched["densidad_hab_km2"] = enriched["densidad_hab_km2"].astype("Float64")
     enriched["edad_media"] = enriched["edad_media"].astype("Float64")
+
+    # =================================================================
+    # Enriquecimiento de métricas basadas en edad (desde datos raw)
+    # =================================================================
+    age_metrics = _compute_age_metrics_from_raw(raw_base_dir, dim_barrios)
+    
+    if not age_metrics.empty:
+        # Asegurar que las columnas existan en el DataFrame enriched
+        for col in ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]:
+            if col not in enriched.columns:
+                enriched[col] = pd.NA
+        
+        # Guardar estado inicial de nulls
+        mayores_initial_na = enriched["pct_mayores_65"].isna()
+        menores_initial_na = enriched["pct_menores_15"].isna()
+        envej_initial_na = enriched["indice_envejecimiento"].isna()
+        
+        # Verificar si hay overlap de años entre fact_demografia y age_metrics
+        fact_years = set(enriched["anio"].unique())
+        metric_years = set(age_metrics["anio"].unique())
+        overlapping_years = fact_years & metric_years
+        
+        if not overlapping_years:
+            # Si no hay overlap, propagar el año más reciente a todos los años
+            # Las proporciones de edad cambian lentamente, así que es una aproximación razonable
+            latest_year = age_metrics["anio"].max()
+            logger.info(
+                "No hay overlap de años entre fact_demografia (%s) y métricas de edad (%s). "
+                "Propagando métricas del año %s a todos los años.",
+                sorted(fact_years),
+                sorted(metric_years),
+                latest_year,
+            )
+            
+            # Usar solo los datos del año más reciente por barrio
+            age_metrics_latest = age_metrics[age_metrics["anio"] == latest_year].copy()
+            age_metrics_latest = age_metrics_latest.drop(columns=["anio"])
+            
+            # Merge sin el año (propagar a todos los años)
+            enriched = enriched.merge(
+                age_metrics_latest,
+                on=["barrio_id"],
+                how="left",
+                suffixes=("", "_new"),
+            )
+        else:
+            # Merge normal con años específicos
+            enriched = enriched.merge(
+                age_metrics,
+                on=["barrio_id", "anio"],
+                how="left",
+                suffixes=("", "_new"),
+            )
+        
+        # Aplicar valores nuevos donde había nulls
+        for col in ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]:
+            new_col = f"{col}_new"
+            if new_col in enriched.columns:
+                mask = enriched[col].isna() & enriched[new_col].notna()
+                if mask.any():
+                    enriched.loc[mask, col] = enriched.loc[mask, new_col]
+                enriched = enriched.drop(columns=[new_col])
+        
+        # Convertir a tipos correctos
+        enriched["pct_mayores_65"] = enriched["pct_mayores_65"].astype("Float64")
+        enriched["pct_menores_15"] = enriched["pct_menores_15"].astype("Float64")
+        enriched["indice_envejecimiento"] = enriched["indice_envejecimiento"].astype("Float64")
+        
+        # Contar mejoras
+        mayores_filled = int((mayores_initial_na & enriched["pct_mayores_65"].notna()).sum())
+        menores_filled = int((menores_initial_na & enriched["pct_menores_15"].notna()).sum())
+        envej_filled = int((envej_initial_na & enriched["indice_envejecimiento"].notna()).sum())
+        
+        if mayores_filled or menores_filled or envej_filled:
+            logger.info(
+                "Métricas de edad enriquecidas: mayores_65=%s, menores_15=%s, envejecimiento=%s",
+                mayores_filled,
+                menores_filled,
+                envej_filled,
+            )
+    else:
+        # Si no hay métricas de edad, asegurar que las columnas existan con nulls
+        for col in ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]:
+            if col not in enriched.columns:
+                enriched[col] = pd.NA
 
     logger.info(
         "Enriquecimiento demográfico completado: hogares=%s, edad=%s, inmigración=%s, densidad=%s",
