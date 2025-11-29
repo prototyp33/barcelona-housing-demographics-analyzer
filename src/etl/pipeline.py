@@ -6,7 +6,7 @@ import sqlite3
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -42,6 +42,75 @@ def _load_metadata(raw_dir: Path) -> Dict[str, object]:
     return json.loads(metadata_file.read_text(encoding="utf-8"))
 
 
+def _load_manifest(raw_dir: Path) -> List[Dict[str, object]]:
+    """
+    Carga el manifest.json que contiene el registro de todos los archivos extraídos.
+    
+    Args:
+        raw_dir: Directorio base de datos raw
+        
+    Returns:
+        Lista de entradas del manifest (vacía si no existe)
+    """
+    manifest_path = raw_dir / "manifest.json"
+    if not manifest_path.exists():
+        logger.debug("No se encontró manifest.json en %s", raw_dir)
+        return []
+    
+    try:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            manifest = json.load(f)
+        logger.info("Manifest cargado: %d entradas", len(manifest))
+        return manifest
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning("Error cargando manifest.json: %s", e)
+        return []
+
+
+def _get_latest_file_from_manifest(
+    manifest: List[Dict[str, object]],
+    raw_dir: Path,
+    data_type: str,
+    source: Optional[str] = None,
+) -> Optional[Path]:
+    """
+    Obtiene el archivo más reciente de un tipo específico desde el manifest.
+    
+    Args:
+        manifest: Lista de entradas del manifest
+        raw_dir: Directorio base de datos raw
+        data_type: Tipo de datos a buscar (ej. 'demographics', 'prices_venta')
+        source: Filtrar por fuente específica (opcional)
+        
+    Returns:
+        Path al archivo más reciente o None si no se encuentra
+    """
+    # Filtrar entradas por tipo (y opcionalmente por fuente)
+    candidates = [
+        entry for entry in manifest
+        if entry.get("type") == data_type
+        and (source is None or entry.get("source") == source)
+    ]
+    
+    if not candidates:
+        logger.debug("No se encontró archivo de tipo '%s' en manifest", data_type)
+        return None
+    
+    # Ordenar por timestamp (más reciente primero)
+    candidates.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    
+    # Construir path completo
+    latest = candidates[0]
+    file_path = raw_dir / latest["file_path"]
+    
+    if file_path.exists():
+        logger.info("Manifest: usando %s para tipo '%s'", file_path.name, data_type)
+        return file_path
+    else:
+        logger.warning("Archivo del manifest no existe: %s", file_path)
+        return None
+
+
 def _safe_read_csv(path: Path) -> pd.DataFrame:
     if not path or not path.exists():
         raise FileNotFoundError(f"El archivo requerido no existe: {path}")
@@ -75,24 +144,94 @@ def run_etl(
         geojson_dir = raw_base_dir / "geojson"
         idealista_dir = raw_base_dir / "idealista"
         
-        # Buscar archivos de datos (prioridad: nuevos datasets, luego legacy)
-        demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_*.csv")
+        # Cargar manifest para descubrimiento de archivos
+        manifest = _load_manifest(raw_base_dir)
+        use_manifest = len(manifest) > 0
+        
+        if use_manifest:
+            logger.info("=== Usando manifest.json para descubrimiento de archivos ===")
+        else:
+            logger.info("=== Manifest no disponible, usando patrones de nombre (legacy) ===")
+        
+        # Buscar archivos de datos
+        # Prioridad: manifest > patrones de nombre (fallback para compatibilidad)
+        
+        # 1. Demographics
+        demographics_path = None
+        is_demographics_ampliada = False
+        
+        if use_manifest:
+            # Primero intentar demografía ampliada
+            demographics_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "demographics_ampliada", source="opendatabcn"
+            )
+            if demographics_path:
+                is_demographics_ampliada = True
+            else:
+                # Fallback a demografía estándar
+                demographics_path = _get_latest_file_from_manifest(
+                    manifest, raw_base_dir, "demographics", source="opendatabcn"
+                )
+        
+        # Fallback a patrones de nombre (legacy)
+        if demographics_path is None:
+            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_*.csv")
+            if demographics_path and "lloc-naix" in demographics_path.name.lower():
+                is_demographics_ampliada = True
         if demographics_path is None:
             demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
         
-        # Buscar archivos de renta
-        renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
+        # 2. Renta
+        renta_path = None
+        if use_manifest:
+            renta_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "renta", source="opendatabcn"
+            )
+        if renta_path is None:
+            renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
         
-        # Buscar archivos de precios (legacy)
-        venta_path = _find_latest_file(opendata_dir, "opendatabcn_venta_*.csv")
-        alquiler_path = _find_latest_file(opendata_dir, "opendatabcn_alquiler_*.csv")
+        # 3. Precios (venta y alquiler)
+        venta_path = None
+        alquiler_path = None
         
-        # Buscar GeoJSON
-        geojson_path = _find_latest_file(geojson_dir, "barrios_geojson_*.json")
+        if use_manifest:
+            venta_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "prices_venta", source="opendatabcn"
+            )
+            alquiler_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "prices_alquiler", source="opendatabcn"
+            )
         
-        # Buscar archivos de Idealista (oferta inmobiliaria)
-        idealista_venta_path = _find_latest_file(idealista_dir, "idealista_oferta_sale_*.csv")
-        idealista_rent_path = _find_latest_file(idealista_dir, "idealista_oferta_rent_*.csv")
+        if venta_path is None:
+            venta_path = _find_latest_file(opendata_dir, "opendatabcn_venta_*.csv")
+        if alquiler_path is None:
+            alquiler_path = _find_latest_file(opendata_dir, "opendatabcn_alquiler_*.csv")
+        
+        # 4. GeoJSON
+        geojson_path = None
+        if use_manifest:
+            geojson_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "geojson"
+            )
+        if geojson_path is None:
+            geojson_path = _find_latest_file(geojson_dir, "barrios_geojson_*.json")
+        
+        # 5. Idealista
+        idealista_venta_path = None
+        idealista_rent_path = None
+        
+        if use_manifest:
+            idealista_venta_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "idealista_sale"
+            )
+            idealista_rent_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "idealista_rent"
+            )
+        
+        if idealista_venta_path is None:
+            idealista_venta_path = _find_latest_file(idealista_dir, "idealista_oferta_sale_*.csv")
+        if idealista_rent_path is None:
+            idealista_rent_path = _find_latest_file(idealista_dir, "idealista_oferta_rent_*.csv")
 
         if demographics_path is None:
             raise FileNotFoundError(
@@ -125,8 +264,8 @@ def run_etl(
         ).get("datasets_processed", ["pad_mdbas_sexe"])
         dataset_dem_id = dataset_dem[0] if dataset_dem else "pad_mdbas_sexe"
         
-        # Si el archivo es de demografía ampliada, usar ese ID
-        if "pad_mdb" in demographics_path.name.lower():
+        # Usar ID correcto si es demografía ampliada (determinado por manifest o patrón)
+        if is_demographics_ampliada:
             dataset_dem_id = "pad_mdb_lloc-naix-continent_edat-q_sexe"
 
         dataset_venta_id = metadata.get("coverage_by_source", {}).get(
@@ -162,7 +301,7 @@ def run_etl(
         fact_demografia = None
         fact_demografia_ampliada = None
         
-        if "pad_mdb" in demographics_path.name.lower() and "lloc-naix" in demographics_path.name.lower():
+        if is_demographics_ampliada:
             # Usar procesamiento ampliado para datos con edad quinquenal y nacionalidad
             logger.info("Procesando demografía ampliada (edad quinquenal y nacionalidad)...")
             try:

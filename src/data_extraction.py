@@ -144,10 +144,14 @@ class BaseExtractor:
         filename: str,
         format: str = 'json',
         year_start: Optional[int] = None,
-        year_end: Optional[int] = None
+        year_end: Optional[int] = None,
+        data_type: Optional[str] = None
     ) -> Path:
         """
         Guarda datos raw en el directorio correspondiente con timestamp único.
+        
+        También registra el archivo en manifest.json para facilitar el descubrimiento
+        de archivos durante el ETL (evita depender de patrones de nombre de archivo).
         
         Args:
             data: Datos a guardar
@@ -155,6 +159,8 @@ class BaseExtractor:
             format: Formato de guardado ('json', 'csv', 'xlsx')
             year_start: Año inicial (para incluir en nombre de archivo)
             year_end: Año final (para incluir en nombre de archivo)
+            data_type: Tipo de datos (ej. 'demographics', 'prices_venta', 'geojson')
+                       para clasificación en el manifest
             
         Returns:
             Path del archivo guardado
@@ -188,11 +194,102 @@ class BaseExtractor:
                     raise ValueError("Para formato XLSX, data debe ser un DataFrame")
             
             logger.info(f"Datos guardados en: {filepath}")
+            
+            # Registrar en manifest.json
+            self._append_to_manifest(
+                file_path=filepath,
+                source=self.source_name.lower().replace(' ', '_'),
+                data_type=data_type or self._infer_data_type(filename),
+                year_start=year_start,
+                year_end=year_end,
+            )
+            
             return filepath
         except Exception as e:
             logger.error(f"Error guardando datos en {filepath}: {e}")
             logger.error(traceback.format_exc())
             raise
+    
+    def _append_to_manifest(
+        self,
+        file_path: Path,
+        source: str,
+        data_type: str,
+        year_start: Optional[int] = None,
+        year_end: Optional[int] = None,
+    ) -> None:
+        """
+        Registra un archivo en el manifest.json centralizado.
+        
+        Args:
+            file_path: Ruta completa del archivo guardado
+            source: Nombre de la fuente (ej. 'opendatabcn', 'portaldades')
+            data_type: Tipo de datos (ej. 'demographics', 'prices_venta')
+            year_start: Año inicial de los datos
+            year_end: Año final de los datos
+        """
+        manifest_path = self.output_dir / "manifest.json"
+        
+        # Cargar manifest existente o crear nuevo
+        manifest: List[Dict[str, Any]] = []
+        if manifest_path.exists():
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest = json.load(f)
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning(f"Error leyendo manifest existente, creando nuevo: {e}")
+                manifest = []
+        
+        # Crear entrada para el nuevo archivo
+        entry = {
+            "file_path": str(file_path.relative_to(self.output_dir)),
+            "source": source,
+            "type": data_type,
+            "timestamp": datetime.now().isoformat(),
+            "year_start": year_start,
+            "year_end": year_end,
+        }
+        
+        manifest.append(entry)
+        
+        # Guardar manifest actualizado
+        try:
+            with open(manifest_path, 'w', encoding='utf-8') as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=2)
+            logger.debug(f"Manifest actualizado: {entry['file_path']}")
+        except Exception as e:
+            logger.warning(f"Error actualizando manifest: {e}")
+    
+    @staticmethod
+    def _infer_data_type(filename: str) -> str:
+        """
+        Infiere el tipo de datos basándose en el nombre del archivo.
+        
+        Args:
+            filename: Nombre del archivo (sin extensión)
+            
+        Returns:
+            Tipo de datos inferido
+        """
+        filename_lower = filename.lower()
+        
+        # Mapeo de patrones a tipos
+        type_patterns = {
+            "demographics": ["demographic", "poblacion", "pad_mdb", "pad_mdbas"],
+            "demographics_ampliada": ["lloc-naix", "edat-q", "nacionalitat"],
+            "prices_venta": ["venta", "compravenda", "habitatges"],
+            "prices_alquiler": ["alquiler", "lloguer", "rent"],
+            "renta": ["renta", "renda", "income"],
+            "geojson": ["geojson", "geometry", "barrios_geojson"],
+            "idealista_sale": ["idealista", "sale"],
+            "idealista_rent": ["idealista", "rent"],
+        }
+        
+        for data_type, patterns in type_patterns.items():
+            if any(pattern in filename_lower for pattern in patterns):
+                return data_type
+        
+        return "unknown"
     
     def _validate_response(self, response: requests.Response) -> bool:
         """Valida la respuesta HTTP."""
@@ -292,7 +389,8 @@ class INEExtractor(BaseExtractor):
                 "ine_demographics",
                 'csv',
                 year_start=year_start,
-                year_end=year_end
+                year_end=year_end,
+                data_type="demographics"
             )
             return df, coverage_metadata
         else:
@@ -854,7 +952,8 @@ class OpenDataBCNExtractor(BaseExtractor):
             "opendatabcn_venta",
             'csv',
             year_start=year_start,
-            year_end=year_end
+            year_end=year_end,
+            data_type="prices_venta"
         )
         
         return df_combined, coverage_metadata
@@ -994,7 +1093,8 @@ class OpenDataBCNExtractor(BaseExtractor):
             "opendatabcn_alquiler",
             'csv',
             year_start=year_start,
-            year_end=year_end
+            year_end=year_end,
+            data_type="prices_alquiler"
         )
         
         return df_combined, coverage_metadata
@@ -1095,7 +1195,8 @@ class OpenDataBCNExtractor(BaseExtractor):
             "opendatabcn_demographics",
             'csv',
             year_start=year_start,
-            year_end=year_end
+            year_end=year_end,
+            data_type="demographics"
         )
         
         return df_combined, coverage_metadata
@@ -1382,7 +1483,8 @@ class IdealistaExtractor(BaseExtractor):
             filepath = self._save_raw_data(
                 processed_df,
                 f"idealista_oferta_{operation}",
-                'csv'
+                'csv',
+                data_type=f"idealista_{operation}"
             )
             metadata["filepath"] = str(filepath)
             metadata["success"] = True
@@ -1813,11 +1915,48 @@ class PortalDadesExtractor(BaseExtractor):
                 f.write(response.content)
             
             logger.info(f"✓ Descargado: {filename}")
+            
+            # Registrar en manifest
+            # Inferir tipo de datos basándose en el nombre
+            data_type = self._infer_portaldades_type(nombre_limpio)
+            self._append_to_manifest(
+                file_path=filepath,
+                source="portaldades",
+                data_type=data_type,
+            )
+            
             return filepath
         
         except Exception as e:
             logger.error(f"Error descargando indicador {id_indicador}: {e}")
             return None
+    
+    @staticmethod
+    def _infer_portaldades_type(nombre: str) -> str:
+        """
+        Infiere el tipo de datos de un indicador de PortalDades.
+        
+        Args:
+            nombre: Nombre normalizado del indicador
+            
+        Returns:
+            Tipo de datos inferido
+        """
+        nombre_lower = nombre.lower()
+        
+        # Patrones para clasificación
+        if any(p in nombre_lower for p in ["venda", "compravenda", "venta", "habitatge"]):
+            if any(p in nombre_lower for p in ["m2", "superficie"]):
+                return "prices_venta"
+            return "prices_venta"
+        elif any(p in nombre_lower for p in ["lloguer", "alquiler", "rent"]):
+            return "prices_alquiler"
+        elif any(p in nombre_lower for p in ["poblacio", "demografic", "habitants"]):
+            return "demographics"
+        elif any(p in nombre_lower for p in ["renda", "renta", "income"]):
+            return "renta"
+        
+        return "housing_indicator"
     
     def extraer_y_descargar_habitatge(
         self,
