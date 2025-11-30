@@ -124,6 +124,76 @@ https://api.idescat.cat/indicadors/v1/dades.json?i=m10409&lang=es
 
 ---
 
+## 🔍 Resultados de Pruebas de Parámetros
+
+Se probaron **8 combinaciones diferentes** de parámetros de la API:
+
+| Parámetros | Resultado |
+|------------|-----------|
+| Sin parámetros | ✅ Datos a nivel de Cataluña |
+| `geo=080193` (Barcelona) | ✅ Mismos datos (no desagrega) |
+| `t=b` (tipo barrio) | ✅ Mismos datos (no desagrega) |
+| `geo=080193&t=b` | ✅ Mismos datos (no desagrega) |
+| `p=geo/080193` | ✅ Mismos datos (no desagrega) |
+| `p=geo/080193;t/b` | ⚠️ Devuelve otro indicador |
+| `max=100` | ✅ Mismos datos (no desagrega) |
+| `geo=080193&max=100` | ✅ Mismos datos (no desagrega) |
+
+### ⚠️ Conclusión de Pruebas
+
+**La API de IDESCAT NO proporciona datos de renta desagregados por barrio.**
+
+- Todos los tests devuelven datos a nivel de **"Indicadores básicos de Cataluña"**
+- El parámetro `geo` no parece afectar la desagregación
+- El indicador m10409 solo tiene datos agregados a nivel autonómico/municipal
+
+---
+
+## 💡 Alternativa Identificada: Open Data BCN
+
+**¡Buenas noticias!** Ya existe una fuente alternativa que SÍ tiene datos de renta por barrio:
+
+### Datasets de Open Data BCN (Ya implementados)
+
+1. **`renda-disponible-llars-bcn`**
+   - "Renda disponible de les llars per càpita(€)"
+   - ✅ Tiene `Codi_Barri`, `Nom_Barri`, `Seccio_Censal`
+   - ✅ Se puede agregar por barrio
+
+2. **`atles-renda-bruta-per-llar`**
+   - "Renda tributària bruta mitjana per llar (€)"
+   - ✅ Tiene `Codi_Barri`, `Nom_Barri`
+
+3. **`atles-renda-bruta-per-persona`**
+   - "Renda tributària bruta mitjana per persona (€)"
+   - ✅ Tiene `Codi_Barri`, `Nom_Barri`
+
+### Extractor Existente
+
+Ya existe un `RentaExtractor` en `scripts/extract_priority_sources.py` que:
+- ✅ Extrae datos de Open Data BCN
+- ✅ Tiene datasets conocidos y confirmados
+- ✅ Puede agregar datos por barrio
+
+---
+
+## 🎯 Recomendación Final
+
+**Opción A (Recomendada):** Usar Open Data BCN como fuente principal
+- Ya tenemos extractor implementado
+- Datos confirmados por barrio
+- Mejor cobertura geográfica
+
+**Opción B:** Mantener IDESCAT como fuente secundaria
+- Solo para datos agregados a nivel municipal/autonómico
+- Útil para validación o comparación
+
+**Opción C:** Combinar ambas fuentes
+- Open Data BCN para datos por barrio
+- IDESCAT para contexto regional
+
+---
+
 ## 📚 Referencias
 
 - [API IDESCAT v1](https://www.idescat.cat/dev/api/v1/?lang=es)
