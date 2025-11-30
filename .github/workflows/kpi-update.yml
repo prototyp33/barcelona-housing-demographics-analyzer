@@ -1,0 +1,71 @@
+name: KPI Progress Update
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  update-kpis:
+    runs-on: ubuntu-latest
+    if: github.event.issue.state == 'closed'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Extract KPI from issue body
+      id: extract-kpi
+      run: |
+        # Extrae el KPI objetivo del cuerpo de la issue
+        BODY="${{ github.event.issue.body }}"
+        KPI=$(echo "$BODY" | grep -i "KPI objetivo" | head -1 | sed 's/.*KPI objetivo[^:]*:\s*//' | head -c 100)
+        echo "kpi=$KPI" >> $GITHUB_OUTPUT
+        echo "Extracted KPI: $KPI"
+        
+    - name: Update KPI progress file
+      run: |
+        # Crea o actualiza el archivo de progreso de KPIs
+        mkdir -p data
+        FILE="data/kpi_progress.json"
+        
+        if [ ! -f "$FILE" ]; then
+          echo '{"kpis": []}' > "$FILE"
+        fi
+        
+        # Añade el KPI completado (requiere jq)
+        ISSUE_NUM="${{ github.event.issue.number }}"
+        ISSUE_TITLE="${{ github.event.issue.title }}"
+        KPI="${{ steps.extract-kpi.outputs.kpi }}"
+        DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
+        python3 << EOF
+        import json
+        import sys
+        
+        try:
+            with open('$FILE', 'r') as f:
+                data = json.load(f)
+        except:
+            data = {"kpis": []}
+        
+        data["kpis"].append({
+            "issue_number": $ISSUE_NUM,
+            "issue_title": "$ISSUE_TITLE",
+            "kpi": "$KPI",
+            "completed_at": "$DATE"
+        })
+        
+        with open('$FILE', 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        print("KPI progress updated successfully")
+        EOF
+        
+    - name: Commit and push KPI update
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/kpi_progress.json
+        git commit -m "docs: Update KPI progress from issue #${{ github.event.issue.number }}" || exit 0
+        git push || echo "No changes to commit"
+

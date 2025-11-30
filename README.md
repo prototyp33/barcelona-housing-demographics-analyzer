@@ -15,6 +15,10 @@ This project aims to consolidate demographic data and housing prices from multip
 
 For detailed vision and objectives, see [docs/01_VISION_AND_OBJECTIVES.md](docs/01_VISION_AND_OBJECTIVES.md).
 
+Additional context:
+- [Project Charter & Developer Profile](docs/PROJECT_CHARTER.md)
+- [Project Management Playbook](docs/PROJECT_MANAGEMENT.md)
+
 ## 📁 Project Structure
 
 ```
