@@ -68,54 +68,89 @@ class TestIDESCATExtractor:
         barrio_id = extractor._map_barrio_to_id("Barrio Inexistente", mock_dim_barrios)
         assert barrio_id is None
     
+    @patch('src.extraction.idescat.IDESCATExtractor._try_opendata_bcn')
     @patch('src.extraction.idescat.IDESCATExtractor._try_api_indicators')
     @patch('src.extraction.idescat.IDESCATExtractor._try_web_scraping')
-    @patch('src.extraction.idescat.IDESCATExtractor._try_public_files')
-    def test_get_renta_by_barrio_api_success(
+    def test_get_renta_by_barrio_opendata_success(
         self,
-        mock_public_files,
         mock_web_scraping,
         mock_api_indicators,
+        mock_opendata_bcn,
         extractor
     ):
-        """Verifica que get_renta_by_barrio usa la API cuando está disponible."""
-        # Mock de datos exitosos desde API
+        """Verifica que get_renta_by_barrio usa Open Data BCN cuando está disponible."""
+        # Mock de datos exitosos desde Open Data BCN
         mock_df = pd.DataFrame({
-            "barrio_id": [1, 2],
+            "Codi_Barri": [1, 2],
+            "Nom_Barri": ["Barrio 1", "Barrio 2"],
             "anio": [2020, 2020],
             "renta_media": [25000, 30000]
         })
         mock_metadata = {
-            "strategy": "api_indicators",
+            "strategy": "opendata_bcn",
             "success": True,
             "years_extracted": [2020]
         }
         
-        mock_api_indicators.return_value = (mock_df, mock_metadata)
+        mock_opendata_bcn.return_value = (mock_df, mock_metadata)
+        mock_api_indicators.return_value = (pd.DataFrame(), {})
         mock_web_scraping.return_value = (pd.DataFrame(), {})
-        mock_public_files.return_value = (pd.DataFrame(), {})
         
         df, metadata = extractor.get_renta_by_barrio(2020, 2020)
         
         assert not df.empty
         assert len(df) == 2
-        assert metadata["strategy_used"] == "api_indicators"
+        assert metadata["strategy_used"] == "opendata_bcn"
         assert metadata["success"] is True
-        mock_api_indicators.assert_called_once()
+        mock_opendata_bcn.assert_called_once()
+        mock_api_indicators.assert_not_called()
         mock_web_scraping.assert_not_called()
-        mock_public_files.assert_not_called()
     
+    @patch('src.extraction.idescat.IDESCATExtractor._try_opendata_bcn')
     @patch('src.extraction.idescat.IDESCATExtractor._try_api_indicators')
     @patch('src.extraction.idescat.IDESCATExtractor._try_web_scraping')
-    @patch('src.extraction.idescat.IDESCATExtractor._try_public_files')
-    def test_get_renta_by_barrio_fallback_to_web(
+    def test_get_renta_by_barrio_api_fallback(
         self,
-        mock_public_files,
         mock_web_scraping,
         mock_api_indicators,
+        mock_opendata_bcn,
         extractor
     ):
-        """Verifica que se hace fallback a web scraping si la API falla."""
+        """Verifica que get_renta_by_barrio hace fallback a API cuando Open Data BCN falla."""
+        # Mock de datos exitosos desde API (fallback)
+        mock_df = pd.DataFrame({
+            "territorio": ["Cataluña"],
+            "anio": [2020],
+            "renta_media_neta_persona": [25000]
+        })
+        mock_metadata = {
+            "strategy": "api_indicators",
+            "success": True
+        }
+        
+        mock_opendata_bcn.return_value = (pd.DataFrame(), {})
+        mock_api_indicators.return_value = (mock_df, mock_metadata)
+        mock_web_scraping.return_value = (pd.DataFrame(), {})
+        
+        df, metadata = extractor.get_renta_by_barrio(2020, 2020)
+        
+        assert not df.empty
+        assert metadata["strategy_used"] == "api_indicators"
+        mock_opendata_bcn.assert_called_once()
+        mock_api_indicators.assert_called_once()
+        mock_web_scraping.assert_not_called()
+    
+    @patch('src.extraction.idescat.IDESCATExtractor._try_opendata_bcn')
+    @patch('src.extraction.idescat.IDESCATExtractor._try_api_indicators')
+    @patch('src.extraction.idescat.IDESCATExtractor._try_web_scraping')
+    def test_get_renta_by_barrio_fallback_to_web(
+        self,
+        mock_web_scraping,
+        mock_api_indicators,
+        mock_opendata_bcn,
+        extractor
+    ):
+        """Verifica que se hace fallback a web scraping si las otras estrategias fallan."""
         mock_df = pd.DataFrame({
             "barrio_id": [1],
             "anio": [2020],
@@ -126,41 +161,41 @@ class TestIDESCATExtractor:
             "success": True
         }
         
+        mock_opendata_bcn.return_value = (pd.DataFrame(), {})
         mock_api_indicators.return_value = (pd.DataFrame(), {})
         mock_web_scraping.return_value = (mock_df, mock_metadata)
-        mock_public_files.return_value = (pd.DataFrame(), {})
         
         df, metadata = extractor.get_renta_by_barrio(2020, 2020)
         
         assert not df.empty
         assert metadata["strategy_used"] == "web_scraping"
+        mock_opendata_bcn.assert_called_once()
         mock_api_indicators.assert_called_once()
         mock_web_scraping.assert_called_once()
-        mock_public_files.assert_not_called()
     
+    @patch('src.extraction.idescat.IDESCATExtractor._try_opendata_bcn')
     @patch('src.extraction.idescat.IDESCATExtractor._try_api_indicators')
     @patch('src.extraction.idescat.IDESCATExtractor._try_web_scraping')
-    @patch('src.extraction.idescat.IDESCATExtractor._try_public_files')
     def test_get_renta_by_barrio_all_strategies_fail(
         self,
-        mock_public_files,
         mock_web_scraping,
         mock_api_indicators,
+        mock_opendata_bcn,
         extractor
     ):
         """Verifica el manejo cuando todas las estrategias fallan."""
+        mock_opendata_bcn.return_value = (pd.DataFrame(), {})
         mock_api_indicators.return_value = (pd.DataFrame(), {})
         mock_web_scraping.return_value = (pd.DataFrame(), {})
-        mock_public_files.return_value = (pd.DataFrame(), {})
         
         df, metadata = extractor.get_renta_by_barrio(2020, 2020)
         
         assert df.empty
         assert metadata["success"] is False
         assert "error" in metadata
+        mock_opendata_bcn.assert_called_once()
         mock_api_indicators.assert_called_once()
         mock_web_scraping.assert_called_once()
-        mock_public_files.assert_called_once()
     
     def test_try_api_indicators_success(self, extractor):
         """Verifica el acceso exitoso a la API de indicadores."""
@@ -208,11 +243,18 @@ class TestIDESCATExtractor:
         assert metadata["success"] is False
         assert "note" in metadata
     
-    def test_try_public_files_not_implemented(self, extractor):
-        """Verifica que public files retorna DataFrame vacío (aún no implementado)."""
-        df, metadata = extractor._try_public_files(2020, 2020)
-        
-        assert df.empty
-        assert metadata["strategy"] == "public_files"
-        assert "note" in metadata
+    def test_try_opendata_bcn_not_available(self, extractor):
+        """Verifica que opendata_bcn maneja correctamente cuando no hay datos disponibles."""
+        # Mock para simular que Open Data BCN no tiene datos
+        # OpenDataBCNExtractor se importa dentro del método, así que mockeamos el módulo
+        with patch('src.extraction.opendata.OpenDataBCNExtractor') as mock_bcn_class:
+            mock_extractor = Mock()
+            mock_extractor.download_dataset.return_value = (pd.DataFrame(), {})
+            mock_bcn_class.return_value = mock_extractor
+            
+            df, metadata = extractor._try_opendata_bcn(2020, 2020)
+            
+            assert df.empty
+            assert metadata["strategy"] == "opendata_bcn"
+            assert metadata["success"] is False
 
