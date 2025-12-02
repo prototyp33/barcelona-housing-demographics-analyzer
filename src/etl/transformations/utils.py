@@ -43,19 +43,19 @@ def _parse_household_size(label: Optional[str]) -> Optional[float]:
         return None
 
     if normalized.startswith(">"):
-        digits = re.findall(r"\\d+", normalized)
+        digits = re.findall(r"\d+", normalized)
         if digits:
             return max(float(digits[0]) + 1.0, float(digits[0]) + 0.5)
         return None
 
     if "o més" in normalized or "mes de" in normalized:
-        digits = re.findall(r"\\d+", normalized)
+        digits = re.findall(r"\d+", normalized)
         if digits:
             base = float(digits[0])
             return max(base, base + 1.0)
         return None
 
-    digits = re.findall(r"\\d+", normalized)
+    digits = re.findall(r"\d+", normalized)
     if digits:
         return float(digits[0])
 
