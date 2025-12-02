@@ -69,8 +69,13 @@ jobs:
           const fs = require('fs');
           const image = fs.readFileSync('dashboard_screenshot.png', 'base64');
           
+          const issueNumber = parseInt('${{ inputs.issue_number }}', 10);
+          if (isNaN(issueNumber)) {
+            throw new Error(`Invalid issue number: ${{ inputs.issue_number }}`);
+          }
+          
           github.rest.issues.createComment({
-            issue_number: ${{ inputs.issue_number }},
+            issue_number: issueNumber,
             owner: context.repo.owner,
             repo: context.repo.repo,
             body: '📸 Screenshot del dashboard generado automáticamente:\n\n![Dashboard](data:image/png;base64,' + image + ')'

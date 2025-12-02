@@ -32,15 +32,15 @@ jobs:
           echo '{"kpis": []}' > "$FILE"
         fi
         
-        # Añade el KPI completado (requiere jq)
-        ISSUE_NUM="${{ github.event.issue.number }}"
-        ISSUE_TITLE="${{ github.event.issue.title }}"
-        KPI="${{ steps.extract-kpi.outputs.kpi }}"
-        DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        # Añade el KPI completado
+        export ISSUE_NUM="${{ github.event.issue.number }}"
+        export ISSUE_TITLE="${{ github.event.issue.title }}"
+        export KPI="${{ steps.extract-kpi.outputs.kpi }}"
+        export DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         
         python3 << EOF
         import json
-        import sys
+        import os
         
         try:
             with open('$FILE', 'r') as f:
@@ -48,15 +48,34 @@ jobs:
         except:
             data = {"kpis": []}
         
-        data["kpis"].append({
-            "issue_number": $ISSUE_NUM,
-            "issue_title": "$ISSUE_TITLE",
-            "kpi": "$KPI",
-            "completed_at": "$DATE"
-        })
+        issue_num_raw = os.environ.get("ISSUE_NUM")
+        issue_title_raw = os.environ.get("ISSUE_TITLE", "")
+        kpi_raw = os.environ.get("KPI", "")
+        completed_at = os.environ.get("DATE", "")
+
+        # Validar y convertir issue_number de forma segura
+        issue_number = None
+        if issue_num_raw:
+            try:
+                issue_number = int(issue_num_raw)
+            except (ValueError, TypeError):
+                # Si no es numérico válido, registrar error pero continuar
+                print(f"Warning: Invalid issue number '{issue_num_raw}', storing as string")
+                issue_number = str(issue_num_raw) if issue_num_raw else None
+
+        # json.dump() maneja automáticamente el escape de caracteres especiales
+        # No necesitamos escapar manualmente, Python lo hace correctamente
+        new_entry = {
+            "issue_number": issue_number,
+            "issue_title": issue_title_raw or "",
+            "kpi": kpi_raw or "",
+            "completed_at": completed_at or "",
+        }
+
+        data["kpis"].append(new_entry)
         
         with open('$FILE', 'w') as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, indent=2, ensure_ascii=False)
         
         print("KPI progress updated successfully")
         EOF

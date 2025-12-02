@@ -106,8 +106,8 @@ erDiagram
         TEXT parameters
     }
 
-    dim_barrios ||--o{ fact_precios : "records prices for"
-    dim_barrios ||--o{ fact_demografia : "records demographics for"
-    dim_barrios ||--o{ fact_demografia_ampliada : "records detailed demographics for"
-    dim_barrios ||--o{ fact_renta : "records income data for"
-    dim_barrios ||--o{ fact_oferta_idealista : "records listings for"
+    dim_barrios ||--o{ fact_precios : "has prices"
+    dim_barrios ||--o{ fact_demografia : "has demographics"
+    dim_barrios ||--o{ fact_demografia_ampliada : "has detailed demographics"
+    dim_barrios ||--o{ fact_renta : "has income data"
+    dim_barrios ||--o{ fact_oferta_idealista : "has real estate offers"

@@ -193,6 +193,139 @@ class OpenDataBCNExtractor(BaseExtractor):
             coverage_metadata["error"] = str(e)
             return None, coverage_metadata
     
+    def download_dataset_historical(
+        self,
+        dataset_id: str,
+        year_start: int,
+        year_end: int,
+        resource_format: str = 'csv'
+    ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+        """
+        Descarga un dataset histórico descargando todos los recursos por año.
+        
+        Detecta recursos con años en el nombre (ej: '2023_atles_renda_bruta_llar.csv')
+        y los descarga todos para crear una serie temporal completa.
+        
+        Args:
+            dataset_id: ID del dataset
+            year_start: Año inicial
+            year_end: Año final
+            resource_format: Formato preferido ('csv', 'json', 'xlsx')
+            
+        Returns:
+            Tupla con (DataFrame combinado con todos los años, metadata)
+        """
+        logger.info(f"Descargando dataset histórico {dataset_id} ({year_start}-{year_end})...")
+        
+        coverage_metadata = {
+            "dataset_id": dataset_id,
+            "requested_range": {"start": year_start, "end": year_end},
+            "success": False,
+            "resources_downloaded": []
+        }
+        
+        try:
+            dataset_info = self.get_dataset_info(dataset_id)
+            if not dataset_info:
+                logger.error(f"Dataset {dataset_id} no encontrado")
+                coverage_metadata["error"] = "Dataset no encontrado"
+                return None, coverage_metadata
+            
+            resources = dataset_info.get('resources', [])
+            
+            # Filtrar recursos que coincidan con el formato y tengan años en el nombre
+            import re
+            all_data = []
+            requested_years = set(range(year_start, year_end + 1))
+            found_years = set()
+            
+            for resource in resources:
+                # Verificar formato
+                if resource_format.lower() not in resource.get('format', '').lower():
+                    continue
+                
+                # Buscar año en el nombre del recurso
+                resource_name = resource.get('name', '')
+                year_match = re.search(r'(\d{4})', resource_name)
+                
+                if year_match:
+                    resource_year = int(year_match.group(1))
+                    
+                    # Si el año está en el rango solicitado
+                    if resource_year in requested_years:
+                        try:
+                            download_url = resource.get('url')
+                            if not download_url:
+                                continue
+                            
+                            self._rate_limit()
+                            response = self.session.get(download_url, timeout=60)
+                            
+                            if self._validate_response(response):
+                                # Parsear según formato
+                                format_type = resource.get('format', '').lower()
+                                
+                                if 'csv' in format_type:
+                                    df = pd.read_csv(io.StringIO(response.text), encoding='utf-8')
+                                elif 'json' in format_type:
+                                    df = pd.json_normalize(response.json())
+                                elif 'xlsx' in format_type or 'excel' in format_type:
+                                    df = pd.read_excel(io.BytesIO(response.content))
+                                else:
+                                    continue
+                                
+                                # Añadir columna de año si no existe
+                                year_cols = [col for col in df.columns 
+                                           if any(kw in col.lower() for kw in ['any', 'año', 'year', 'anio'])]
+                                if not year_cols:
+                                    df['Any'] = resource_year
+                                
+                                all_data.append(df)
+                                found_years.add(resource_year)
+                                coverage_metadata["resources_downloaded"].append({
+                                    "year": resource_year,
+                                    "name": resource_name,
+                                    "records": len(df)
+                                })
+                                
+                                logger.debug(f"  ✓ {resource_year}: {len(df)} registros")
+                        except Exception as e:
+                            logger.warning(f"Error descargando recurso {resource_name}: {e}")
+                            continue
+            
+            if not all_data:
+                logger.warning(f"No se encontraron recursos históricos para {dataset_id}")
+                coverage_metadata["error"] = "No se encontraron recursos históricos"
+                return None, coverage_metadata
+            
+            # Combinar todos los DataFrames
+            df_combined = pd.concat(all_data, ignore_index=True)
+            
+            # Asegurar que la columna de año esté normalizada
+            year_cols = [col for col in df_combined.columns 
+                        if any(kw in col.lower() for kw in ['any', 'año', 'year', 'anio'])]
+            if year_cols:
+                year_col = year_cols[0]
+                df_combined[year_col] = pd.to_numeric(df_combined[year_col], errors='coerce')
+                available_years = sorted(df_combined[year_col].dropna().unique().astype(int).tolist())
+                coverage_metadata["available_years"] = available_years
+                missing_years = sorted(list(requested_years - found_years))
+                coverage_metadata["missing_years"] = missing_years
+                coverage_metadata["coverage_percentage"] = len(found_years & requested_years) / len(requested_years) * 100
+            
+            coverage_metadata["success"] = True
+            coverage_metadata["records"] = len(df_combined)
+            coverage_metadata["years_found"] = sorted(found_years)
+            
+            logger.info(f"Dataset histórico {dataset_id} descargado: {len(df_combined)} registros, años {sorted(found_years)}")
+            return df_combined, coverage_metadata
+            
+        except Exception as e:
+            logger.error(f"Error descargando dataset histórico {dataset_id}: {e}")
+            logger.debug(traceback.format_exc())
+            coverage_metadata["error"] = str(e)
+            return None, coverage_metadata
+    
     def _filter_by_year(
         self,
         df: pd.DataFrame,

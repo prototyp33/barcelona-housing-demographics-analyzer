@@ -32,13 +32,13 @@ def main():
     print(f"  Base URL: {extractor.BASE_URL}")
     print(f"  API URL: {extractor.API_BASE_URL}")
     
-    # Intentar extraer datos (período reducido para prueba)
+    # Intentar extraer datos (rango completo objetivo)
     print("\n" + "=" * 60)
-    print("Intentando extraer datos de renta (2020-2020)...")
+    print("Intentando extraer datos de renta (2015-2025)...")
     print("=" * 60)
     
     try:
-        df, metadata = extractor.get_renta_by_barrio(year_start=2020, year_end=2020)
+        df, metadata = extractor.get_renta_by_barrio(year_start=2015, year_end=2025)
         
         print(f"\nResultado:")
         print(f"  Éxito: {metadata.get('success', False)}")

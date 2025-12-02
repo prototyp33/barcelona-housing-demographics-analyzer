@@ -153,10 +153,7 @@ def run_etl(
         else:
             logger.info("=== Manifest no disponible, usando patrones de nombre (legacy) ===")
         
-        # Buscar archivos de datos
-        # Prioridad: manifest > patrones de nombre (fallback para compatibilidad)
-        
-        # 1. Demographics
+        # Descubrimiento de archivos de entrada: priorizamos manifest y usamos patrones legacy como respaldo.
         demographics_path = None
         is_demographics_ampliada = False
         
@@ -181,7 +178,6 @@ def run_etl(
         if demographics_path is None:
             demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
         
-        # 2. Renta
         renta_path = None
         if use_manifest:
             renta_path = _get_latest_file_from_manifest(
@@ -190,7 +186,6 @@ def run_etl(
         if renta_path is None:
             renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
         
-        # 3. Precios (venta y alquiler)
         venta_path = None
         alquiler_path = None
         
@@ -207,7 +202,6 @@ def run_etl(
         if alquiler_path is None:
             alquiler_path = _find_latest_file(opendata_dir, "opendatabcn_alquiler_*.csv")
         
-        # 4. GeoJSON
         geojson_path = None
         if use_manifest:
             geojson_path = _get_latest_file_from_manifest(
@@ -216,7 +210,6 @@ def run_etl(
         if geojson_path is None:
             geojson_path = _find_latest_file(geojson_dir, "barrios_geojson_*.json")
         
-        # 5. Idealista
         idealista_venta_path = None
         idealista_rent_path = None
         

@@ -26,14 +26,13 @@ def configure_page() -> None:
 
 def render_sidebar() -> tuple[int, str | None, str]:
     """
-    Renderiza el sidebar estilo 'Cockpit' (Solo Controles).
+    Renderiza el sidebar estilo cockpit con identidad, filtros y metadatos.
     """
     years_info = load_available_years()
     min_year = years_info["fact_precios"]["min"] or 2015
     max_year = years_info["fact_precios"]["max"] or 2022
     
     with st.sidebar:
-        # --- 1. IDENTIDAD ---
         st.markdown(
             """
             <div style="display: flex; align-items: center; margin-bottom: 30px;">
@@ -55,7 +54,6 @@ def render_sidebar() -> tuple[int, str | None, str]:
             unsafe_allow_html=True,
         )
         
-        # --- 2. CONTROLES (INPUTS) ---
         st.markdown(
             '<p style="font-size: 11px; font-weight: 600; color: #8E92BC; letter-spacing: 1px; margin-bottom: 6px;">CONFIGURACIÓN DE VISTA</p>',
             unsafe_allow_html=True,
@@ -89,7 +87,6 @@ def render_sidebar() -> tuple[int, str | None, str]:
         
         st.markdown("---")
         
-        # --- 3. METADATA (INFO) ---
         with st.expander("ℹ️ Sobre los datos", expanded=False):
             st.caption("📅 **Actualización:** Noviembre 2025")
             st.caption("📡 **Fuentes:** OpenData BCN, Idealista, IDESCAT")
@@ -108,7 +105,6 @@ def render_sidebar() -> tuple[int, str | None, str]:
                         help="Descarga el archivo SQLite completo con todas las tablas procesadas."
                     )
         
-        # --- 4. FOOTER ---
         st.markdown(
             """
             <div style="
@@ -135,7 +131,6 @@ def render_sidebar() -> tuple[int, str | None, str]:
 def render_custom_header(distrito_filter: str | None, metric_name: str, year: int) -> None:
     """Renderiza encabezado principal dinámico."""
     
-    # Lógica de titulación dinámica
     if distrito_filter:
         display_title = f"Monitor de Mercado: <span style='color: #2F80ED'>{distrito_filter}</span>"
     else:

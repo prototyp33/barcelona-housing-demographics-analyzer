@@ -309,26 +309,31 @@ class IDESCATExtractor(BaseExtractor):
                 metadata["datasets_tried"].append(dataset_id)
                 
                 try:
-                    # Intentar descargar sin filtro de año primero (los datasets pueden no tener columna de año)
-                    df, cov_meta = bcn_extractor.download_dataset(
+                    # Intentar descargar datos históricos (múltiples recursos por año)
+                    # Primero intentar con el método histórico que descarga todos los recursos
+                    df, cov_meta = bcn_extractor.download_dataset_historical(
                         dataset_id,
-                        resource_format='csv',
-                        year_start=None,  # Sin filtro inicial
-                        year_end=None
+                        year_start=year_start,
+                        year_end=year_end,
+                        resource_format='csv'
                     )
                     
-                    # Si hay datos, intentar filtrar por año si existe columna de año
+                    # Si el método histórico no funciona, intentar el método normal
+                    if df is None or df.empty:
+                        logger.debug(f"  Método histórico no funcionó, intentando método normal...")
+                        df, cov_meta = bcn_extractor.download_dataset(
+                            dataset_id,
+                            resource_format='csv',
+                            year_start=year_start,
+                            year_end=year_end
+                        )
+                    
+                    # Si hay datos, verificar que tengan columna de año
                     if df is not None and not df.empty:
                         year_cols = [col for col in df.columns 
                                     if any(kw in col.lower() for kw in ['any', 'año', 'year', 'anio'])]
-                        if year_cols:
-                            year_col = year_cols[0]
-                            # Convertir a numérico y filtrar
-                            try:
-                                df[year_col] = pd.to_numeric(df[year_col], errors='coerce')
-                                df = df[(df[year_col] >= year_start) & (df[year_col] <= year_end)]
-                            except Exception:
-                                pass  # Si falla el filtro, usar todos los datos
+                        if not year_cols:
+                            logger.warning(f"  Dataset {dataset_id} no tiene columna de año después de descargar")
                     
                     if df is not None and not df.empty:
                         # Validar que tiene columnas de barrio
@@ -365,11 +370,28 @@ class IDESCATExtractor(BaseExtractor):
                 renta_cols = [col for col in df_combined.columns 
                              if any(kw in col.lower() for kw in ['renta', 'renda', 'import', 'euros', '€'])]
                 
+                # Identificar columna de año si existe
+                year_cols = [col for col in df_combined.columns 
+                            if any(kw in col.lower() for kw in ['any', 'año', 'year', 'anio'])]
+                
                 if renta_cols:
-                    # Agrupar por barrio y calcular media
-                    group_cols = ['Codi_Barri', 'Nom_Barri'] if 'Nom_Barri' in df_combined.columns else ['Codi_Barri']
+                    # Agrupar por barrio (y año si existe) y calcular media
+                    group_cols = ['Codi_Barri']
+                    if 'Nom_Barri' in df_combined.columns:
+                        group_cols.append('Nom_Barri')
+                    if year_cols:
+                        group_cols.append(year_cols[0])
+                    
                     df_combined = df_combined.groupby(group_cols)[renta_cols].mean().reset_index()
-                    logger.info(f"  Datos agregados: {len(df_combined)} barrios")
+                    
+                    # Renombrar columna de año si existe para consistencia
+                    if year_cols:
+                        df_combined.rename(columns={year_cols[0]: 'anio'}, inplace=True)
+                    
+                    logger.info(f"  Datos agregados: {len(df_combined)} registros")
+                    if year_cols:
+                        years = sorted(df_combined['anio'].unique())
+                        logger.info(f"  Años disponibles: {years}")
             
             metadata["success"] = True
             metadata["records"] = len(df_combined)
