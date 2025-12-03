@@ -1,21 +1,34 @@
 """
-Validación de Integridad Referencial para el ETL Pipeline.
+Validación de Integridad Referencial y Manejo de Errores para el ETL Pipeline.
 
-Este módulo proporciona funciones para validar foreign keys antes de insertar
-datos en las tablas de hechos, evitando registros huérfanos y errores silenciosos.
+Este módulo proporciona:
+1. Funciones para validar foreign keys antes de insertar datos
+2. Clasificación de fuentes de datos como críticas vs opcionales
+3. Helpers para manejo consistente de errores según criticidad
 
 Uso típico:
-    from src.etl.validators import validate_foreign_keys, FKValidationError
+    from src.etl.validators import (
+        validate_foreign_keys,
+        FKValidationError,
+        handle_source_error,
+        is_critical_source,
+    )
 
-    # Validar antes de insertar
+    # Validar FK antes de insertar
     fact_precios_valid = validate_foreign_keys(
         df=fact_precios,
         fk_column="barrio_id",
         reference_df=dim_barrios,
         pk_column="barrio_id",
         table_name="fact_precios",
-        strategy="filter",  # o "strict" para fallar
+        strategy="filter",
     )
+
+    # Manejar error según criticidad de la fuente
+    try:
+        data = extract_source("idealista")
+    except Exception as e:
+        handle_source_error("idealista", e)  # Solo log si es opcional
 """
 
 from __future__ import annotations
@@ -23,11 +36,143 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Set, Tuple, Union
+from typing import FrozenSet, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CLASIFICACIÓN DE FUENTES DE DATOS
+# =============================================================================
+
+# Fuentes críticas: si fallan, el pipeline debe detenerse
+CRITICAL_SOURCES: FrozenSet[str] = frozenset({
+    "dim_barrios",
+    "demographics",
+    "demographics_ampliada",
+    "opendatabcn",
+})
+
+# Fuentes opcionales: si fallan, el pipeline continúa con advertencia
+OPTIONAL_SOURCES: FrozenSet[str] = frozenset({
+    "idealista",
+    "portaldades",
+    "renta",
+    "idescat",
+    "incasol",
+    "geojson",
+})
+
+
+class SourceError(Exception):
+    """Excepción base para errores de fuentes de datos."""
+
+    def __init__(
+        self,
+        source_name: str,
+        message: str,
+        original_error: Optional[Exception] = None,
+    ) -> None:
+        """
+        Inicializa la excepción.
+
+        Args:
+            source_name: Nombre de la fuente que falló.
+            message: Mensaje descriptivo del error.
+            original_error: Excepción original (si existe).
+        """
+        self.source_name = source_name
+        self.original_error = original_error
+        super().__init__(f"[{source_name}] {message}")
+
+
+class CriticalSourceError(SourceError):
+    """Excepción para errores en fuentes críticas que detienen el pipeline."""
+
+    pass
+
+
+def is_critical_source(source_name: str) -> bool:
+    """
+    Determina si una fuente es crítica para el pipeline.
+
+    Args:
+        source_name: Nombre de la fuente a verificar.
+
+    Returns:
+        True si la fuente es crítica, False si es opcional.
+
+    Example:
+        >>> is_critical_source("demographics")
+        True
+        >>> is_critical_source("idealista")
+        False
+    """
+    # Normalizar nombre (lowercase, sin prefijos comunes)
+    normalized = source_name.lower().replace("opendatabcn_", "").replace("_df", "")
+    return normalized in CRITICAL_SOURCES or any(
+        critical in normalized for critical in CRITICAL_SOURCES
+    )
+
+
+def handle_source_error(
+    source_name: str,
+    error: Exception,
+    context: Optional[str] = None,
+    raise_if_critical: bool = True,
+) -> None:
+    """
+    Maneja un error según la criticidad de la fuente.
+
+    Para fuentes críticas: log error y re-raise.
+    Para fuentes opcionales: log warning y continuar.
+
+    Args:
+        source_name: Nombre de la fuente que falló.
+        error: Excepción capturada.
+        context: Contexto adicional para el mensaje (opcional).
+        raise_if_critical: Si True, re-raise para fuentes críticas.
+
+    Raises:
+        CriticalSourceError: Si la fuente es crítica y raise_if_critical=True.
+
+    Example:
+        >>> try:
+        ...     data = load_idealista()
+        >>> except Exception as e:
+        ...     handle_source_error("idealista", e)  # Solo log warning
+    """
+    ctx_msg = f" ({context})" if context else ""
+    is_critical = is_critical_source(source_name)
+
+    if is_critical:
+        logger.error(
+            "❌ Error CRÍTICO en fuente '%s'%s: %s",
+            source_name,
+            ctx_msg,
+            error,
+            exc_info=True,
+        )
+        if raise_if_critical:
+            raise CriticalSourceError(
+                source_name=source_name,
+                message=f"Fuente crítica falló{ctx_msg}: {error}",
+                original_error=error,
+            ) from error
+    else:
+        logger.warning(
+            "⚠ Error en fuente opcional '%s'%s: %s (continuando pipeline)",
+            source_name,
+            ctx_msg,
+            error,
+        )
+
+
+# =============================================================================
+# VALIDACIÓN DE FOREIGN KEYS
+# =============================================================================
 
 
 class FKValidationStrategy(Enum):
@@ -391,6 +536,14 @@ def validate_all_fact_tables(
 
 
 __all__ = [
+    # Clasificación de fuentes
+    "CRITICAL_SOURCES",
+    "OPTIONAL_SOURCES",
+    "SourceError",
+    "CriticalSourceError",
+    "is_critical_source",
+    "handle_source_error",
+    # Validación FK
     "FKValidationStrategy",
     "FKValidationError",
     "FKValidationResult",
