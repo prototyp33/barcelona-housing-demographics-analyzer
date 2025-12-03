@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from src.app.config import DB_PATH, VIVIENDA_TIPO_M2
+from src.database_setup import validate_table_name
 
 
 def get_connection() -> sqlite3.Connection:
@@ -68,16 +69,24 @@ def load_barrios() -> pd.DataFrame:
 def load_available_years() -> dict:
     """
     Obtiene los años disponibles en cada tabla de hechos.
-    
+
     Returns:
         Diccionario con años mínimo y máximo por tabla.
+
+    Raises:
+        InvalidTableNameError: Si alguna tabla no está en la whitelist.
     """
     conn = get_connection()
     try:
         result = {}
         tables = ["fact_precios", "fact_demografia", "fact_renta"]
         for table in tables:
-            df = pd.read_sql(f"SELECT MIN(anio) as min_year, MAX(anio) as max_year FROM {table}", conn)
+            # Validar nombre de tabla contra whitelist (seguridad SQL injection)
+            validated_table = validate_table_name(table)
+            df = pd.read_sql(
+                f"SELECT MIN(anio) as min_year, MAX(anio) as max_year FROM {validated_table}",
+                conn,
+            )
             result[table] = {
                 "min": int(df["min_year"].iloc[0]) if pd.notna(df["min_year"].iloc[0]) else None,
                 "max": int(df["max_year"].iloc[0]) if pd.notna(df["max_year"].iloc[0]) else None,
