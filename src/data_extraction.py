@@ -34,10 +34,12 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-    # Logger aún no está inicializado aquí, así que usamos print
-    import sys
-    if sys.stderr:
-        print("WARNING: Playwright no está instalado. El extractor PortalDades requerirá: pip install playwright && playwright install", file=sys.stderr)
+    # Usamos un logger básico ya que el módulo aún no está completamente inicializado
+    _import_logger = logging.getLogger(__name__)
+    _import_logger.warning(
+        "Playwright no está instalado. El extractor PortalDades requerirá: "
+        "pip install playwright && playwright install"
+    )
 
 # Configuración de directorios
 BASE_DIR = Path(__file__).parent.parent

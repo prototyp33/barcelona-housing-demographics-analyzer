@@ -22,6 +22,7 @@ from .opendata import OpenDataBCNExtractor
 from .idealista import IdealistaExtractor
 from .portaldades import PortalDadesExtractor
 from .idescat import IDESCATExtractor
+from .incasol import IncasolSocrataExtractor
 from .orchestrator import extract_all_sources, write_extraction_summary
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "IdealistaExtractor",
     "PortalDadesExtractor",
     "IDESCATExtractor",
+    "IncasolSocrataExtractor",
     # Orchestration
     "extract_all_sources",
     "write_extraction_summary",
