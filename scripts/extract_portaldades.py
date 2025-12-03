@@ -25,7 +25,7 @@ from pathlib import Path
 # Agregar src al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data_extraction import PortalDadesExtractor, setup_logging
+from src.extraction import PortalDadesExtractor, setup_logging
 
 
 def main():

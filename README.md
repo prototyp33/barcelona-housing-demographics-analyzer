@@ -1,5 +1,12 @@
 # Barcelona Housing Demographics Analyzer
 
+[![Issues Abiertas](https://img.shields.io/github/issues/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues)
+[![Issues Cerradas](https://img.shields.io/github/issues-closed/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square&color=success)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues?q=is%3Aissue+is%3Aclosed)
+[![Pull Requests](https://img.shields.io/github/issues-pr/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/pulls)
+[![Última Actualización](https://img.shields.io/github/last-commit/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/commits/main)
+
+> 📊 Dashboard interactivo de análisis de vivienda y demografía en Barcelona
+
 Open-source dashboard to analyze the relationship between demographic evolution and housing prices in Barcelona.
 
 ## 📋 Vision and Objectives
@@ -31,13 +38,19 @@ barcelona-housing-demographics-analyzer/
 │   └── visuals/       # Wireframes, diagrams, exploratory figures
 ├── notebooks/         # Jupyter notebooks for analysis
 ├── src/               # Source code
-│   ├── data_extraction.py    # Data extraction from sources
-│   ├── data_processing.py    # Data cleaning and normalization
-│   ├── transform/
-│   │   └── cleaners.py       # HousingCleaner class used across ETL & notebooks
-│   ├── database_setup.py     # Database schema and setup
-│   ├── analysis.py           # Analytical functions
-│   └── app.py                # Streamlit dashboard
+│   ├── extraction/           # Extractores modulares por fuente de datos
+│   │   ├── base.py           # BaseExtractor, setup_logging
+│   │   ├── opendata.py       # OpenDataBCNExtractor
+│   │   ├── idealista.py      # IdealistaExtractor
+│   │   ├── portaldades.py    # PortalDadesExtractor
+│   │   └── ...               # INE, IDESCAT, Incasol
+│   ├── etl/                  # Pipeline ETL y validadores
+│   │   ├── pipeline.py       # run_etl() principal
+│   │   └── validators.py     # Validación FK, clasificación de fuentes
+│   ├── data_processing.py    # Facade de transformaciones
+│   ├── database_setup.py     # Schema SQLite y helpers
+│   ├── analysis.py           # Funciones analíticas
+│   └── app/                  # Dashboard Streamlit modular
 └── tests/             # Unit tests
 ```
 
@@ -266,9 +279,81 @@ For detailed API usage and configuration, see [docs/API_usage.md](docs/API_usage
 For data structure and directory organization, see [docs/DATA_STRUCTURE.md](docs/DATA_STRUCTURE.md).
 For next steps and development roadmap, see [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md).
 
+## 📋 Issue Management
+
+This project uses a structured workflow for managing GitHub issues.
+
+### Quick Commands (Makefile)
+
+```bash
+# Show all available commands
+make help
+
+# Validate issue drafts locally
+make validate-issues
+
+# Preview issues (dry-run)
+make preview-issues
+
+# Create a specific issue
+make create-issue FILE=mi-issue.md
+
+# Create all issues from drafts
+make create-issues
+
+# Sync metrics with documentation
+make sync-issues
+```
+
+### Create a New Issue
+
+1. **Create draft** from template:
+   ```bash
+   cp docs/issues/ejemplo-issue-draft.md docs/issues/mi-nueva-issue.md
+   ```
+
+2. **Edit the draft** with your requirements
+
+3. **Validate locally**:
+   ```bash
+   make validate-issues
+   # Or for a specific file:
+   python3 scripts/validate_issues.py docs/issues/mi-nueva-issue.md
+   ```
+
+4. **Create in GitHub**:
+   ```bash
+   make create-issue FILE=mi-nueva-issue.md
+   ```
+
+### Issue Best Practices
+
+See complete guide: [docs/BEST_PRACTICES_GITHUB_ISSUES.md](docs/BEST_PRACTICES_GITHUB_ISSUES.md)
+
+**Quick checklist:**
+- ✅ Descriptive title with type prefix `[FEATURE]`, `[BUG]`, `[DATA]`
+- ✅ Clear "Objetivo/Descripción" section
+- ✅ Acceptance criteria with checkboxes `- [ ]`
+- ✅ Affected files listed
+- ✅ Time estimation included
+- ✅ Appropriate labels (`bug`, `enhancement`, `etl`, etc.)
+
+### Project Metrics
+
+View current metrics: [docs/PROJECT_METRICS.md](docs/PROJECT_METRICS.md)
+
+Update metrics from GitHub:
+```bash
+make sync-issues
+```
+
+---
+
 ## 📚 Documentation
 
 - **[Project Status](docs/PROJECT_STATUS.md)** ⭐ - Current state, achievements, issues, and next steps
+- **[Project Metrics](docs/PROJECT_METRICS.md)** 📊 - Issue metrics and KPIs
+- **[Best Practices - Issues](docs/BEST_PRACTICES_GITHUB_ISSUES.md)** - Issue creation guidelines
 - [Issues to Create](docs/ISSUES_TO_CREATE.md) - GitHub issues ready to be created
 - [Vision and Objectives](docs/01_VISION_AND_OBJECTIVES.md) - Project goals and data requirements
 - [API Usage Guide](docs/API_usage.md) - How to use data extraction APIs
