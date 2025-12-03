@@ -1,0 +1,59 @@
+name: Validate Issue Drafts
+
+on:
+  pull_request:
+    paths:
+      - 'docs/issues/**/*.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/issues/**/*.md'
+
+concurrency:
+  group: validate-drafts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Validate issue drafts
+        id: validate
+        run: |
+          python3 scripts/validate_issues.py docs/issues/
+          exit_code=$?
+          
+          if [ $exit_code -ne 0 ]; then
+            echo "::error::Issue drafts no cumplen con las mejores prácticas"
+            echo "::error::Revisa docs/BEST_PRACTICES_GITHUB_ISSUES.md"
+          fi
+          
+          exit $exit_code
+      
+      - name: Comment on PR (if failed)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⚠️ **Issue drafts validation failed**\n\n' +
+                    'Los drafts en `docs/issues/` no cumplen las mejores prácticas.\n\n' +
+                    '**Ejecuta localmente:**\n' +
+                    '```bash\n' +
+                    'python3 scripts/validate_issues.py docs/issues/\n' +
+                    '```\n\n' +
+                    '📚 **Guía:** [BEST_PRACTICES_GITHUB_ISSUES.md](../blob/main/docs/BEST_PRACTICES_GITHUB_ISSUES.md)'
+            });
+

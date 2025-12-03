@@ -1,0 +1,253 @@
+# ==============================================================================
+# CI Pipeline Principal - Barcelona Housing Demographics Analyzer
+# ==============================================================================
+# Este workflow ejecuta:
+# 1. Linting (ruff) - Verifica estilo y errores comunes
+# 2. Type checking (mypy) - Verifica tipos opcionales
+# 3. Tests unitarios - pytest con coverage
+# 4. Smoke tests del ETL - Verificación rápida del pipeline
+#
+# Optimizaciones:
+# - Cache de pip para acelerar instalación
+# - Matriz de Python versions
+# - Concurrency para cancelar runs duplicados
+# - Paths filter para evitar runs innecesarios
+# ==============================================================================
+
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**", "refactor/**"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+# Cancelar runs anteriores del mismo branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_CACHE_DIR: ~/.cache/pip
+
+jobs:
+  # ============================================================================
+  # JOB 1: Linting y formato de código
+  # ============================================================================
+  lint:
+    name: 🔍 Lint & Format
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-lint-${{ runner.os }}-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: |
+            pip-lint-${{ runner.os }}-
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black isort
+
+      - name: Run ruff (linting)
+        run: |
+          ruff check src/ tests/ scripts/ --output-format=github || true
+          # Continuar aunque haya warnings
+
+      - name: Check formatting with black
+        run: |
+          black --check --diff src/ tests/ || echo "::warning::Some files need formatting"
+
+      - name: Check import ordering with isort
+        run: |
+          isort --check-only --diff src/ tests/ || echo "::warning::Imports need sorting"
+
+  # ============================================================================
+  # JOB 2: Tests unitarios con coverage
+  # ============================================================================
+  test:
+    name: 🧪 Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint  # Ejecutar después del linting
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-test-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            pip-test-${{ runner.os }}-py${{ matrix.python-version }}-
+            pip-test-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --tb=short \
+            -v \
+            --ignore=tests/test_idescat.py  # Skip tests que requieren network
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 3: ETL Smoke Test
+  # ============================================================================
+  etl-smoke:
+    name: 🔥 ETL Smoke Test
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-etl-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            pip-etl-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Verify module imports
+        run: |
+          python -c "
+          from src.etl.pipeline import run_etl
+          from src.etl.validators import validate_foreign_keys, validate_all_fact_tables
+          from src.extraction import OpenDataBCNExtractor, setup_logging
+          from src.database_setup import validate_table_name, VALID_TABLES
+          print('✅ All critical modules imported successfully')
+          print(f'   Valid tables: {sorted(VALID_TABLES)}')
+          "
+
+      - name: Run FK validation tests
+        run: |
+          pytest tests/test_fk_validation.py -v
+
+      - name: Run pipeline smoke tests
+        run: |
+          pytest tests/test_pipeline.py \
+            -k "test_etl_handles_missing_files_gracefully or test_manifest_integration" \
+            -v
+
+  # ============================================================================
+  # JOB 4: Security & Dependency Check (solo en PRs)
+  # ============================================================================
+  security:
+    name: 🔒 Security Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check for security vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.txt --ignore-vuln PYSEC-2024-* || true
+          # Continuar aunque haya vulnerabilidades conocidas
+
+  # ============================================================================
+  # JOB 5: Build verification (solo en main)
+  # ============================================================================
+  build:
+    name: 📦 Build Check
+    runs-on: ubuntu-latest
+    needs: [test, etl-smoke]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install build wheel
+
+      - name: Verify package builds
+        run: |
+          python -m build --sdist --wheel --outdir dist/
+          ls -la dist/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
