@@ -18,6 +18,7 @@ from ..database_setup import (
     register_etl_run,
     truncate_tables,
 )
+from .validators import validate_all_fact_tables, FKValidationStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -440,6 +441,38 @@ def run_etl(
                 fact_oferta_idealista = None
         else:
             logger.debug("No se encontraron datos de Idealista (opcional, requiere API credentials)")
+
+        # === VALIDACIÓN DE INTEGRIDAD REFERENCIAL ===
+        # Validar todas las fact tables antes de insertar en SQLite
+        logger.info("=== Validando integridad referencial ===")
+        (
+            fact_precios,
+            fact_demografia,
+            fact_demografia_ampliada,
+            fact_renta,
+            fact_oferta_idealista,
+            fk_validation_results,
+        ) = validate_all_fact_tables(
+            dim_barrios=dim_barrios,
+            fact_precios=fact_precios,
+            fact_demografia=fact_demografia,
+            fact_demografia_ampliada=fact_demografia_ampliada,
+            fact_renta=fact_renta,
+            fact_oferta_idealista=fact_oferta_idealista,
+            strategy=FKValidationStrategy.FILTER,  # Filtra registros con FK inválidos
+        )
+        
+        # Registrar estadísticas de validación
+        fk_stats = {
+            result.table_name: {
+                "total": result.total_records,
+                "valid": result.valid_records,
+                "invalid": result.invalid_records,
+                "pct_invalid": round(result.pct_invalid, 2),
+            }
+            for result in fk_validation_results
+        }
+        params["fk_validation"] = fk_stats
 
         params.update(
             {
