@@ -1,0 +1,143 @@
+name: 🚀 Epic - Feature Implementation
+description: Template para implementación de features del roadmap
+title: "[FEATURE-XX] "
+labels: ["enhancement", "epic"]
+assignees:
+  - prototyp33
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🎯 Feature del Roadmap
+        Este template es para las 8 features priorizadas del análisis comparativo.
+
+  - type: input
+    id: feature_id
+    attributes:
+      label: Feature ID
+      description: Número de la feature del análisis comparativo
+      placeholder: "#XX"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sprint
+    attributes:
+      label: Sprint Asignado
+      description: En qué sprint se desarrollará esta feature
+      options:
+        - "Sprint 1 (Semanas 1-4) - Quick Wins"
+        - "Sprint 2 (Semanas 5-10) - Core ML"
+        - "Sprint 3 (Semanas 11-18) - Data Expansion"
+        - "Sprint 4 (Semanas 19-24) - Showcase"
+    validations:
+      required: true
+
+  - type: input
+    id: effort
+    attributes:
+      label: Esfuerzo Estimado
+      description: Horas estimadas para completar
+      placeholder: "15-20 horas"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencias
+      description: Issues o features que deben completarse antes
+      placeholder: |
+        - #XX (descripción)
+        - Datos de XXX disponibles
+        - API de XXX configurada
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción y Valor de Negocio
+      description: Qué problema resuelve y por qué es importante
+    validations:
+      required: true
+
+  - type: textarea
+    id: components
+    attributes:
+      label: Componentes Técnicos
+      description: Archivos y módulos a crear/modificar
+      value: |
+        - [ ] `src/analytics/nuevo_modulo.py` - [Descripción]
+        - [ ] `src/app/pages/nueva_pagina.py` - [Descripción]
+        - [ ] `tests/test_nuevo_modulo.py` - [Descripción]
+        - [ ] Actualizar `requirements.txt` con: [librerías]
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Criterios de Aceptación
+      description: Qué debe cumplirse para considerar la feature completa
+      value: |
+        - [ ] Funcionalidad core implementada y probada
+        - [ ] Tests unitarios con >80% cobertura
+        - [ ] Documentación en `docs/features/feature-XX.md`
+        - [ ] UI integrada en dashboard Streamlit
+        - [ ] Datos persistidos en SQLite (si aplica)
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing_plan
+    attributes:
+      label: Plan de Testing
+      description: Cómo se validará la implementación
+      value: |
+        - [ ] Tests unitarios en `tests/`
+        - [ ] Test manual con datos reales de Barcelona
+        - [ ] Validación visual en Streamlit local
+        - [ ] Performance check (<3s carga página)
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Métricas de Éxito
+      description: KPIs y valores objetivo
+      placeholder: |
+        - KPI: Tiempo de respuesta dashboard
+        - Target: <2 segundos
+        - KPI: Accuracy del modelo
+        - Target: >85%
+
+  - type: textarea
+    id: subtasks
+    attributes:
+      label: Sub-tareas
+      description: Desglose en tareas más pequeñas (usar template sub-issue)
+      placeholder: |
+        - [ ] #XXX - Implementar lógica de cálculo
+        - [ ] #XXX - Crear UI Streamlit
+        - [ ] #XXX - Añadir tests unitarios
+        - [ ] #XXX - Documentación
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Referencias
+      description: Enlaces a documentos, APIs, o issues relacionados
+      placeholder: |
+        - [Documento de análisis](docs/...)
+        - [API Docs](https://...)
+        - Issues relacionados: #X, #Y
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Riesgos y Mitigaciones
+      description: Posibles problemas y cómo abordarlos
+      placeholder: |
+        - **Riesgo:** API externa con rate limits
+          **Mitigación:** Implementar caching y retry logic
+        - **Riesgo:** Performance con datasets grandes
+          **Mitigación:** Lazy loading y paginación
+
