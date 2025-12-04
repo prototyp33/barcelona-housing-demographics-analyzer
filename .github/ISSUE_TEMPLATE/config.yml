@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "📚 Read Documentation"
+    url: "https://github.com/prototyp33/barcelona-housing-demographics-analyzer#readme"
+    about: "Consulta la documentación antes de crear una issue"

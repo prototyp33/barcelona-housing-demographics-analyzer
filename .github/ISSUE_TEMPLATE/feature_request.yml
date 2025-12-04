@@ -1,0 +1,105 @@
+name: ✨ Feature Request
+description: Proponer nueva funcionalidad o mejora
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Propón una nueva feature o mejora al proyecto.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema que Resuelve
+      description: Qué necesidad o pain point aborda esta feature
+      placeholder: Actualmente no es posible...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solución Propuesta
+      description: Describe cómo implementarías esta feature
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas Consideradas
+      description: Otras formas de resolver el problema
+
+  - type: textarea
+    id: use_cases
+    attributes:
+      label: Casos de Uso
+      description: Ejemplos concretos de cómo se usaría
+      placeholder: |
+        1. Usuario necesita...
+        2. El sistema permite...
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Criterios de Aceptación
+      description: Qué debe cumplirse para considerar la feature completa
+      placeholder: |
+        - [ ] Criterio 1
+        - [ ] Criterio 2
+        - [ ] Tests incluidos
+    validations:
+      required: true
+
+  - type: input
+    id: time_estimate
+    attributes:
+      label: Tiempo Estimado
+      description: Estimación de esfuerzo
+      placeholder: "2 horas / 1 día / 3 días"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Complejidad Estimada
+      options:
+        - "🟢 Low (< 1 día)"
+        - "🟡 Medium (1-3 días)"
+        - "🔴 High (> 3 días)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: categories
+    attributes:
+      label: Categorías Relacionadas
+      options:
+        - label: ETL Pipeline
+        - label: Dashboard/UI
+        - label: Data Quality
+        - label: Testing
+        - label: Documentation
+        - label: Performance
+        - label: Database
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Archivos Afectados
+      description: Qué archivos necesitarían modificarse
+      placeholder: |
+        - src/etl/extractors/ine_extractor.py (nuevo)
+        - src/etl/pipeline.py (modificar)
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Riesgos y Bloqueos
+      description: Posibles problemas o dependencias
+      placeholder: |
+        - Riesgo: API del INE podría cambiar
+        - Dependencia: Necesita #42 completado primero
+
