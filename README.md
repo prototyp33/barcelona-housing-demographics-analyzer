@@ -5,7 +5,40 @@
 [![Pull Requests](https://img.shields.io/github/issues-pr/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/pulls)
 [![Última Actualización](https://img.shields.io/github/last-commit/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/commits/main)
 
+[![CI Status](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/workflows/CI%20Pipeline/badge.svg)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/prototyp33/barcelona-housing-demographics-analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/prototyp33/barcelona-housing-demographics-analyzer)
+[![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/pulls)
+
 > 📊 Dashboard interactivo de análisis de vivienda y demografía en Barcelona
+
+## 📊 Project Status
+
+### Sprint Progress
+
+![Sprint 1](https://img.shields.io/badge/Sprint%201-75%25-green?style=flat-square)
+![Sprint 2](https://img.shields.io/badge/Sprint%202-0%25-lightgrey?style=flat-square)
+![Sprint 3](https://img.shields.io/badge/Sprint%203-0%25-lightgrey?style=flat-square)
+![Sprint 4](https://img.shields.io/badge/Sprint%204-0%25-lightgrey?style=flat-square)
+
+### Data Quality
+
+| Metric | Status | Target |
+|--------|--------|--------|
+| Data Completeness | 96.2% ✅ | ≥95% |
+| Data Validity | 98.5% ✅ | ≥98% |
+| Test Coverage | 78% ⚠️ | ≥80% |
+| Docs Coverage | 65% ⚠️ | ≥70% |
+
+### Quick Links
+
+- 📋 [Project Board](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/projects)
+- 📊 [Live Dashboard](https://barcelona-housing-analyzer.streamlit.app) *(si está desplegado)*
+- 📖 [Documentation](./docs)
+- 🐛 [Report Bug](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=bug_report.yml)
+- ✨ [Request Feature](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=feature_request.yml)
 
 Open-source dashboard to analyze the relationship between demographic evolution and housing prices in Barcelona.
 
