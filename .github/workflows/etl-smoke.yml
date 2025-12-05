@@ -65,13 +65,13 @@ jobs:
         
       - name: Run Unit Tests
         run: |
-          pytest tests/test_data_extraction.py tests/test_fk_validation.py -v
+          pytest tests/test_data_extraction.py tests/test_fk_validation.py -v --no-cov
         
       - name: Run Pipeline Integration Tests
         run: |
           pytest tests/test_pipeline.py \
             -k "test_etl_handles_missing_files_gracefully or test_manifest_integration" \
-            -v
+            -v --no-cov
         
       - name: Verify ETL imports and validators
         run: |
