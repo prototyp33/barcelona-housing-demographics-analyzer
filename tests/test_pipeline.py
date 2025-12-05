@@ -362,10 +362,13 @@ class TestHelperFunctions:
 
     def test_find_latest_file_with_files(self, tmp_path: Path):
         """Verifica que encuentra el archivo más reciente."""
+        import os
+        import time
+        
         test_dir = tmp_path / "test"
         test_dir.mkdir()
 
-        # Crear archivos con diferentes timestamps
+        # Crear archivos con diferentes timestamps explícitos
         file1 = test_dir / "file_1.txt"
         file2 = test_dir / "file_2.txt"
         file3 = test_dir / "file_3.txt"
@@ -373,6 +376,12 @@ class TestHelperFunctions:
         file1.write_text("content1")
         file2.write_text("content2")
         file3.write_text("content3")
+        
+        # Establecer timestamps explícitos para asegurar orden correcto
+        base_time = time.time()
+        os.utime(file1, (base_time, base_time))
+        os.utime(file2, (base_time, base_time + 1))
+        os.utime(file3, (base_time, base_time + 2))  # file3 es el más reciente
 
         # file3 debería ser el más reciente
         result = _find_latest_file(test_dir, "file_*.txt")
