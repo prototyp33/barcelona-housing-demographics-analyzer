@@ -1,0 +1,111 @@
+name: Issue Quality Check
+
+on:
+  issues:
+    types: [opened, edited]
+
+# Evitar múltiples checks para la misma issue
+concurrency:
+  group: issue-quality-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check issue quality
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const issueNumber = context.payload.issue.number;
+            const title = context.payload.issue.title || '';
+            
+            const issues = [];
+            const warnings = [];
+            
+            // Verificar criterios de aceptación
+            const hasAcceptance = /##.*✅.*Definición de Hecho|##.*Criterios de Aceptación|##.*Definition of Done/i.test(body);
+            if (!hasAcceptance) {
+              issues.push('❌ Falta sección "Criterios de Aceptación" o "Definition of Done"');
+            }
+            
+            // Verificar estimación de tiempo
+            const hasEstimate = /\d+\s*(horas?|días?|minutos?)/i.test(body) || /⏱️|Estimación|estimated/i.test(body);
+            if (!hasEstimate) {
+              issues.push('❌ Falta estimación de tiempo (ej: "2 horas", "30 minutos")');
+            }
+            
+            // Verificar que tenga checkboxes en criterios
+            const hasCheckboxes = /- \[ \]/.test(body);
+            if (!hasCheckboxes) {
+              warnings.push('⚠️ No se encontraron checkboxes en criterios de aceptación');
+            }
+            
+            // Verificar formato de título para issues principales (no sub-issues)
+            const isSubIssue = /\[SUB-ISSUE/i.test(title);
+            if (!isSubIssue && !/\[(BUG|FEATURE|QUALITY|DATA|TEST|DOCS|REFACTOR)\]/i.test(title)) {
+              warnings.push('⚠️ Título no sigue formato [TIPO] (recomendado: [BUG], [FEATURE], etc.)');
+            }
+            
+            // Verificar descripción del problema
+            const hasDescription = /##.*🔍.*Descripción|##.*Descripción del Problema/i.test(body);
+            if (!hasDescription) {
+              warnings.push('⚠️ Falta sección "Descripción del Problema"');
+            }
+            
+            // Si hay problemas, añadir label y comentario
+            if (issues.length > 0 || warnings.length > 0) {
+              // Añadir label si no existe
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  labels: ['needs-refinement']
+                });
+              } catch (e) {
+                // Label puede no existir, continuar
+                console.log('Label needs-refinement puede no existir');
+              }
+              
+              // Crear comentario con feedback
+              let comment = '## 📋 Revisión de Calidad de Issue\n\n';
+              
+              if (issues.length > 0) {
+                comment += '### ❌ Problemas que deben corregirse:\n\n';
+                issues.forEach(issue => {
+                  comment += `- ${issue}\n`;
+                });
+                comment += '\n';
+              }
+              
+              if (warnings.length > 0) {
+                comment += '### ⚠️ Recomendaciones:\n\n';
+                warnings.forEach(warning => {
+                  comment += `- ${warning}\n`;
+                });
+                comment += '\n';
+              }
+              
+              comment += '---\n\n';
+              comment += '📚 **Recursos:**\n';
+              comment += '- [Mejores Prácticas de Issues](docs/BEST_PRACTICES_GITHUB_ISSUES.md)\n';
+              comment += '- [Template de Issue](.github/ISSUE_TEMPLATE.md)\n';
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: comment
+              });
+            } else {
+              // Issue cumple con las mejores prácticas
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: '✅ Esta issue cumple con las mejores prácticas del proyecto. ¡Gracias por seguir el template!'
+              });
+            }
+

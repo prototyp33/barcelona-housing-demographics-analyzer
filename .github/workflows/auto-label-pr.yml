@@ -1,0 +1,239 @@
+# ==============================================================================
+# Auto Label & Assign PRs/Issues
+# ==============================================================================
+# Automatiza el etiquetado y asignación de PRs e issues basándose en:
+# - Prefijos en el título (deps, feature, fix, bug)
+# - Contenido del título
+#
+# CONVENCIONES DE TÍTULOS:
+# - deps(core) → labels: dependencies, python-core, type-infra, priority-low, area-etl
+# - deps(automation) → labels: dependencies, automation-scripts, type-infra, priority-low, area-monitoring
+# - deps(ci) → labels: dependencies, github-actions, type-infra, priority-low
+# - deps(python) o deps(pip) → labels: dependencies, python, type-infra, priority-low, area-etl (compatibilidad)
+# - deps(docker) → labels: dependencies, docker, type-infra, priority-low
+# - deps(actions) o deps(github-actions) → labels: dependencies, github-actions, type-infra, priority-low (compatibilidad)
+# - feature o feat → label: enhancement
+# - fix o bug → label: bug
+# - docs o documentation → label: documentation
+# - test o testing → label: testing
+# - refactor → label: refactor
+#
+# PMO COMPLIANCE:
+# - Todos los PRs de dependencias tienen labels obligatorios: type-infra, priority-low
+# - Labels de área según contexto: area-etl (core), area-monitoring (scripts)
+# - Protege métricas de PROJECT_METRICS.md al clasificar correctamente
+#
+# PERMISOS REQUERIDOS:
+# - pull-requests: write (para añadir labels y asignar PRs)
+# - issues: write (para añadir labels y asignar issues)
+# - contents: read (para leer información del repositorio)
+#
+# NOTAS:
+# - Los labels deben existir previamente en el repositorio
+# - La asignación automática es a 'prototyp33'
+# - Los milestones se pueden añadir si existen en el repositorio
+# ==============================================================================
+
+name: Auto Label & Assign PRs
+
+on:
+  pull_request:
+    types: [opened, reopened]
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  auto-organize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-assign and label dependencies
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const isPR = context.payload.pull_request !== undefined;
+            const title = context.payload.pull_request?.title || context.payload.issue?.title;
+            
+            // ==================================================================
+            // LÓGICA DE DETECCIÓN DE LABELS
+            // ==================================================================
+            // Analiza el título del PR/issue para determinar qué labels aplicar.
+            // La detección es case-insensitive y busca palabras clave específicas.
+            // ==================================================================
+            let labels = [];
+            let milestone = null;
+            
+            // Normalizar título a minúsculas para comparación
+            const titleLower = title.toLowerCase();
+            
+            // ==================================================================
+            // DETECCIÓN DE DEPENDENCIAS (PMO Compliant)
+            // ==================================================================
+            // Detecta prefijos de dependencias y aplica labels obligatorios
+            // según LABEL_MANAGEMENT.md: type-infra y priority-low
+            // ==================================================================
+            if (titleLower.includes('deps(core)')) {
+              labels.push('dependencies', 'python-core', 'type-infra', 'priority-low', 'area-etl');
+            } else if (titleLower.includes('deps(automation)')) {
+              labels.push('dependencies', 'automation-scripts', 'type-infra', 'priority-low', 'area-monitoring');
+            } else if (titleLower.includes('deps(ci)')) {
+              labels.push('dependencies', 'github-actions', 'type-infra', 'priority-low');
+            } else if (titleLower.includes('deps(python)') || titleLower.includes('deps(pip)')) {
+              // Compatibilidad con prefijos antiguos
+              labels.push('dependencies', 'python', 'type-infra', 'priority-low', 'area-etl');
+            } else if (titleLower.includes('deps(docker)')) {
+              labels.push('dependencies', 'docker', 'type-infra', 'priority-low');
+            } else if (titleLower.includes('deps(actions)') || titleLower.includes('deps(github-actions)')) {
+              // Compatibilidad con prefijos antiguos
+              labels.push('dependencies', 'github-actions', 'type-infra', 'priority-low');
+            } else if (titleLower.includes('feature') || titleLower.includes('feat')) {
+              labels.push('enhancement');
+            } else if (titleLower.includes('fix') || titleLower.includes('bug')) {
+              labels.push('bug');
+            } else if (titleLower.includes('docs') || titleLower.includes('documentation')) {
+              labels.push('documentation');
+            } else if (titleLower.includes('test') || titleLower.includes('testing')) {
+              labels.push('testing');
+            } else if (titleLower.includes('refactor')) {
+              labels.push('refactor');
+            }
+            
+            // ==================================================================
+            // DETECCIÓN DE BREAKING CHANGES Y SECURITY UPDATES
+            // ==================================================================
+            // Detecta actualizaciones major o vulnerabilidades de seguridad
+            // ==================================================================
+            if (titleLower.includes('major') || 
+                titleLower.includes('version-update:semver-major') ||
+                titleLower.includes('breaking')) {
+              labels.push('breaking-change');
+            }
+            
+            if (titleLower.includes('security') || 
+                titleLower.includes('vulnerability') ||
+                titleLower.includes('cve-')) {
+              labels.push('security');
+            }
+            
+            // ==================================================================
+            // DETECCIÓN DE ÁREAS AFECTADAS
+            // ==================================================================
+            // Detecta qué área del proyecto se ve afectada
+            // ==================================================================
+            if (titleLower.includes('etl') || 
+                titleLower.includes('pipeline') || 
+                titleLower.includes('transform') ||
+                titleLower.includes('database') ||
+                titleLower.includes('sql')) {
+              labels.push('area-etl');
+            }
+            
+            if (titleLower.includes('extract') || 
+                titleLower.includes('scraper') || 
+                titleLower.includes('api') ||
+                titleLower.includes('scraping') ||
+                titleLower.includes('data extraction')) {
+              labels.push('area-data');
+            }
+            
+            if (titleLower.includes('dashboard') || 
+                titleLower.includes('streamlit') || 
+                titleLower.includes('ui') ||
+                titleLower.includes('frontend') ||
+                titleLower.includes('visualization')) {
+              labels.push('area-ui');
+            }
+            
+            if (titleLower.includes('docs') || 
+                titleLower.includes('documentation') || 
+                titleLower.includes('readme') ||
+                titleLower.includes('changelog')) {
+              labels.push('area-docs');
+            }
+            
+            if (titleLower.includes('ci') || 
+                titleLower.includes('cd') || 
+                titleLower.includes('workflow') ||
+                titleLower.includes('github actions') ||
+                titleLower.includes('deploy')) {
+              labels.push('area-infra');
+            }
+            
+            // ==================================================================
+            // AUTO-ASIGNACIÓN
+            // ==================================================================
+            // Asigna automáticamente el PR/issue al owner del repositorio.
+            // Si falla (ej: usuario no tiene permisos), se registra pero no
+            // interrumpe el workflow.
+            // ==================================================================
+            try {
+              await github.rest.issues.addAssignees({
+                owner,
+                repo,
+                issue_number,
+                assignees: ['prototyp33']
+              });
+              console.log('✅ Assigned to prototyp33');
+            } catch (error) {
+              console.log(`⚠️ Could not assign: ${error.message}`);
+            }
+            
+            // ==================================================================
+            // APLICACIÓN DE LABELS
+            // ==================================================================
+            // Añade los labels detectados al PR/issue.
+            // Si algún label no existe en el repositorio, se ignora ese label
+            // específico pero se añaden los demás.
+            // ==================================================================
+            if (labels.length > 0) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number,
+                  labels
+                });
+                console.log(`✅ Added labels: ${labels.join(', ')}`);
+              } catch (error) {
+                console.log(`⚠️ Could not add labels: ${error.message}`);
+              }
+            }
+            
+            // ==================================================================
+            // ASIGNACIÓN A MILESTONE (OPCIONAL)
+            // ==================================================================
+            // Si se detecta un milestone en la lógica anterior, intenta
+            // asignarlo. Los milestones deben existir previamente en el
+            // repositorio y estar en estado 'open'.
+            // ==================================================================
+            if (milestone) {
+              try {
+                const milestones = await github.rest.issues.listMilestones({
+                  owner,
+                  repo,
+                  state: 'open'
+                });
+                const foundMilestone = milestones.data.find(m => m.title === milestone);
+                
+                if (foundMilestone) {
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number,
+                    milestone: foundMilestone.number
+                  });
+                  console.log(`✅ Added to milestone: ${milestone}`);
+                } else {
+                  console.log(`⚠️ Milestone "${milestone}" not found`);
+                }
+              } catch (error) {
+                console.log(`⚠️ Could not update milestone: ${error.message}`);
+              }
+            }
+

@@ -15,6 +15,7 @@ from .utils import (
     _find_portaldades_file,
     _load_portaldades_csv,
     _map_continente_to_nacionalidad,
+    _map_territorio_to_barrio_id,
     _parse_household_size,
     _extract_year_from_temps,
     cleaner,

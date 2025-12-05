@@ -3,12 +3,10 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
 
 import pandas as pd
 
@@ -55,12 +53,12 @@ def main() -> None:
     print(f"Objetivo: {len(target_set)} barrios")
 
     extractor = IdealistaRapidAPIExtractor()
-    found_ids: Dict[str, str] = {}
+    found_ids: dict[str, str] = {}
     page = 1
 
     while len(found_ids) < len(target_set) and page <= MAX_PAGES:
         print(f"\n--- Página {page}/{MAX_PAGES} | encontrados {len(found_ids)}/{len(target_set)} ---")
-        df_page, meta = extractor.list_home_properties(
+        df_page, _ = extractor.list_home_properties(
             location_id=BARCELONA_CITY_ID,
             operation="sale",
             num_page=page,

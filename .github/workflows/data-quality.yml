@@ -1,0 +1,304 @@
+# ==============================================================================
+# Data Quality Checks - Verificación de integridad de datos
+# ==============================================================================
+# Este workflow verifica:
+# 1. Integridad de la base de datos SQLite
+# 2. Cobertura de barrios (73 esperados)
+# 3. Completitud de datos por tabla
+# 4. Detección de anomalías
+#
+# Se ejecuta:
+# - Manualmente (workflow_dispatch)
+# - Después de cambios en el ETL
+# - Semanalmente para monitoreo
+# ==============================================================================
+
+name: Data Quality Checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_path:
+        description: 'Path to database (default: data/processed/database.db)'
+        required: false
+        default: 'data/processed/database.db'
+  schedule:
+    # Ejecutar cada lunes a las 7:00 UTC
+    - cron: '0 7 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - 'src/etl/**'
+      - 'src/database_setup.py'
+
+concurrency:
+  group: data-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  DB_PATH: ${{ github.event.inputs.db_path || 'data/processed/database.db' }}
+
+jobs:
+  data-quality:
+    name: 📊 Data Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-quality-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install tabulate  # Para reportes bonitos
+
+      - name: Check database exists
+        id: check-db
+        run: |
+          if [ -f "${{ env.DB_PATH }}" ]; then
+            echo "db_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Database found at ${{ env.DB_PATH }}"
+            ls -lh "${{ env.DB_PATH }}"
+          else
+            echo "db_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Database not found at ${{ env.DB_PATH }}"
+            echo "This is expected for fresh clones - run ETL first"
+          fi
+
+      - name: Run data quality checks
+        if: steps.check-db.outputs.db_exists == 'true'
+        id: quality
+        run: |
+          python << 'EOF'
+          import sqlite3
+          import json
+          from pathlib import Path
+          from datetime import datetime
+          
+          db_path = Path("${{ env.DB_PATH }}")
+          report = {
+              "timestamp": datetime.utcnow().isoformat(),
+              "database": str(db_path),
+              "checks": [],
+              "summary": {"passed": 0, "failed": 0, "warnings": 0}
+          }
+          
+          conn = sqlite3.connect(db_path)
+          cursor = conn.cursor()
+          
+          # =====================================================================
+          # CHECK 1: Número de barrios
+          # =====================================================================
+          cursor.execute("SELECT COUNT(*) FROM dim_barrios")
+          barrios_count = cursor.fetchone()[0]
+          expected_barrios = 73
+          
+          check = {
+              "name": "Barrios Count",
+              "expected": expected_barrios,
+              "actual": barrios_count,
+              "status": "PASS" if barrios_count >= expected_barrios else "FAIL"
+          }
+          report["checks"].append(check)
+          if check["status"] == "PASS":
+              report["summary"]["passed"] += 1
+          else:
+              report["summary"]["failed"] += 1
+          print(f"{'✅' if check['status'] == 'PASS' else '❌'} Barrios: {barrios_count}/{expected_barrios}")
+          
+          # =====================================================================
+          # CHECK 2: Registros por tabla
+          # =====================================================================
+          tables = [
+              ("dim_barrios", 73, None),
+              ("fact_precios", 100, None),  # Mínimo esperado
+              ("fact_demografia", 50, None),
+              ("fact_renta", 1, None),
+          ]
+          
+          for table, min_expected, max_expected in tables:
+              try:
+                  cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                  count = cursor.fetchone()[0]
+                  
+                  passed = count >= min_expected
+                  status = "PASS" if passed else ("WARN" if count > 0 else "FAIL")
+                  
+                  check = {
+                      "name": f"{table} records",
+                      "expected": f">= {min_expected}",
+                      "actual": count,
+                      "status": status
+                  }
+                  report["checks"].append(check)
+                  
+                  if status == "PASS":
+                      report["summary"]["passed"] += 1
+                  elif status == "WARN":
+                      report["summary"]["warnings"] += 1
+                  else:
+                      report["summary"]["failed"] += 1
+                      
+                  icon = "✅" if status == "PASS" else ("⚠️" if status == "WARN" else "❌")
+                  print(f"{icon} {table}: {count} registros (min: {min_expected})")
+                  
+              except sqlite3.OperationalError as e:
+                  print(f"⚠️ {table}: Table not found")
+                  report["summary"]["warnings"] += 1
+          
+          # =====================================================================
+          # CHECK 3: Geometrías de barrios
+          # =====================================================================
+          cursor.execute("""
+              SELECT 
+                  COUNT(*) as total,
+                  SUM(CASE WHEN geometry_json IS NOT NULL AND geometry_json != '' THEN 1 ELSE 0 END) as with_geometry
+              FROM dim_barrios
+          """)
+          total, with_geo = cursor.fetchone()
+          geo_pct = (with_geo / total * 100) if total > 0 else 0
+          
+          check = {
+              "name": "Barrios with geometry",
+              "expected": ">= 90%",
+              "actual": f"{with_geo}/{total} ({geo_pct:.1f}%)",
+              "status": "PASS" if geo_pct >= 90 else ("WARN" if geo_pct >= 50 else "FAIL")
+          }
+          report["checks"].append(check)
+          icon = "✅" if check["status"] == "PASS" else ("⚠️" if check["status"] == "WARN" else "❌")
+          print(f"{icon} Barrios con geometría: {with_geo}/{total} ({geo_pct:.1f}%)")
+          
+          # =====================================================================
+          # CHECK 4: Cobertura temporal de precios
+          # =====================================================================
+          try:
+              cursor.execute("""
+                  SELECT MIN(anio), MAX(anio), COUNT(DISTINCT anio)
+                  FROM fact_precios
+                  WHERE anio IS NOT NULL
+              """)
+              min_year, max_year, year_count = cursor.fetchone()
+              
+              if min_year and max_year:
+                  year_span = max_year - min_year + 1
+                  coverage = (year_count / year_span * 100) if year_span > 0 else 0
+                  
+                  check = {
+                      "name": "Price data temporal coverage",
+                      "expected": "2015-2023 range",
+                      "actual": f"{min_year}-{max_year} ({year_count} years, {coverage:.0f}% coverage)",
+                      "status": "PASS" if year_count >= 5 else "WARN"
+                  }
+                  report["checks"].append(check)
+                  icon = "✅" if check["status"] == "PASS" else "⚠️"
+                  print(f"{icon} Precios: {min_year}-{max_year} ({year_count} años)")
+          except Exception as e:
+              print(f"⚠️ Error checking price coverage: {e}")
+          
+          # =====================================================================
+          # CHECK 5: Integridad referencial
+          # =====================================================================
+          fk_checks = [
+              ("fact_precios", "barrio_id"),
+              ("fact_renta", "barrio_id"),
+          ]
+          
+          for table, fk_col in fk_checks:
+              try:
+                  cursor.execute(f"""
+                      SELECT COUNT(*) FROM {table} t
+                      LEFT JOIN dim_barrios b ON t.{fk_col} = b.barrio_id
+                      WHERE b.barrio_id IS NULL AND t.{fk_col} IS NOT NULL
+                  """)
+                  orphans = cursor.fetchone()[0]
+                  
+                  check = {
+                      "name": f"{table} FK integrity",
+                      "expected": "0 orphans",
+                      "actual": f"{orphans} orphan records",
+                      "status": "PASS" if orphans == 0 else "FAIL"
+                  }
+                  report["checks"].append(check)
+                  icon = "✅" if orphans == 0 else "❌"
+                  print(f"{icon} {table}.{fk_col}: {orphans} registros huérfanos")
+                  
+                  if orphans == 0:
+                      report["summary"]["passed"] += 1
+                  else:
+                      report["summary"]["failed"] += 1
+                      
+              except sqlite3.OperationalError:
+                  pass
+          
+          conn.close()
+          
+          # =====================================================================
+          # Guardar reporte
+          # =====================================================================
+          report_path = Path("data_quality_report.json")
+          with open(report_path, "w") as f:
+              json.dump(report, f, indent=2)
+          
+          print("\n" + "="*60)
+          print("📊 RESUMEN DE CALIDAD DE DATOS")
+          print("="*60)
+          print(f"   ✅ Passed: {report['summary']['passed']}")
+          print(f"   ⚠️ Warnings: {report['summary']['warnings']}")
+          print(f"   ❌ Failed: {report['summary']['failed']}")
+          print("="*60)
+          
+          # Exit code basado en fallos críticos
+          if report['summary']['failed'] > 0:
+              print("\n⚠️ Hay checks fallidos que requieren atención")
+              # No fallar el workflow, solo advertir
+          
+          EOF
+
+      - name: Upload quality report
+        if: steps.check-db.outputs.db_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-quality-report
+          path: data_quality_report.json
+          retention-days: 30
+
+      - name: Comment on PR with report
+        if: github.event_name == 'pull_request' && steps.check-db.outputs.db_exists == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('data_quality_report.json', 'utf8'));
+            
+            let body = '## 📊 Data Quality Report\n\n';
+            body += `**Timestamp:** ${report.timestamp}\n\n`;
+            body += '| Check | Expected | Actual | Status |\n';
+            body += '|-------|----------|--------|--------|\n';
+            
+            for (const check of report.checks) {
+              const icon = check.status === 'PASS' ? '✅' : (check.status === 'WARN' ? '⚠️' : '❌');
+              body += `| ${check.name} | ${check.expected} | ${check.actual} | ${icon} |\n`;
+            }
+            
+            body += `\n**Summary:** ✅ ${report.summary.passed} | ⚠️ ${report.summary.warnings} | ❌ ${report.summary.failed}\n`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+

@@ -7,11 +7,72 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Mapping, Optional
+from typing import FrozenSet, Iterable, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_NAME = "database.db"
+
+# Whitelist de tablas válidas para operaciones dinámicas (seguridad contra SQL injection)
+VALID_TABLES: FrozenSet[str] = frozenset({
+    "dim_barrios",
+    "fact_precios",
+    "fact_demografia",
+    "fact_demografia_ampliada",
+    "fact_renta",
+    "fact_oferta_idealista",
+    "etl_runs",
+})
+
+
+class InvalidTableNameError(ValueError):
+    """Excepción lanzada cuando se intenta usar un nombre de tabla no válido."""
+
+    def __init__(self, table_name: str, valid_tables: FrozenSet[str]) -> None:
+        """
+        Inicializa la excepción.
+
+        Args:
+            table_name: Nombre de tabla inválido.
+            valid_tables: Conjunto de tablas válidas.
+        """
+        self.table_name = table_name
+        self.valid_tables = valid_tables
+        super().__init__(
+            f"Nombre de tabla no válido: '{table_name}'. "
+            f"Tablas permitidas: {sorted(valid_tables)}"
+        )
+
+
+def validate_table_name(table_name: str) -> str:
+    """
+    Valida que un nombre de tabla esté en la whitelist.
+
+    Esta función previene SQL injection validando que el nombre de tabla
+    sea uno de los conocidos en el esquema.
+
+    Args:
+        table_name: Nombre de tabla a validar.
+
+    Returns:
+        El nombre de tabla validado (sin modificar).
+
+    Raises:
+        InvalidTableNameError: Si el nombre no está en la whitelist.
+
+    Example:
+        >>> validate_table_name("dim_barrios")
+        'dim_barrios'
+        >>> validate_table_name("malicious_table; DROP TABLE users;--")
+        InvalidTableNameError: Nombre de tabla no válido...
+    """
+    if table_name not in VALID_TABLES:
+        logger.error(
+            "Intento de usar tabla no válida: '%s'. Posible SQL injection.",
+            table_name,
+        )
+        raise InvalidTableNameError(table_name, VALID_TABLES)
+    return table_name
 
 
 CREATE_TABLE_STATEMENTS = (
@@ -204,14 +265,27 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
 
 
 def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
-    """Remove all rows from the given list of tables inside a transaction."""
-    
+    """
+    Elimina todas las filas de las tablas especificadas dentro de una transacción.
+
+    Args:
+        conn: Conexión SQLite activa.
+        tables: Iterable de nombres de tabla a truncar.
+
+    Raises:
+        InvalidTableNameError: Si alguna tabla no está en la whitelist VALID_TABLES.
+    """
+    # Validar todas las tablas antes de ejecutar cualquier operación
+    validated_tables = [validate_table_name(table) for table in tables]
+
     # Desactivar temporalmente foreign keys para permitir truncado en cualquier orden
     conn.execute("PRAGMA foreign_keys = OFF;")
     try:
         with conn:
-            for table in tables:
+            for table in validated_tables:
+                # Seguro: table ya está validado contra whitelist
                 conn.execute(f"DELETE FROM {table};")
+                logger.debug("Tabla %s truncada", table)
     finally:
         # Reactivar foreign keys
         conn.execute("PRAGMA foreign_keys = ON;")

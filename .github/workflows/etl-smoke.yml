@@ -1,3 +1,10 @@
+# ==============================================================================
+# ETL Smoke Test - Verificación rápida del pipeline
+# ==============================================================================
+# NOTA: Este workflow está siendo reemplazado por ci.yml
+# Se mantiene por compatibilidad pero ci.yml es preferible.
+# ==============================================================================
+
 name: ETL Smoke Test
 
 on:
@@ -14,7 +21,7 @@ on:
       - 'tests/**'
       - 'requirements.txt'
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
     paths:
       - 'src/**'
       - 'scripts/**'
@@ -22,34 +29,59 @@ on:
       - 'requirements.txt'
   workflow_dispatch:
 
+# Cancelar runs anteriores del mismo branch
+concurrency:
+  group: etl-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE_DIR: ~/.cache/pip
+
 jobs:
   smoke-test:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
     
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-smoke-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            pip-smoke-${{ runner.os }}-
         
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
         
-    - name: Run Unit Tests
-      run: |
-        pytest tests/test_data_extraction.py
+      - name: Run Unit Tests
+        run: |
+          pytest tests/test_data_extraction.py tests/test_fk_validation.py -v --no-cov
         
-    - name: Run Pipeline Integration Tests
-      run: |
-        # Ejecuta solo los tests que no requieren datos reales completos (smoke test)
-        pytest tests/test_pipeline.py -k "test_etl_handles_missing_files_gracefully or test_manifest_integration"
+      - name: Run Pipeline Integration Tests
+        run: |
+          pytest tests/test_pipeline.py \
+            -k "test_etl_handles_missing_files_gracefully or test_manifest_integration" \
+            -v --no-cov
         
-    - name: Dry Run ETL (Validar importaciones y sintaxis)
-      run: |
-        # Ejecuta un script simple para verificar que el código carga sin errores
-        python -c "from src.etl.pipeline import run_etl; print('ETL Pipeline module loaded successfully')"
+      - name: Verify ETL imports and validators
+        run: |
+          python -c "
+          from src.etl.pipeline import run_etl
+          from src.etl.validators import validate_foreign_keys, CRITICAL_SOURCES, OPTIONAL_SOURCES
+          from src.database_setup import validate_table_name, VALID_TABLES
+          print('✅ ETL Pipeline and validators loaded successfully')
+          print(f'   Critical sources: {sorted(CRITICAL_SOURCES)}')
+          print(f'   Optional sources: {sorted(OPTIONAL_SOURCES)}')
+          print(f'   Valid tables: {sorted(VALID_TABLES)}')
+          "
 

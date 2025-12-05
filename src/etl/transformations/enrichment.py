@@ -35,8 +35,6 @@ def prepare_portaldades_precios(
     Returns:
         Tupla ``(venta_df, alquiler_df)`` con precios de venta y alquiler.
     """
-    import json  # noqa: F401  # se mantiene por compatibilidad si se usa en futuras extensiones
-
     venta_records: List[Dict[str, Any]] = []
     alquiler_records: List[Dict[str, Any]] = []
 

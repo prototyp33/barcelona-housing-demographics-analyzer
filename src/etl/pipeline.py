@@ -18,6 +18,11 @@ from ..database_setup import (
     register_etl_run,
     truncate_tables,
 )
+from .validators import (
+    FKValidationStrategy,
+    handle_source_error,
+    validate_all_fact_tables,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -242,14 +247,14 @@ def run_etl(
         venta_df = _safe_read_csv(venta_path) if venta_path else pd.DataFrame()
         alquiler_df = _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
         
-        # Cargar datos de renta si están disponibles
+        # Cargar datos de renta si están disponibles (fuente opcional)
         renta_df = None
         if renta_path:
             try:
                 renta_df = _safe_read_csv(renta_path)
                 logger.info("✓ Datos de renta cargados: %s", renta_path.name)
             except Exception as e:
-                logger.warning("Error cargando datos de renta: %s", e)
+                handle_source_error("renta", e, context="carga CSV")
 
         # Determinar dataset IDs
         dataset_dem = metadata.get("coverage_by_source", {}).get(
@@ -360,8 +365,7 @@ def run_etl(
                         f"(años {portaldades_alquiler_df['anio'].min()}-{portaldades_alquiler_df['anio'].max()})"
                     )
             except Exception as e:
-                logger.warning(f"Error procesando datos del Portal de Dades: {e}")
-                logger.debug(traceback.format_exc())
+                handle_source_error("portaldades", e, context="procesamiento precios")
         else:
             logger.info("Directorio del Portal de Dades no encontrado, omitiendo")
 
@@ -391,8 +395,7 @@ def run_etl(
                 )
                 logger.info("✓ Renta procesada: %s registros", len(fact_renta))
             except Exception as e:
-                logger.warning("Error procesando renta: %s", e)
-                logger.debug(traceback.format_exc())
+                handle_source_error("renta", e, context="procesamiento")
                 fact_renta = None
         
         # Procesar datos de Idealista si están disponibles
@@ -407,8 +410,7 @@ def run_etl(
                     idealista_data_combined.append(idealista_venta_df)
                     logger.info("✓ Datos de venta Idealista cargados: %s", idealista_venta_path.name)
             except Exception as e:
-                logger.warning("Error cargando datos de venta de Idealista: %s", e)
-                logger.debug(traceback.format_exc())
+                handle_source_error("idealista", e, context="carga venta CSV")
         
         if idealista_rent_path and idealista_rent_path.exists():
             try:
@@ -418,8 +420,7 @@ def run_etl(
                     idealista_data_combined.append(idealista_rent_df)
                     logger.info("✓ Datos de alquiler Idealista cargados: %s", idealista_rent_path.name)
             except Exception as e:
-                logger.warning("Error cargando datos de alquiler de Idealista: %s", e)
-                logger.debug(traceback.format_exc())
+                handle_source_error("idealista", e, context="carga alquiler CSV")
         
         if idealista_data_combined:
             logger.info("Procesando datos de oferta de Idealista...")
@@ -435,11 +436,42 @@ def run_etl(
                 )
                 logger.info("✓ Oferta Idealista procesada: %s registros", len(fact_oferta_idealista))
             except Exception as e:
-                logger.warning("Error procesando oferta de Idealista: %s", e)
-                logger.debug(traceback.format_exc())
+                handle_source_error("idealista", e, context="procesamiento oferta")
                 fact_oferta_idealista = None
         else:
             logger.debug("No se encontraron datos de Idealista (opcional, requiere API credentials)")
+
+        # === VALIDACIÓN DE INTEGRIDAD REFERENCIAL ===
+        # Validar todas las fact tables antes de insertar en SQLite
+        logger.info("=== Validando integridad referencial ===")
+        (
+            fact_precios,
+            fact_demografia,
+            fact_demografia_ampliada,
+            fact_renta,
+            fact_oferta_idealista,
+            fk_validation_results,
+        ) = validate_all_fact_tables(
+            dim_barrios=dim_barrios,
+            fact_precios=fact_precios,
+            fact_demografia=fact_demografia,
+            fact_demografia_ampliada=fact_demografia_ampliada,
+            fact_renta=fact_renta,
+            fact_oferta_idealista=fact_oferta_idealista,
+            strategy=FKValidationStrategy.FILTER,  # Filtra registros con FK inválidos
+        )
+        
+        # Registrar estadísticas de validación
+        fk_stats = {
+            result.table_name: {
+                "total": result.total_records,
+                "valid": result.valid_records,
+                "invalid": result.invalid_records,
+                "pct_invalid": round(result.pct_invalid, 2),
+            }
+            for result in fk_validation_results
+        }
+        params["fk_validation"] = fk_stats
 
         params.update(
             {

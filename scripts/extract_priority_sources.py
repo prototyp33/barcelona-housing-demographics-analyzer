@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data_extraction import BaseExtractor, OpenDataBCNExtractor, setup_logging
+from src.extraction import BaseExtractor, OpenDataBCNExtractor, setup_logging
 import pandas as pd
 
 # Configurar logging

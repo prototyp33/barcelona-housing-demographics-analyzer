@@ -60,3 +60,12 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Auto-generated documentation
+docs/labels.md  # Auto-generado por update_labels_extended.py
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+PR_DESCRIPTION.md

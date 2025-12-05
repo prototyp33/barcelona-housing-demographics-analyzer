@@ -1,0 +1,91 @@
+name: 🐛 Bug Report
+description: Reportar un error o comportamiento incorrecto
+title: "[Bug]: "
+labels: ["bug", "priority-medium"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar un bug. Por favor completa la información para ayudarnos a resolverlo.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción del Bug
+      description: Describe claramente qué está fallando
+      placeholder: La función X falla cuando...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Pasos para Reproducir
+      description: Lista los pasos para reproducir el error
+      placeholder: |
+        1. Ejecutar comando X
+        2. Ver error Y
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamiento Esperado
+      description: Qué debería ocurrir
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamiento Actual
+      description: Qué ocurre realmente
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs de Error
+      description: Copia aquí los logs relevantes
+      render: shell
+
+  - type: input
+    id: files
+    attributes:
+      label: Archivos Afectados
+      description: Rutas de archivos relacionados
+      placeholder: src/etl/pipeline.py:156
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridad
+      options:
+        - "🔴 High - Bloquea desarrollo"
+        - "🟡 Medium - Importante pero no urgente"
+        - "🟢 Low - Nice to have"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Entorno
+      description: Información del sistema
+      value: |
+        - OS: [ej: Ubuntu 22.04]
+        - Python: [ej: 3.11.5]
+        - Versión del proyecto: [ej: commit SHA]
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: He buscado si ya existe un issue similar
+          required: true
+        - label: He incluido información suficiente para reproducir el bug
+          required: true
+
