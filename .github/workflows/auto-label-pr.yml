@@ -6,14 +6,22 @@
 # - Contenido del título
 #
 # CONVENCIONES DE TÍTULOS:
-# - deps(python) o deps(pip) → labels: dependencies, python
-# - deps(docker) → labels: dependencies, docker
-# - deps(actions) o deps(github-actions) → labels: dependencies, github-actions
+# - deps(core) → labels: dependencies, python-core, type-infra, priority-low, area-etl
+# - deps(automation) → labels: dependencies, automation-scripts, type-infra, priority-low, area-monitoring
+# - deps(ci) → labels: dependencies, github-actions, type-infra, priority-low
+# - deps(python) o deps(pip) → labels: dependencies, python, type-infra, priority-low, area-etl (compatibilidad)
+# - deps(docker) → labels: dependencies, docker, type-infra, priority-low
+# - deps(actions) o deps(github-actions) → labels: dependencies, github-actions, type-infra, priority-low (compatibilidad)
 # - feature o feat → label: enhancement
 # - fix o bug → label: bug
 # - docs o documentation → label: documentation
 # - test o testing → label: testing
 # - refactor → label: refactor
+#
+# PMO COMPLIANCE:
+# - Todos los PRs de dependencias tienen labels obligatorios: type-infra, priority-low
+# - Labels de área según contexto: area-etl (core), area-monitoring (scripts)
+# - Protege métricas de PROJECT_METRICS.md al clasificar correctamente
 #
 # PERMISOS REQUERIDOS:
 # - pull-requests: write (para añadir labels y asignar PRs)
@@ -64,12 +72,26 @@ jobs:
             // Normalizar título a minúsculas para comparación
             const titleLower = title.toLowerCase();
             
-            if (titleLower.includes('deps(python)') || titleLower.includes('deps(pip)')) {
-              labels.push('dependencies', 'python');
+            // ==================================================================
+            // DETECCIÓN DE DEPENDENCIAS (PMO Compliant)
+            // ==================================================================
+            // Detecta prefijos de dependencias y aplica labels obligatorios
+            // según LABEL_MANAGEMENT.md: type-infra y priority-low
+            // ==================================================================
+            if (titleLower.includes('deps(core)')) {
+              labels.push('dependencies', 'python-core', 'type-infra', 'priority-low', 'area-etl');
+            } else if (titleLower.includes('deps(automation)')) {
+              labels.push('dependencies', 'automation-scripts', 'type-infra', 'priority-low', 'area-monitoring');
+            } else if (titleLower.includes('deps(ci)')) {
+              labels.push('dependencies', 'github-actions', 'type-infra', 'priority-low');
+            } else if (titleLower.includes('deps(python)') || titleLower.includes('deps(pip)')) {
+              // Compatibilidad con prefijos antiguos
+              labels.push('dependencies', 'python', 'type-infra', 'priority-low', 'area-etl');
             } else if (titleLower.includes('deps(docker)')) {
-              labels.push('dependencies', 'docker');
+              labels.push('dependencies', 'docker', 'type-infra', 'priority-low');
             } else if (titleLower.includes('deps(actions)') || titleLower.includes('deps(github-actions)')) {
-              labels.push('dependencies', 'github-actions');
+              // Compatibilidad con prefijos antiguos
+              labels.push('dependencies', 'github-actions', 'type-infra', 'priority-low');
             } else if (titleLower.includes('feature') || titleLower.includes('feat')) {
               labels.push('enhancement');
             } else if (titleLower.includes('fix') || titleLower.includes('bug')) {
@@ -80,6 +102,67 @@ jobs:
               labels.push('testing');
             } else if (titleLower.includes('refactor')) {
               labels.push('refactor');
+            }
+            
+            // ==================================================================
+            // DETECCIÓN DE BREAKING CHANGES Y SECURITY UPDATES
+            // ==================================================================
+            // Detecta actualizaciones major o vulnerabilidades de seguridad
+            // ==================================================================
+            if (titleLower.includes('major') || 
+                titleLower.includes('version-update:semver-major') ||
+                titleLower.includes('breaking')) {
+              labels.push('breaking-change');
+            }
+            
+            if (titleLower.includes('security') || 
+                titleLower.includes('vulnerability') ||
+                titleLower.includes('cve-')) {
+              labels.push('security');
+            }
+            
+            // ==================================================================
+            // DETECCIÓN DE ÁREAS AFECTADAS
+            // ==================================================================
+            // Detecta qué área del proyecto se ve afectada
+            // ==================================================================
+            if (titleLower.includes('etl') || 
+                titleLower.includes('pipeline') || 
+                titleLower.includes('transform') ||
+                titleLower.includes('database') ||
+                titleLower.includes('sql')) {
+              labels.push('area-etl');
+            }
+            
+            if (titleLower.includes('extract') || 
+                titleLower.includes('scraper') || 
+                titleLower.includes('api') ||
+                titleLower.includes('scraping') ||
+                titleLower.includes('data extraction')) {
+              labels.push('area-data');
+            }
+            
+            if (titleLower.includes('dashboard') || 
+                titleLower.includes('streamlit') || 
+                titleLower.includes('ui') ||
+                titleLower.includes('frontend') ||
+                titleLower.includes('visualization')) {
+              labels.push('area-ui');
+            }
+            
+            if (titleLower.includes('docs') || 
+                titleLower.includes('documentation') || 
+                titleLower.includes('readme') ||
+                titleLower.includes('changelog')) {
+              labels.push('area-docs');
+            }
+            
+            if (titleLower.includes('ci') || 
+                titleLower.includes('cd') || 
+                titleLower.includes('workflow') ||
+                titleLower.includes('github actions') ||
+                titleLower.includes('deploy')) {
+              labels.push('area-infra');
             }
             
             // ==================================================================
