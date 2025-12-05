@@ -1,0 +1,78 @@
+# ==============================================================================
+# GitHub Action: Auto-sincronización de Labels
+# ==============================================================================
+# Sincroniza automáticamente los labels cuando se modifica el script
+# o se ejecuta manualmente desde GitHub Actions.
+# ==============================================================================
+
+name: Sync GitHub Labels
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/project_management/update_labels_extended.py'
+      - '.github/workflows/sync_labels.yml'
+  workflow_dispatch:  # Permitir ejecución manual
+
+# Cancelar runs anteriores del mismo workflow
+concurrency:
+  group: sync-labels
+  cancel-in-progress: false  # No cancelar, esperar a que termine
+
+permissions:
+  contents: write  # Necesario para commit de docs/labels.md
+  issues: write   # Necesario para crear/modificar labels
+
+jobs:
+  sync-labels:
+    name: 🔄 Sync Labels
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0  # Necesario para git diff
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+    
+    - name: Sync labels
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        python scripts/project_management/update_labels_extended.py sync
+    
+    - name: Export labels documentation
+      run: |
+        python scripts/project_management/update_labels_extended.py export --output docs/labels.md
+    
+    - name: Show statistics
+      run: |
+        python scripts/project_management/update_labels_extended.py stats
+    
+    - name: Commit labels.md if changed
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
+        
+        # Verificar si docs/labels.md cambió
+        git add docs/labels.md
+        
+        if git diff --staged --quiet; then
+          echo "No hay cambios en docs/labels.md"
+        else
+          git commit -m "docs: update labels documentation [skip ci]"
+          git push
+        fi

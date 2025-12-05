@@ -1,12 +1,17 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 24 de noviembre de 2025
+**Última actualización**: 3 de diciembre de 2025
 
 ---
 
 ## 📊 Resumen Ejecutivo
 
-El proyecto ha completado exitosamente la **infraestructura de datos y el pipeline ETL**, consolidando datos de múltiples fuentes públicas en una base de datos SQLite normalizada. Se han incorporado nuevas tablas (`fact_demografia_ampliada`, `fact_renta`, `fact_oferta_idealista`) y se han validado las integraciones con **IDESCAT** y **RapidAPI/Idealista**. La base de datos contiene datos históricos y está lista para incorporar la oferta inmobiliaria mensual una vez generado el mapa de `locationId` por barrio.
+El proyecto ha completado exitosamente el **Sprint de Integridad de Datos (Nov 2025)**, cumpliendo todos los criterios críticos:
+- ✅ **fact_precios**: 6,358 registros preservados (objetivo: >1,014)
+- ✅ **dim_barrios**: 73/73 barrios con geometrías GeoJSON válidas (100%)
+- ✅ **fact_demografia**: 0% nulls en campos críticos (objetivo: <10%)
+
+La infraestructura de datos y el pipeline ETL están consolidados, con datos de múltiples fuentes públicas en una base de datos SQLite normalizada. Se han incorporado nuevas tablas (`fact_demografia_ampliada`, `fact_renta`, `fact_oferta_idealista`) y se han validado las integraciones con **IDESCAT** y **RapidAPI/Idealista**.
 
 ---
 
@@ -117,58 +122,88 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 ### Base de Datos Procesada (`data/processed/database.db`)
 
-#### `dim_barrios` (73 registros con geometría)
+#### `dim_barrios` (73 registros - 100% con geometría) ✅
 ```sql
 - barrio_id (PK)
 - barrio_nombre
 - barrio_nombre_normalizado
 - distrito_id, distrito_nombre
 - codi_districte, codi_barri
-- geometry_json (GeoJSON válido por barrio, cargado desde `barrios_geojson_*.json`)
+- geometry_json (GeoJSON válido por barrio - 73/73 completado)
 - source_dataset, etl_created_at, etl_updated_at
 ```
 
-#### `fact_precios` (1,014 registros)
+**Estado**: ✅ **COMPLETADO** - Todos los barrios tienen geometrías válidas cargadas desde `barrios_geojson_*.json`
+
+#### `fact_precios` (6,358 registros) ✅
 ```sql
 - barrio_id (FK)
-- anio (2000-2025)
+- anio (2012-2025)
 - periodo, trimestre
-- precio_m2_venta (1,104 registros con datos)
-- precio_mes_alquiler (997 registros con datos)
+- precio_m2_venta, precio_mes_alquiler
 - dataset_id, source (opendatabcn_idealista | portaldades)
 - etl_loaded_at
 ```
 
 **Fuentes**:
 - `opendatabcn_idealista`: 59 registros (2015)
-- `portaldades`: 955 registros (2012-2025)
+- `portaldades`: 6,299 registros (2012-2025)
 
-#### `fact_demografia` (657 registros)
+**Estado**: ✅ **COMPLETADO** - Multi-source records preservados, sin duplicados reales
+
+#### `fact_demografia` (657 registros) ✅
 ```sql
 - barrio_id (FK)
 - anio (2015-2023)
 - poblacion_total, poblacion_hombres, poblacion_mujeres
-- hogares_totales (Portal de Dades `hd7u1b68qj` + estimación ponderada por población)
+- hogares_totales (Portal de Dades `hd7u1b68qj` + estimación ponderada)
 - edad_media (proxy del parque residencial `ydtnyd6qhm`)
 - porc_inmigracion (transacciones a compradores extranjeros `uuxbxa7onv`)
 - densidad_hab_km2 (calculada con superficie catastral `wjnmk82jd9`)
 - dataset_id, source, etl_loaded_at
 ```
 
+**Estado**: ✅ **COMPLETADO** - 0% nulls en campos críticos (poblacion_total, hogares_totales, edad_media)
+
 ---
 
-## ⚠️ Issues Identificados
+## ✅ Sprint de Integridad de Datos - COMPLETADO (Nov 2025)
 
-### 1. **Deduplicación en fact_precios** ✅
+### Criterios del Sprint - Todos Cumplidos ✅
 
-**Acciones**:
-- La deduplicación normaliza `trimestre` (NULL→-1) antes de agrupar para reflejar exactamente el índice único de SQLite `(barrio_id, anio, trimestre)`.
-- Se añadió una verificación final para eliminar duplicados residuales y se reorganizó el orden de truncado/creación de índices en `pipeline.py`.
-- `prepare_fact_precios` concatena únicamente dataframes no vacíos y preserva las fuentes/datasets en campos concatenados (`foo|bar`).
+#### 1. **fact_precios: Multi-source records preserved** ✅
+- **Objetivo**: >1,014 registros preservando datos de múltiples fuentes
+- **Estado Actual**: 6,358 registros
+- **Verificación**: 
+  - ✅ Sin duplicados reales (0 violaciones de índice único)
+  - ✅ Múltiples fuentes preservadas (opendatabcn_idealista + portaldades)
+  - ✅ Trazabilidad completa con `dataset_id` y `source`
 
-**Resultado**: Se mantiene una sola fila por barrio-año-trimestre sin violaciones de índice y con trazabilidad completa de fuentes.
+#### 2. **dim_barrios: GeoJSON geometries injected** ✅
+- **Objetivo**: 73/73 barrios con `geometry_json` válido
+- **Estado Actual**: 73/73 barrios (100%)
+- **Verificación**: 
+  - ✅ Todas las geometrías cargadas desde `barrios_geojson_*.json`
+  - ✅ Validación de estructura GeoJSON completa
+  - ✅ Script `scripts/load_geometries.py` operativo
 
-### 2. **Datos de Alquiler de Open Data BCN** 🟡
+#### 3. **fact_demografia: <10% nulls in key fields** ✅
+- **Objetivo**: <10% nulls en campos críticos
+- **Estado Actual**: 0% nulls en campos críticos
+- **Verificación**:
+  - ✅ `poblacion_total`: 0% nulls
+  - ✅ `hogares_totales`: 0% nulls (enriquecido con Portal de Dades)
+  - ✅ `edad_media`: 0% nulls (proxy del parque residencial)
+  - ✅ `porc_inmigracion`: 0.3% nulls
+  - ✅ `densidad_hab_km2`: 0% nulls
+
+**Script de Verificación**: `scripts/verify_sprint_status.py` - Ejecutar para validar estado
+
+---
+
+## ⚠️ Issues Pendientes (Post-Sprint)
+
+### 1. **Datos de Alquiler de Open Data BCN** 🟡
 
 **Problema**: Los datos de alquiler de Open Data BCN no tienen métrica de precio identificable.
 
@@ -176,34 +211,13 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 
 **Solución**: Investigar estructura de datos de alquiler de Open Data BCN o depender solo de Portal de Dades.
 
-### 3. **Campos NULL en fact_demografia** ✅
-
-**Acciones**:
-- `enrich_fact_demografia` integra:
-  - Hogares (`hd7u1b68qj`) con ponderación por población de barrio/distrito.
-  - Proxy de edad media (`ydtnyd6qhm`).
-  - Porcentaje de compras extranjeras (`uuxbxa7onv`).
-  - Densidad con superficie catastral (`wjnmk82jd9`).
-- `dataset_id` y `source` reflejan todas las fuentes usadas (formato `foo|bar`).
-
-**Resultado**: Columnas llenadas manteniendo trazabilidad y cálculos reproducibles.
-
-### 4. **Mapeo de Territorios Portal de Dades** ✅
-
-**Acciones**:
-- `_map_territorio_to_barrio_id` incorpora alias manuales y fuzzy matching (`difflib`).
-- Los territorios de tipo `Districte`/`Municipi` ya no se asignan a un único barrio; se documenta la distribución en `docs/TERRITORY_MAPPING_OVERRIDES.md`.
-- Nuevos logs informativos con conteo de enriquecimientos.
-
-**Resultado**: Mayor cobertura y trazabilidad en casos especiales.
-
-### 5. **Datos de INE (históricos) Pendientes** 🟡
+### 2. **Datos de INE (históricos) Pendientes** 🟡
 
 **Problema**: `INEExtractor` sigue en versión base. No se han automatizado las descargas de precios históricos nacionales.
 
 **Impacto**: Dependemos del Portal de Dades para series largas. Se requiere implementar `ine_extractor.py`.
 
-### 6. **Oferta Idealista (RapidAPI) - Etapa de Mapeo** 🟡
+### 3. **Oferta Idealista (RapidAPI) - Etapa de Mapeo** 🟡
 
 **Estado**: `IdealistaRapidAPIExtractor` ya se autentica correctamente (Plan Basic, 150 peticiones/mes). Falta completar el `barrio_location_ids.csv` para los 73 barrios y ejecutar la extracción mensual.
 
@@ -214,14 +228,6 @@ El proyecto ha completado exitosamente la **infraestructura de datos y el pipeli
 **Impacto**: Falta fuente de precios de mercado actualizados.
 
 **Consideración**: Idealista requiere scraping ético y puede tener restricciones legales.
-
-### 7. **Geometry JSON Vacío** 🟡
-
-**Problema**: `geometry_json` en `dim_barrios` está NULL.
-
-**Impacto**: No se pueden hacer visualizaciones geográficas.
-
-**Solución**: Integrar datos geográficos de Open Data BCN o GeoJSON.
 
 ---
 

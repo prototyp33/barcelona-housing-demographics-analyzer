@@ -113,8 +113,17 @@ class HousingCleaner:
         Returns:
             Parsed geometry dictionary or None if invalid.
         """
-        if pd.isna(geometry_json):
+        # Check for None or pd.NA before pd.isna() to avoid errors with lists/arrays
+        if geometry_json is None:
             return None
+        
+        try:
+            if pd.isna(geometry_json):
+                return None
+        except (ValueError, TypeError):
+            # pd.isna() can raise ValueError for arrays/lists, TypeError for unsupported types
+            # Continue to try parsing as JSON/dict
+            pass
 
         try:
             # Parse string JSON to dictionary if needed

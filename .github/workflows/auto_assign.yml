@@ -1,0 +1,52 @@
+# ==============================================================================
+# Auto-Assign Issues & PRs
+# ==============================================================================
+# Asigna automáticamente las issues y PRs al owner del repositorio.
+# Para proyectos solo-developer, esto mantiene tracking consistente.
+# ==============================================================================
+
+name: Auto Assign
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign-issue:
+    name: 📋 Assign Issue
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues'
+
+    steps:
+      - name: Assign issue to owner
+        uses: pozil/auto-assign-issue@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          assignees: prototyp33
+          numOfAssignee: 1
+
+  assign-pr:
+    name: 🔀 Assign PR
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Assign PR to owner
+        uses: hmarr/auto-approve-action@v4
+        if: false  # Deshabilitado - solo asignación
+
+      - name: Add assignee to PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              assignees: ['prototyp33']
+            });
+            console.log('✅ PR assigned to prototyp33');
+

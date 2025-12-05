@@ -187,13 +187,13 @@ jobs:
 
       - name: Run FK validation tests
         run: |
-          pytest tests/test_fk_validation.py -v
+          pytest tests/test_fk_validation.py -v --no-cov
 
       - name: Run pipeline smoke tests
         run: |
           pytest tests/test_pipeline.py \
             -k "test_etl_handles_missing_files_gracefully or test_manifest_integration" \
-            -v
+            -v --no-cov
 
   # ============================================================================
   # JOB 4: Security & Dependency Check (solo en PRs)
