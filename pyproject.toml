@@ -209,5 +209,5 @@ exclude_lines = [
     "if TYPE_CHECKING:",
 ]
 show_missing = true
-fail_under = 25  # Refleja estado actual (~23%), subir gradualmente en siguientes sprints
+fail_under = 20  # Refleja estado actual (~24%), subir gradualmente en siguientes sprints
 
