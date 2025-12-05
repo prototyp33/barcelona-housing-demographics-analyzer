@@ -102,11 +102,11 @@ type-check:  ## Ejecuta verificacion de tipos con mypy
 
 dashboard:  ## Inicia dashboard Streamlit
 	@echo "Iniciando dashboard Streamlit..."
-	@streamlit run src/app.py
+	@PYTHONPATH=. streamlit run src/app/main.py
 
 dashboard-demo:  ## Inicia dashboard en modo demo (puerto 8502)
 	@echo "Iniciando dashboard en puerto 8502..."
-	@streamlit run src/app.py --server.port 8502
+	@PYTHONPATH=. streamlit run src/app/main.py --server.port 8502
 
 # ============================================================
 # INSTALACION Y SETUP

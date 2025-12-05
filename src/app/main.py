@@ -13,7 +13,7 @@ from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2, DB_PATH
 from src.app.data_loader import load_distritos, load_available_years, load_kpis, load_precios
 from src.app.components import card_standard, card_chart, card_snapshot, card_metric
 from src.app.styles import inject_global_css, render_responsive_kpi_grid, render_ranking_item
-from src.app.views import overview, map_analysis, correlations, demographics
+from src.app.views import overview, map_analysis, correlations, demographics, data_quality
 
 
 def configure_page() -> None:
@@ -261,8 +261,8 @@ def main() -> None:
     render_primary_dashboard(selected_year, distrito_filter)
     st.markdown("### 📚 Profundiza por módulo")
     
-    tab1, tab2, tab3 = st.tabs(
-        ["Territorio", "Demografía", "Correlaciones"]
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["Territorio", "Demografía", "Correlaciones", "Calidad de Datos"]
     )
     
     with tab1:
@@ -277,6 +277,9 @@ def main() -> None:
     
     with tab3:
         correlations.render(year=selected_year)
+    
+    with tab4:
+        data_quality.render(year=selected_year, key_prefix="tab_data_quality")
 
 
 if __name__ == "__main__":

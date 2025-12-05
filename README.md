@@ -121,7 +121,11 @@ The project features a modern, modular Streamlit dashboard for visual analysis.
 #### Run Locally
 
 ```bash
-streamlit run src/app/main.py
+# Opción 1: Usando Makefile (recomendado)
+make dashboard
+
+# Opción 2: Comando directo con PYTHONPATH
+PYTHONPATH=. streamlit run src/app/main.py
 ```
 
 #### Run with Docker
