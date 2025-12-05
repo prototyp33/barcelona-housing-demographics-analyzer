@@ -9,6 +9,11 @@ import pandas as pd
 import pytest
 
 from src.etl.transformations.demographics import (
+    _compute_age_metrics_from_raw,
+    _compute_area_by_barrio,
+    _compute_building_age_proxy,
+    _compute_foreign_purchase_share,
+    _compute_household_metrics,
     enrich_fact_demografia,
     prepare_demografia_ampliada,
     prepare_fact_demografia,
@@ -604,5 +609,112 @@ class TestDemographicsEdgeCases:
             reference_time=datetime.now(),
         )
 
+        assert len(result) == 0
+
+
+class TestPrivateHelperFunctions:
+    """Tests para funciones auxiliares privadas de demographics."""
+
+    def test_compute_household_metrics_no_file(
+        self,
+        sample_dim_barrios: pd.DataFrame,
+        sample_fact_demografia: pd.DataFrame,
+        tmp_path: Path,
+    ):
+        """Verifica que retorna DataFrame vacío si no existe el archivo."""
+        portaldades_dir = tmp_path / "portaldades"
+        portaldades_dir.mkdir(parents=True)
+
+        with patch(
+            "src.etl.transformations.demographics._find_portaldades_file",
+            return_value=None,
+        ):
+            result = _compute_household_metrics(
+                portaldades_dir=portaldades_dir,
+                dim_barrios=sample_dim_barrios,
+                fact_demografia=sample_fact_demografia,
+            )
+
+            assert isinstance(result, pd.DataFrame)
+            assert len(result) == 0
+
+    def test_compute_foreign_purchase_share_no_file(
+        self,
+        sample_dim_barrios: pd.DataFrame,
+        tmp_path: Path,
+    ):
+        """Verifica que retorna DataFrame vacío si no existe el archivo."""
+        portaldades_dir = tmp_path / "portaldades"
+        portaldades_dir.mkdir(parents=True)
+
+        with patch(
+            "src.etl.transformations.demographics._find_portaldades_file",
+            return_value=None,
+        ):
+            result = _compute_foreign_purchase_share(
+                portaldades_dir=portaldades_dir,
+                dim_barrios=sample_dim_barrios,
+            )
+
+            assert isinstance(result, pd.DataFrame)
+            assert len(result) == 0
+
+    def test_compute_building_age_proxy_no_file(
+        self,
+        sample_dim_barrios: pd.DataFrame,
+        tmp_path: Path,
+    ):
+        """Verifica que retorna DataFrame vacío si no existe el archivo."""
+        portaldades_dir = tmp_path / "portaldades"
+        portaldades_dir.mkdir(parents=True)
+
+        with patch(
+            "src.etl.transformations.demographics._find_portaldades_file",
+            return_value=None,
+        ):
+            result = _compute_building_age_proxy(
+                portaldades_dir=portaldades_dir,
+                dim_barrios=sample_dim_barrios,
+            )
+
+            assert isinstance(result, pd.DataFrame)
+            assert len(result) == 0
+
+    def test_compute_area_by_barrio_no_file(
+        self,
+        sample_dim_barrios: pd.DataFrame,
+        tmp_path: Path,
+    ):
+        """Verifica que retorna DataFrame vacío si no existe el archivo."""
+        portaldades_dir = tmp_path / "portaldades"
+        portaldades_dir.mkdir(parents=True)
+
+        with patch(
+            "src.etl.transformations.demographics._find_portaldades_file",
+            return_value=None,
+        ):
+            result = _compute_area_by_barrio(
+                portaldades_dir=portaldades_dir,
+                dim_barrios=sample_dim_barrios,
+            )
+
+            assert isinstance(result, pd.DataFrame)
+            assert len(result) == 0
+
+    def test_compute_age_metrics_from_raw_no_directory(
+        self,
+        sample_dim_barrios: pd.DataFrame,
+        tmp_path: Path,
+    ):
+        """Verifica que retorna DataFrame vacío si no existe el directorio."""
+        raw_dir = tmp_path / "raw"
+        # No crear directorio opendatabcn
+
+        result = _compute_age_metrics_from_raw(
+            raw_base_dir=raw_dir,
+            dim_barrios=sample_dim_barrios,
+        )
+
+        assert isinstance(result, pd.DataFrame)
         assert len(result) == 0
 
