@@ -20,7 +20,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Optional
 
 try:
     import requests
@@ -180,7 +180,7 @@ Sistema automatizado que monitorea los datos ingresados diariamente y detecta ca
 ]
 
 
-def get_headers() -> Dict[str, str]:
+def get_headers() -> dict[str, str]:
     """
     Genera headers para la API de GitHub.
 
@@ -228,7 +228,7 @@ def get_milestone_number(title: str) -> Optional[int]:
         return None
 
 
-def create_issue(issue_data: Dict, dry_run: bool = False) -> Optional[int]:
+def create_issue(issue_data: dict, dry_run: bool = False) -> Optional[int]:
     """
     Crea una nueva issue en el repositorio.
 
