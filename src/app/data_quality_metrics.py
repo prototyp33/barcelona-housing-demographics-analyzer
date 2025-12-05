@@ -45,22 +45,22 @@ def calculate_completeness() -> float:
             
             # Contar filas sin campos críticos nulos
             if table == "fact_precios":
-                # Campos críticos: barrio_id, anio, precio_m2
+                # Campos críticos: barrio_id, anio, precio_m2_venta o precio_mes_alquiler
                 query = f"""
                     SELECT COUNT(*) as non_null 
                     FROM {validated_table}
                     WHERE barrio_id IS NOT NULL 
                       AND anio IS NOT NULL 
-                      AND precio_m2 IS NOT NULL
+                      AND (precio_m2_venta IS NOT NULL OR precio_mes_alquiler IS NOT NULL)
                 """
             elif table == "fact_demografia":
-                # Campos críticos: barrio_id, anio, poblacion
+                # Campos críticos: barrio_id, anio, poblacion_total
                 query = f"""
                     SELECT COUNT(*) as non_null 
                     FROM {validated_table}
                     WHERE barrio_id IS NOT NULL 
                       AND anio IS NOT NULL 
-                      AND poblacion IS NOT NULL
+                      AND poblacion_total IS NOT NULL
                 """
             else:  # fact_renta
                 # Campos críticos: barrio_id, anio, renta_euros
@@ -102,10 +102,10 @@ def calculate_validity() -> float:
         total_rows = 0
         valid_rows = 0
         
-        # Validar fact_precios: precio_m2 debe ser positivo y razonable (< 20,000 €/m²)
+        # Validar fact_precios: precio_m2_venta debe ser positivo y razonable (< 20,000 €/m²)
         validated_table = validate_table_name("fact_precios")
         total_df = pd.read_sql(
-            f"SELECT COUNT(*) as total FROM {validated_table} WHERE precio_m2 IS NOT NULL",
+            f"SELECT COUNT(*) as total FROM {validated_table} WHERE precio_m2_venta IS NOT NULL",
             conn
         )
         total_precios = total_df["total"].iloc[0]
@@ -114,17 +114,17 @@ def calculate_validity() -> float:
             f"""
             SELECT COUNT(*) as valid 
             FROM {validated_table}
-            WHERE precio_m2 > 0 AND precio_m2 < 20000
+            WHERE precio_m2_venta > 0 AND precio_m2_venta < 20000
               AND anio >= 2015 AND anio <= 2025
             """,
             conn
         )
         valid_precios = valid_df["valid"].iloc[0]
         
-        # Validar fact_demografia: poblacion debe ser positiva y razonable (< 200,000 por barrio)
+        # Validar fact_demografia: poblacion_total debe ser positiva y razonable (< 200,000 por barrio)
         validated_table = validate_table_name("fact_demografia")
         total_df = pd.read_sql(
-            f"SELECT COUNT(*) as total FROM {validated_table} WHERE poblacion IS NOT NULL",
+            f"SELECT COUNT(*) as total FROM {validated_table} WHERE poblacion_total IS NOT NULL",
             conn
         )
         total_demo = total_df["total"].iloc[0]
@@ -133,7 +133,7 @@ def calculate_validity() -> float:
             f"""
             SELECT COUNT(*) as valid 
             FROM {validated_table}
-            WHERE poblacion > 0 AND poblacion < 200000
+            WHERE poblacion_total > 0 AND poblacion_total < 200000
               AND anio >= 2015 AND anio <= 2025
             """,
             conn
@@ -300,7 +300,7 @@ def detect_quality_issues() -> pd.DataFrame:
         for _, row in missing_precios.iterrows():
             issues.append({
                 'Barrio': row['barrio_nombre'],
-                'Issue': 'Missing precio_m2',
+                'Issue': 'Missing precio_m2_venta',
                 'Severidad': 'High',
                 'Detectado': datetime.now().strftime('%Y-%m-%d')
             })
@@ -329,10 +329,10 @@ def detect_quality_issues() -> pd.DataFrame:
         # Issue 3: Outliers en precios
         outliers = pd.read_sql(
             f"""
-            SELECT b.barrio_nombre, p.precio_m2
+            SELECT b.barrio_nombre, p.precio_m2_venta
             FROM {validated_table} p
             JOIN dim_barrios b ON p.barrio_id = b.barrio_id
-            WHERE p.precio_m2 > 15000 OR p.precio_m2 < 1000
+            WHERE p.precio_m2_venta > 15000 OR p.precio_m2_venta < 1000
             LIMIT 3
             """,
             conn
@@ -341,7 +341,7 @@ def detect_quality_issues() -> pd.DataFrame:
         for _, row in outliers.iterrows():
             issues.append({
                 'Barrio': row['barrio_nombre'],
-                'Issue': f'Outlier precio_m2: €{row["precio_m2"]:,.0f}/m²',
+                'Issue': f'Outlier precio_m2_venta: €{row["precio_m2_venta"]:,.0f}/m²',
                 'Severidad': 'Low',
                 'Detectado': datetime.now().strftime('%Y-%m-%d')
             })

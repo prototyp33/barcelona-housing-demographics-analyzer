@@ -448,7 +448,7 @@ def load_kpis() -> dict:
         "precio_medio_2022": float(precio_2022),
         "precio_medio_2021": float(precio_2021),
         "alquiler_medio_2022": float(alquiler_medio["avg_alquiler"].iloc[0]) if pd.notna(alquiler_medio["avg_alquiler"].iloc[0]) else 0.0,
-        "renta_media_2022": float(renta_media["avg_renta"].iloc[0]),
+        "renta_media_2022": float(renta_media["avg_renta"].iloc[0]) if pd.notna(renta_media["avg_renta"].iloc[0]) else 0.0,
     }
 
 
