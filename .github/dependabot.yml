@@ -1,34 +1,45 @@
 # ==============================================================================
-# Dependabot Configuration
+# Dependabot Configuration - PMO Compliant
 # ==============================================================================
 # Mantiene las dependencias actualizadas automáticamente.
-# - Python: requirements.txt y requirements-dev.txt
+# - Python Core: requirements.txt y requirements-dev.txt (directorio raíz)
+# - Automation Scripts: .github/scripts/requirements.txt (PyGithub, groq)
 # - GitHub Actions: workflows en .github/workflows/
 # - Docker: Dockerfile y docker-compose.yml
 #
 # CONFIGURACIÓN:
 # - Schedule: Lunes a las 09:00 (Europe/Madrid)
 # - Auto-asignación: prototyp33 (tanto como assignee como reviewer)
-# - Labels: Se añaden automáticamente según el ecosistema
-# - Commit prefix: deps(python), deps(actions), deps(docker)
+# - Labels: Alineados con LABEL_MANAGEMENT.md (type-infra, priority-low obligatorios)
+# - Commit prefix: deps(core), deps(automation), deps(ci), deps(docker)
 #
 # INTEGRACIÓN CON WORKFLOWS:
 # Los PRs creados por Dependabot con prefijo 'deps(...)' son detectados
 # automáticamente por el workflow 'auto-label-pr.yml' que añade labels
 # adicionales y asigna al owner.
 #
-# GRUPOS DE DEPENDENCIAS:
-# - data-processing: pandas, numpy, geopandas (agrupadas para reducir PRs)
-# - visualization: plotly, streamlit (agrupadas para reducir PRs)
-# - testing: pytest, coverage (agrupadas para reducir PRs)
+# GRUPOS ESTRATÉGICOS:
+# - data-science-core: pandas, numpy, scipy, pyarrow, shapely
+# - visualization: plotly, streamlit, altair, matplotlib, seaborn, folium
+# - web-scraping: scrapy, playwright, beautifulsoup4, requests, etc.
+# - quality-and-testing: pytest, coverage, black, flake8, ruff, etc.
+# - minor-patches-catch-all: agrupa actualizaciones menores seguras
+# - ai-automation-stack: groq, pygithub, openai, anthropic
 #
 # IGNORES:
-# - Major versions de pandas y streamlit (pueden romper compatibilidad)
+# - Major versions de pandas, streamlit, numpy (pueden romper compatibilidad)
+#
+# PMO COMPLIANCE:
+# - Todos los PRs tienen labels obligatorios: type-infra, priority-low
+# - Labels de área según contexto: area-etl (core), area-monitoring (scripts)
+# - Protege métricas de PROJECT_METRICS.md al clasificar correctamente
 # ==============================================================================
 
 version: 2
 updates:
-  # Python dependencies
+  # ============================================================================
+  # 1. MAIN APPLICATION & ETL (Core System)
+  # ============================================================================
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -36,45 +47,100 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Europe/Madrid"
-    open-pull-requests-limit: 5
+    # Límite controlado para no disparar la métrica de "Issues Abiertas" > 20
+    open-pull-requests-limit: 10
+    
+    # Convención GIT_WORKFLOW.md: prefix "deps"
     commit-message:
-      prefix: "deps(python)"
+      prefix: "deps(core)"
+      include: "scope"
+
+    # Alineación con LABEL_MANAGEMENT.md
     labels:
-      - "dependencies"
-      - "python"
+      - "dependencies"      # Tech Label
+      - "python"            # Tech Label
+      - "type-infra"        # Type Label (Obligatorio)
+      - "priority-low"      # Priority Label (Subir manualmente si es crítico)
+      - "area-etl"          # Area Label (Por defecto afecta al core)
+    
     assignees:
       - "prototyp33"
     reviewers:
       - "prototyp33"
+
     groups:
       # ========================================================================
-      # AGRUPACIÓN DE DEPENDENCIAS
+      # Data Science Core (Pandas, Numpy, etc.)
       # ========================================================================
-      # Agrupa actualizaciones de dependencias relacionadas en un solo PR
-      # para reducir el ruido y facilitar la revisión.
-      # ========================================================================
-      data-processing:
-        # Librerías de procesamiento de datos (actualizaciones agrupadas)
+      data-science-core:
         patterns:
           - "pandas*"
           - "numpy*"
+          - "scipy*"
+          - "pyarrow*"
+          - "shapely*"
           - "geopandas*"
+
+      # ========================================================================
+      # Visualization & Dashboard (Streamlit stack)
+      # ========================================================================
       visualization:
-        # Librerías de visualización (actualizaciones agrupadas)
         patterns:
           - "plotly*"
           - "streamlit*"
-      testing:
-        # Herramientas de testing (actualizaciones agrupadas)
+          - "altair*"
+          - "matplotlib*"
+          - "seaborn*"
+          - "folium*"
+          - "branca*"
+          - "pydeck*"
+
+      # ========================================================================
+      # Scraping Stack (Detectado en requirements.txt)
+      # Evita ruido por actualizaciones frecuentes de Scrapy/Twisted
+      # ========================================================================
+      web-scraping:
+        patterns:
+          - "scrapy*"
+          - "playwright*"
+          - "beautifulsoup4*"
+          - "requests*"
+          - "urllib3*"
+          - "lxml*"
+          - "twisted*"
+          - "parsel*"
+          - "w3lib*"
+
+      # ========================================================================
+      # QA & Testing (Detectado en requirements-dev.txt)
+      # Mantiene el CI verde actualizando linters juntos
+      # ========================================================================
+      quality-and-testing:
         patterns:
           - "pytest*"
           - "coverage*"
+          - "faker*"
+          - "black*"
+          - "flake8*"
+          - "isort*"
+          - "mypy*"
+          - "pylint*"
+          - "ruff*"
+          - "pre-commit*"
+
+      # ========================================================================
+      # Catch-all para actualizaciones menores seguras (utils)
+      # ========================================================================
+      minor-patches-catch-all:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
     ignore:
       # ========================================================================
-      # DEPENDENCIAS IGNORADAS
-      # ========================================================================
-      # Ignora actualizaciones major que podrían romper compatibilidad.
-      # Estas actualizaciones requieren revisión manual y testing exhaustivo.
+      # Política de estabilidad: Evitar breaking changes automáticos
       # ========================================================================
       - dependency-name: "pandas"
         update-types: ["version-update:semver-major"]
@@ -82,8 +148,55 @@ updates:
       - dependency-name: "streamlit"
         update-types: ["version-update:semver-major"]
         # Razón: Cambios breaking pueden afectar el dashboard futuro
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
+        # Razón: Cambios breaking pueden afectar cálculos numéricos
 
-  # GitHub Actions
+  # ============================================================================
+  # 2. AUTOMATION & PMO SCRIPTS (AI Brain)
+  # ============================================================================
+  # Gestiona .github/scripts/requirements.txt (Groq, PyGithub)
+  # Protege scripts de gobernanza (daily_ai_audit.py, ai_pm.py)
+  # ============================================================================
+  - package-ecosystem: "pip"
+    directory: "/.github/scripts"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 3
+    
+    commit-message:
+      prefix: "deps(automation)"
+    
+    labels:
+      - "dependencies"
+      - "python"
+      - "type-infra"
+      - "area-monitoring"   # Scripts de auditoría y métricas
+    
+    assignees:
+      - "prototyp33"
+    reviewers:
+      - "prototyp33"
+
+    groups:
+      # ========================================================================
+      # AI Automation Stack
+      # Agrupa herramientas de IA para mantener consistencia
+      # ========================================================================
+      ai-automation-stack:
+        patterns:
+          - "groq*"
+          - "pygithub*"
+          - "openai*"
+          - "anthropic*"
+          - "requests*"
+
+  # ============================================================================
+  # 3. CI/CD PIPELINES (GitHub Actions)
+  # ============================================================================
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -91,18 +204,29 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Europe/Madrid"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
+    
     commit-message:
-      prefix: "deps(actions)"
+      prefix: "deps(ci)"
+    
     labels:
       - "dependencies"
       - "github-actions"
+      - "type-infra"
+    
     assignees:
       - "prototyp33"
     reviewers:
       - "prototyp33"
 
-  # Docker (si usas contenedores)
+    groups:
+      all-actions:
+        patterns:
+          - "*"
+
+  # ============================================================================
+  # 4. DOCKER INFRASTRUCTURE
+  # ============================================================================
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -111,11 +235,24 @@ updates:
       time: "09:00"
       timezone: "Europe/Madrid"
     open-pull-requests-limit: 2
+    
     commit-message:
       prefix: "deps(docker)"
+    
     labels:
       - "dependencies"
       - "docker"
+      - "type-infra"
+    
     assignees:
       - "prototyp33"
+    reviewers:
+      - "prototyp33"
 
+  # ============================================================================
+  # 5. SECURITY UPDATES (Automático - GitHub detecta vulnerabilidades)
+  # ============================================================================
+  # Dependabot crea PRs automáticamente para vulnerabilidades de seguridad.
+  # Estos PRs tienen prioridad y se etiquetan con 'security'.
+  # No requiere configuración adicional - GitHub lo gestiona automáticamente.
+  # ============================================================================

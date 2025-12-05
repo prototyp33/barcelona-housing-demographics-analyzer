@@ -1,0 +1,166 @@
+# ==============================================================================
+# Dependabot PR Comments
+# ==============================================================================
+# Añade comentarios informativos automáticos en PRs de Dependabot con:
+# - Enlaces a changelogs cuando están disponibles
+# - Información sobre el tipo de actualización (major/minor/patch)
+# - Recomendaciones de testing
+# - Enlaces a documentación de migración si es major update
+#
+# CONFIGURACIÓN:
+# - Se ejecuta cuando se abre o actualiza un PR de Dependabot
+# - Extrae información del título y body del PR
+# - Busca changelogs en repositorios comunes (pypi, github)
+# ==============================================================================
+
+name: Dependabot PR Comments
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'requirements*.txt'
+      - '.github/scripts/requirements.txt'
+      - '.github/workflows/**/*.yml'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  add-info-comment:
+    name: 💬 Add Dependency Info
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract dependency info
+        id: deps
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const title = pr.title;
+            const body = pr.body || '';
+            
+            // Extraer nombre de dependencia y versión
+            const match = title.match(/Bump\s+([^\s]+)\s+from\s+([^\s]+)\s+to\s+([^\s]+)/i) ||
+                         title.match(/Update\s+([^\s]+)\s+requirement\s+from\s+([^\s]+)\s+to\s+([^\s]+)/i);
+            
+            if (!match) {
+              core.setOutput('has_info', 'false');
+              return;
+            }
+            
+            const [, packageName, oldVersion, newVersion] = match;
+            
+            // Detectar tipo de actualización
+            const isMajor = title.toLowerCase().includes('major') || 
+                           title.toLowerCase().includes('version-update:semver-major');
+            const isMinor = title.toLowerCase().includes('minor') || 
+                           title.toLowerCase().includes('version-update:semver-minor');
+            const isPatch = title.toLowerCase().includes('patch') || 
+                           title.toLowerCase().includes('version-update:semver-patch');
+            
+            // Generar enlaces útiles
+            const pypiLink = `https://pypi.org/project/${packageName}/`;
+            const githubLink = `https://github.com/search?q=${encodeURIComponent(packageName)}`;
+            
+            // Buscar changelog común
+            const changelogLinks = [
+              `https://github.com/${packageName}/${packageName}/releases`,
+              `https://pypi.org/project/${packageName}/${newVersion}/`,
+            ];
+            
+            core.setOutput('has_info', 'true');
+            core.setOutput('package_name', packageName);
+            core.setOutput('old_version', oldVersion);
+            core.setOutput('new_version', newVersion);
+            core.setOutput('is_major', isMajor ? 'true' : 'false');
+            core.setOutput('is_minor', isMinor ? 'true' : 'false');
+            core.setOutput('is_patch', isPatch ? 'true' : 'false');
+            core.setOutput('pypi_link', pypiLink);
+            core.setOutput('github_link', githubLink);
+
+      - name: Create informative comment
+        if: steps.deps.outputs.has_info == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const packageName = '${{ steps.deps.outputs.package_name }}';
+            const oldVersion = '${{ steps.deps.outputs.old_version }}';
+            const newVersion = '${{ steps.deps.outputs.new_version }}';
+            const isMajor = '${{ steps.deps.outputs.is_major }}' === 'true';
+            const isMinor = '${{ steps.deps.outputs.is_minor }}' === 'true';
+            const pypiLink = '${{ steps.deps.outputs.pypi_link }}';
+            
+            // Verificar si ya existe un comentario nuestro
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('📦 Información de actualización')
+            );
+            
+            if (botComment) {
+              console.log('ℹ️  Comentario informativo ya existe');
+              return;
+            }
+            
+            // Construir mensaje
+            let updateType = '🔄 Actualización';
+            let updateTypeEmoji = '🔄';
+            let recommendations = '';
+            
+            if (isMajor) {
+              updateType = '⚠️ **Actualización Major**';
+              updateTypeEmoji = '⚠️';
+              recommendations = '### ⚠️ Recomendaciones para Major Update:\n' +
+                '- [ ] Revisar [changelog](' + pypiLink + ') para cambios breaking\n' +
+                '- [ ] Ejecutar tests completos: `pytest tests/ -v`\n' +
+                '- [ ] Verificar que el ETL funciona correctamente\n' +
+                '- [ ] Revisar documentación de migración si está disponible\n' +
+                '- [ ] Probar funcionalidades críticas manualmente';
+            } else if (isMinor) {
+              updateType = '✨ Actualización Minor';
+              updateTypeEmoji = '✨';
+              recommendations = '### ✅ Recomendaciones para Minor Update:\n' +
+                '- [ ] Ejecutar tests: `pytest tests/ -v`\n' +
+                '- [ ] Verificar nuevas features si las hay';
+            } else {
+              updateType = '🔧 Actualización Patch';
+              updateTypeEmoji = '🔧';
+              recommendations = '### ✅ Recomendaciones para Patch Update:\n' +
+                '- [ ] Ejecutar tests básicos: `pytest tests/ -v`';
+            }
+            
+            const comment = '## ' + updateTypeEmoji + ' Información de actualización\n\n' +
+              '**Paquete:** `' + packageName + '`\n' +
+              '**Versión anterior:** `' + oldVersion + '`\n' +
+              '**Versión nueva:** `' + newVersion + '`\n' +
+              '**Tipo:** ' + updateType + '\n\n' +
+              '### 🔗 Enlaces útiles:\n' +
+              '- 📦 [PyPI: ' + packageName + '](' + pypiLink + ')\n' +
+              '- 🔍 [Búsqueda en GitHub](https://github.com/search?q=' + encodeURIComponent(packageName) + ')\n\n' +
+              recommendations + '\n\n' +
+              '---\n' +
+              '*Este comentario se genera automáticamente para ayudarte a revisar actualizaciones de dependencias.*';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+            
+            console.log(`✅ Comentario informativo añadido para ${packageName}`);
+

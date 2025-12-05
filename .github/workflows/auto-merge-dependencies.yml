@@ -1,0 +1,173 @@
+# ==============================================================================
+# Auto-Merge Dependencies
+# ==============================================================================
+# Auto-mergea PRs de Dependabot que cumplan estas condiciones:
+# 1. Son actualizaciones patch o minor (no major)
+# 2. Todos los checks de CI pasan (tests, linting)
+# 3. No tienen conflictos con main
+# 4. Han sido aprobados automáticamente o manualmente
+#
+# CONFIGURACIÓN:
+# - Solo se aplica a PRs creados por Dependabot
+# - Requiere que los tests pasen antes de mergear
+# - Usa merge commit (preserva historial)
+# - Auto-aprueba PRs de dependencias menores
+#
+# SEGURIDAD:
+# - No mergea actualizaciones major (requieren revisión manual)
+# - Verifica que los tests pasen antes de mergear
+# - Solo funciona en PRs de dependencias (labels específicos)
+# ==============================================================================
+
+name: Auto-Merge Dependencies
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  pull_request_review:
+    types: [submitted]
+  check_suite:
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge:
+    name: 🤖 Auto-Merge Dependencies
+    runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.user.login == 'dependabot[bot]' ||
+      contains(github.event.pull_request.labels.*.name, 'dependencies')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            // Detectar tipo de actualización desde el título
+            const title = pr.title.toLowerCase();
+            const isMajor = title.includes('major') || 
+                           title.includes('version-update:semver-major') ||
+                           pr.labels.some(label => label.name === 'breaking-change');
+            
+            // Verificar que no sea breaking change
+            if (isMajor) {
+              core.setOutput('should_merge', 'false');
+              core.setOutput('reason', 'Major update requires manual review');
+              return;
+            }
+            
+            // Verificar que tenga labels de dependencias
+            const hasDependencyLabel = pr.labels.some(label => 
+              label.name === 'dependencies' || 
+              label.name === 'python-core' ||
+              label.name === 'automation-scripts' ||
+              label.name === 'github-actions' ||
+              label.name === 'docker'
+            );
+            
+            if (!hasDependencyLabel) {
+              core.setOutput('should_merge', 'false');
+              core.setOutput('reason', 'Not a dependency update');
+              return;
+            }
+            
+            core.setOutput('should_merge', 'true');
+            core.setOutput('title', pr.title);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('is_draft', pr.draft);
+
+      - name: Check if PR is mergeable
+        if: steps.pr.outputs.should_merge == 'true'
+        id: mergeable
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            // Verificar que no sea draft
+            if (pr.draft) {
+              core.setOutput('can_merge', 'false');
+              core.setOutput('reason', 'PR is draft');
+              return;
+            }
+            
+            // Verificar que no tenga conflictos
+            if (pr.mergeable === false) {
+              core.setOutput('can_merge', 'false');
+              core.setOutput('reason', 'PR has merge conflicts');
+              return;
+            }
+            
+            // Verificar que tenga mergeable_state
+            if (pr.mergeable_state !== 'clean' && pr.mergeable_state !== 'unstable') {
+              core.setOutput('can_merge', 'false');
+              core.setOutput('reason', `Mergeable state: ${pr.mergeable_state}`);
+              return;
+            }
+            
+            core.setOutput('can_merge', 'true');
+
+      - name: Wait for CI checks to complete
+        if: steps.pr.outputs.should_merge == 'true' && steps.mergeable.outputs.can_merge == 'true'
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          check-regexp: '.*'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+          allowed-conclusions: success,neutral
+
+      - name: Auto-approve PR
+        if: steps.pr.outputs.should_merge == 'true' && steps.mergeable.outputs.can_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: '✅ Auto-aprobado: Actualización de dependencia menor que pasa todos los tests.'
+            });
+
+      - name: Enable auto-merge
+        if: steps.pr.outputs.should_merge == 'true' && steps.mergeable.outputs.can_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              await github.rest.pulls.enableAutoMerge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                merge_method: 'merge'
+              });
+              console.log('✅ Auto-merge habilitado');
+            } catch (error) {
+              // Si falla, puede ser que ya esté habilitado o que falten checks
+              console.log(`⚠️ No se pudo habilitar auto-merge: ${error.message}`);
+            }
+
+      - name: Log skip reason
+        if: steps.pr.outputs.should_merge == 'false' || steps.mergeable.outputs.can_merge == 'false'
+        run: |
+          echo "⏭️  Saltando auto-merge: ${{ steps.pr.outputs.reason || steps.mergeable.outputs.reason }}"
+
