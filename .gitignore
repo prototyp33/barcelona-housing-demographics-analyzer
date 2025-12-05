@@ -68,3 +68,4 @@ docs/labels.md  # Auto-generado por update_labels_extended.py
 .coverage
 coverage.xml
 htmlcov/
+PR_DESCRIPTION.md
