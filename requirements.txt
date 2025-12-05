@@ -112,7 +112,7 @@ constantly==23.10.4
 hyperlink==21.0.0
 incremental==24.7.2
 PyDispatcher==2.0.7
-zope.interface==8.1
+zope.interface==8.1.1
 
 # Protocol buffers (for some data formats)
 protobuf==6.33.0
