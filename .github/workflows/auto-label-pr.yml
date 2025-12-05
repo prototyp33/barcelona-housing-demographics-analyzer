@@ -1,0 +1,156 @@
+# ==============================================================================
+# Auto Label & Assign PRs/Issues
+# ==============================================================================
+# Automatiza el etiquetado y asignación de PRs e issues basándose en:
+# - Prefijos en el título (deps, feature, fix, bug)
+# - Contenido del título
+#
+# CONVENCIONES DE TÍTULOS:
+# - deps(python) o deps(pip) → labels: dependencies, python
+# - deps(docker) → labels: dependencies, docker
+# - deps(actions) o deps(github-actions) → labels: dependencies, github-actions
+# - feature o feat → label: enhancement
+# - fix o bug → label: bug
+# - docs o documentation → label: documentation
+# - test o testing → label: testing
+# - refactor → label: refactor
+#
+# PERMISOS REQUERIDOS:
+# - pull-requests: write (para añadir labels y asignar PRs)
+# - issues: write (para añadir labels y asignar issues)
+# - contents: read (para leer información del repositorio)
+#
+# NOTAS:
+# - Los labels deben existir previamente en el repositorio
+# - La asignación automática es a 'prototyp33'
+# - Los milestones se pueden añadir si existen en el repositorio
+# ==============================================================================
+
+name: Auto Label & Assign PRs
+
+on:
+  pull_request:
+    types: [opened, reopened]
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  auto-organize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-assign and label dependencies
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const isPR = context.payload.pull_request !== undefined;
+            const title = context.payload.pull_request?.title || context.payload.issue?.title;
+            
+            // ==================================================================
+            // LÓGICA DE DETECCIÓN DE LABELS
+            // ==================================================================
+            // Analiza el título del PR/issue para determinar qué labels aplicar.
+            // La detección es case-insensitive y busca palabras clave específicas.
+            // ==================================================================
+            let labels = [];
+            let milestone = null;
+            
+            // Normalizar título a minúsculas para comparación
+            const titleLower = title.toLowerCase();
+            
+            if (titleLower.includes('deps(python)') || titleLower.includes('deps(pip)')) {
+              labels.push('dependencies', 'python');
+            } else if (titleLower.includes('deps(docker)')) {
+              labels.push('dependencies', 'docker');
+            } else if (titleLower.includes('deps(actions)') || titleLower.includes('deps(github-actions)')) {
+              labels.push('dependencies', 'github-actions');
+            } else if (titleLower.includes('feature') || titleLower.includes('feat')) {
+              labels.push('enhancement');
+            } else if (titleLower.includes('fix') || titleLower.includes('bug')) {
+              labels.push('bug');
+            } else if (titleLower.includes('docs') || titleLower.includes('documentation')) {
+              labels.push('documentation');
+            } else if (titleLower.includes('test') || titleLower.includes('testing')) {
+              labels.push('testing');
+            } else if (titleLower.includes('refactor')) {
+              labels.push('refactor');
+            }
+            
+            // ==================================================================
+            // AUTO-ASIGNACIÓN
+            // ==================================================================
+            // Asigna automáticamente el PR/issue al owner del repositorio.
+            // Si falla (ej: usuario no tiene permisos), se registra pero no
+            // interrumpe el workflow.
+            // ==================================================================
+            try {
+              await github.rest.issues.addAssignees({
+                owner,
+                repo,
+                issue_number,
+                assignees: ['prototyp33']
+              });
+              console.log('✅ Assigned to prototyp33');
+            } catch (error) {
+              console.log(`⚠️ Could not assign: ${error.message}`);
+            }
+            
+            // ==================================================================
+            // APLICACIÓN DE LABELS
+            // ==================================================================
+            // Añade los labels detectados al PR/issue.
+            // Si algún label no existe en el repositorio, se ignora ese label
+            // específico pero se añaden los demás.
+            // ==================================================================
+            if (labels.length > 0) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number,
+                  labels
+                });
+                console.log(`✅ Added labels: ${labels.join(', ')}`);
+              } catch (error) {
+                console.log(`⚠️ Could not add labels: ${error.message}`);
+              }
+            }
+            
+            // ==================================================================
+            // ASIGNACIÓN A MILESTONE (OPCIONAL)
+            // ==================================================================
+            // Si se detecta un milestone en la lógica anterior, intenta
+            // asignarlo. Los milestones deben existir previamente en el
+            // repositorio y estar en estado 'open'.
+            // ==================================================================
+            if (milestone) {
+              try {
+                const milestones = await github.rest.issues.listMilestones({
+                  owner,
+                  repo,
+                  state: 'open'
+                });
+                const foundMilestone = milestones.data.find(m => m.title === milestone);
+                
+                if (foundMilestone) {
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number,
+                    milestone: foundMilestone.number
+                  });
+                  console.log(`✅ Added to milestone: ${milestone}`);
+                } else {
+                  console.log(`⚠️ Milestone "${milestone}" not found`);
+                }
+              } catch (error) {
+                console.log(`⚠️ Could not update milestone: ${error.message}`);
+              }
+            }
+

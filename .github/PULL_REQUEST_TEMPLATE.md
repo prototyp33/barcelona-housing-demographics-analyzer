@@ -1,3 +1,27 @@
+## 🤖 Automatización de Labels
+
+<!-- 
+     ⚡ Los labels y asignación se aplican automáticamente según el título del PR.
+     
+     Convenciones recomendadas para el título:
+     - deps(python) o deps(pip) → labels: dependencies, python
+     - deps(docker) → labels: dependencies, docker  
+     - deps(actions) → labels: dependencies, github-actions
+     - feature o feat → label: enhancement
+     - fix o bug → label: bug
+     - docs o documentation → label: documentation
+     - test o testing → label: testing
+     - refactor → label: refactor
+     
+     Ejemplos de títulos:
+     - "deps(python): Actualizar pandas a 2.1.0"
+     - "feature: Añadir calculadora de ROI por barrio"
+     - "fix: Corregir deduplicación en fact_precios"
+     - "docs: Actualizar guía de extracción de datos"
+-->
+
+---
+
 ## 📋 Descripción del Cambio
 
 <!-- Resume los cambios en 2-3 líneas claras.

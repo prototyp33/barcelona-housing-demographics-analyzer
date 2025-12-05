@@ -3,6 +3,16 @@
 # ==============================================================================
 # Asigna automáticamente las issues y PRs al owner del repositorio.
 # Para proyectos solo-developer, esto mantiene tracking consistente.
+#
+# PERMISOS REQUERIDOS:
+# - pull-requests: write (para asignar PRs)
+# - issues: write (para asignar issues)
+#
+# NOTAS:
+# - Usa la acción 'pozil/auto-assign-issue@v2' para issues
+# - El job de PR está deshabilitado porque la asignación se maneja
+#   en el workflow 'auto-label-pr.yml' que también añade labels
+# - La asignación es a 'prototyp33' (owner del repositorio)
 # ==============================================================================
 
 name: Auto Assign
@@ -12,6 +22,10 @@ on:
     types: [opened]
   pull_request:
     types: [opened]
+
+permissions:
+  pull-requests: write
+  issues: write
 
 jobs:
   assign-issue:
@@ -27,33 +41,31 @@ jobs:
           assignees: prototyp33
           numOfAssignee: 1
 
-  assign-pr:
-    name: 🔀 Assign PR
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-
-    steps:
-      - name: Assign PR to owner
-        uses: hmarr/auto-approve-action@v4
-        if: false  # Deshabilitado - solo asignación
-
-      # Deshabilitado: GITHUB_TOKEN no tiene permisos para asignar issues/PRs
-      # Para habilitar, necesitarías:
-      # 1. Configurar permisos en Settings > Actions > General > Workflow permissions > Read and write permissions
-      # 2. O usar un Personal Access Token con permisos de issues:write
-      # - name: Add assignee to PR
-      #   uses: actions/github-script@v7
-      #   permissions:
-      #     issues: write
-      #     pull-requests: write
-      #   with:
-      #     github-token: ${{ secrets.GITHUB_TOKEN }}
-      #     script: |
-      #       await github.rest.issues.addAssignees({
-      #         owner: context.repo.owner,
-      #         repo: context.repo.repo,
-      #         issue_number: context.issue.number,
-      #         assignees: ['prototyp33']
-      #       });
-      #       console.log('✅ PR assigned to prototyp33');
+  # ========================================================================
+  # NOTA: La asignación de PRs se maneja en 'auto-label-pr.yml'
+  # ========================================================================
+  # El job 'assign-pr' ha sido eliminado porque la asignación de PRs se
+  # realiza automáticamente en el workflow 'auto-label-pr.yml', que además
+  # añade labels basándose en el título del PR. Esto evita duplicación de
+  # funcionalidad y mantiene la lógica centralizada.
+  #
+  # Si necesitas habilitar la asignación solo de PRs aquí (sin labels),
+  # puedes añadir un job similar al siguiente:
+  #
+  # assign-pr:
+  #   name: 🔀 Assign PR
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'pull_request'
+  #   steps:
+  #     - name: Add assignee to PR
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           await github.rest.issues.addAssignees({
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             issue_number: context.issue.number,
+  #             assignees: ['prototyp33']
+  #           });
+  #           console.log('✅ PR assigned to prototyp33');
 

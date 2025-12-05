@@ -4,6 +4,26 @@
 # Mantiene las dependencias actualizadas automáticamente.
 # - Python: requirements.txt y requirements-dev.txt
 # - GitHub Actions: workflows en .github/workflows/
+# - Docker: Dockerfile y docker-compose.yml
+#
+# CONFIGURACIÓN:
+# - Schedule: Lunes a las 09:00 (Europe/Madrid)
+# - Auto-asignación: prototyp33 (tanto como assignee como reviewer)
+# - Labels: Se añaden automáticamente según el ecosistema
+# - Commit prefix: deps(python), deps(actions), deps(docker)
+#
+# INTEGRACIÓN CON WORKFLOWS:
+# Los PRs creados por Dependabot con prefijo 'deps(...)' son detectados
+# automáticamente por el workflow 'auto-label-pr.yml' que añade labels
+# adicionales y asigna al owner.
+#
+# GRUPOS DE DEPENDENCIAS:
+# - data-processing: pandas, numpy, geopandas (agrupadas para reducir PRs)
+# - visualization: plotly, streamlit (agrupadas para reducir PRs)
+# - testing: pytest, coverage (agrupadas para reducir PRs)
+#
+# IGNORES:
+# - Major versions de pandas y streamlit (pueden romper compatibilidad)
 # ==============================================================================
 
 version: 2
@@ -22,29 +42,46 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    assignees:
+      - "prototyp33"
     reviewers:
       - "prototyp33"
     groups:
-      # Agrupar actualizaciones menores para reducir PRs
+      # ========================================================================
+      # AGRUPACIÓN DE DEPENDENCIAS
+      # ========================================================================
+      # Agrupa actualizaciones de dependencias relacionadas en un solo PR
+      # para reducir el ruido y facilitar la revisión.
+      # ========================================================================
       data-processing:
+        # Librerías de procesamiento de datos (actualizaciones agrupadas)
         patterns:
           - "pandas*"
           - "numpy*"
           - "geopandas*"
       visualization:
+        # Librerías de visualización (actualizaciones agrupadas)
         patterns:
           - "plotly*"
           - "streamlit*"
       testing:
+        # Herramientas de testing (actualizaciones agrupadas)
         patterns:
           - "pytest*"
           - "coverage*"
     ignore:
-      # Ignorar major versions que podrían romper cosas
+      # ========================================================================
+      # DEPENDENCIAS IGNORADAS
+      # ========================================================================
+      # Ignora actualizaciones major que podrían romper compatibilidad.
+      # Estas actualizaciones requieren revisión manual y testing exhaustivo.
+      # ========================================================================
       - dependency-name: "pandas"
         update-types: ["version-update:semver-major"]
+        # Razón: Cambios breaking en API pueden afectar transformaciones ETL
       - dependency-name: "streamlit"
         update-types: ["version-update:semver-major"]
+        # Razón: Cambios breaking pueden afectar el dashboard futuro
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -60,6 +97,8 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    assignees:
+      - "prototyp33"
     reviewers:
       - "prototyp33"
 
@@ -77,4 +116,6 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    assignees:
+      - "prototyp33"
 
