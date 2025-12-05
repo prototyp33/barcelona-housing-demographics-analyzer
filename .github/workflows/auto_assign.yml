@@ -37,16 +37,23 @@ jobs:
         uses: hmarr/auto-approve-action@v4
         if: false  # Deshabilitado - solo asignación
 
-      - name: Add assignee to PR
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              assignees: ['prototyp33']
-            });
-            console.log('✅ PR assigned to prototyp33');
+      # Deshabilitado: GITHUB_TOKEN no tiene permisos para asignar issues/PRs
+      # Para habilitar, necesitarías:
+      # 1. Configurar permisos en Settings > Actions > General > Workflow permissions > Read and write permissions
+      # 2. O usar un Personal Access Token con permisos de issues:write
+      # - name: Add assignee to PR
+      #   uses: actions/github-script@v7
+      #   permissions:
+      #     issues: write
+      #     pull-requests: write
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     script: |
+      #       await github.rest.issues.addAssignees({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: context.issue.number,
+      #         assignees: ['prototyp33']
+      #       });
+      #       console.log('✅ PR assigned to prototyp33');
 
