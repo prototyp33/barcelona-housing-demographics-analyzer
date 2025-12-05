@@ -1,6 +1,6 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 3 de diciembre de 2025
+**Última actualización**: 5 de diciembre de 2025
 
 ---
 
@@ -280,9 +280,11 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
    - Filtros por barrio, año, etc.
    - Milestone: Milestone 4
 
-9. **Testing**
-   - Unit tests para funciones críticas
-   - Integration tests para pipeline ETL
+9. **Testing** ✅ En Progreso
+   - ✅ Unit tests para funciones críticas (37% cobertura total)
+   - ✅ Integration tests para pipeline ETL (78% cobertura)
+   - ✅ Tests para módulos principales: `cleaners.py` (100%), `pipeline.py` (78%), `demographics.py` (58%)
+   - ⚠️ Pendiente: `market.py` (37%), `orchestrator.py` (4%)
    - Milestone: Milestone 5
 
 ---
@@ -338,12 +340,16 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
    - Milestone: Milestone 4
    - Descripción: Implementar dashboard interactivo con visualizaciones
 
-8. **Task: Testing - Unit e Integration Tests**
+8. **Task: Testing - Unit e Integration Tests** ✅ En Progreso
    - Tipo: `task`
    - Prioridad: `low`
    - Labels: `testing`, `quality-assurance`
    - Milestone: Milestone 5
    - Descripción: Crear suite de tests para funciones críticas
+   - **Progreso**: 
+     - ✅ PR #110: Tests para `demographics.py` (58% cobertura)
+     - ✅ PR #111: Tests para `pipeline.py` (78% cobertura)
+     - ⚠️ Pendiente: `market.py` (37%), `orchestrator.py` (4%)
 
 ### Issues de Datos
 
@@ -383,7 +389,16 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 - **Módulos principales**: 5
 - **Scripts CLI**: 4
 - **Documentación**: 8 documentos
-- **Tests**: Estructura base (pendiente implementación)
+- **Tests**: 
+  - ✅ Cobertura total: **37%** (objetivo: ≥80%)
+  - ✅ `cleaners.py`: **100%** cobertura
+  - ✅ `database_setup.py`: **97%** cobertura
+  - ✅ `dimensions.py`: **80%** cobertura
+  - ✅ `pipeline.py`: **78%** cobertura (PR #111)
+  - ✅ `demographics.py`: **58%** cobertura (PR #110)
+  - ✅ `validators.py`: **80%** cobertura
+  - ⚠️ `market.py`: **37%** cobertura (pendiente)
+  - ⚠️ `orchestrator.py`: **4%** cobertura (pendiente)
 
 ---
 
