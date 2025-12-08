@@ -210,7 +210,11 @@ class GitHubGraphQL:
         Returns:
             Dict con 'issues' (lista) y 'pageInfo' (paginación).
         """
-        label_filter = f'labels: [{", ".join([f\'"{l}"\' for l in labels])}]' if labels else ""
+        if labels:
+            label_list = ", ".join([f'"{l}"' for l in labels])
+            label_filter = f'labels: [{label_list}]'
+        else:
+            label_filter = ""
         milestone_filter = f'milestone: "{milestone}"' if milestone else ""
         
         query = f"""
