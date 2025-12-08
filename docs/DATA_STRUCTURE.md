@@ -432,13 +432,14 @@ CREATE TABLE fact_oferta_idealista (
     dataset_id TEXT,
     source TEXT,
     etl_loaded_at TEXT,
+    is_mock INTEGER DEFAULT 0,           -- 1 = datos mock, 0 = datos reales de API
     FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
 );
 ```
 
 **Ejemplo de uso**:
 ```sql
--- Oferta de venta por barrio en el último mes disponible
+-- Oferta de venta por barrio en el último mes disponible (solo datos reales)
 SELECT 
     b.barrio_nombre,
     b.distrito_nombre,
@@ -447,14 +448,16 @@ SELECT
     o.num_anuncios,
     o.precio_medio,
     o.precio_m2_medio,
-    o.superficie_media
+    o.superficie_media,
+    o.is_mock
 FROM fact_oferta_idealista o
 JOIN dim_barrios b ON o.barrio_id = b.barrio_id
 WHERE o.operacion = 'sale'
+  AND o.is_mock = 0  -- Solo datos reales
   AND (o.anio, o.mes) = (
       SELECT MAX(anio), MAX(mes) 
       FROM fact_oferta_idealista 
-      WHERE operacion = 'sale'
+      WHERE operacion = 'sale' AND is_mock = 0
   )
 ORDER BY o.precio_m2_medio DESC;
 ```
