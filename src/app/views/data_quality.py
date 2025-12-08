@@ -12,7 +12,7 @@ from pathlib import Path
 import plotly.express as px
 import streamlit as st
 
-from src.app.components import card_standard
+from src.app.components import card_standard, render_empty_state
 from src.app.config import COLORS
 from src.app.data_quality_metrics import (
     calculate_completeness,
@@ -83,7 +83,11 @@ def render_quality_evolution() -> None:
     quality_history = get_quality_history()
     
     if quality_history.empty:
-        st.warning("No hay datos históricos de calidad disponibles.")
+        render_empty_state(
+            title="Sin historial",
+            description="No hay datos históricos de calidad disponibles.",
+            icon="📉"
+        )
         return
     
     # Preparar datos para Plotly
@@ -150,7 +154,11 @@ def render_quality_issues() -> None:
     issues_df = detect_quality_issues()
     
     if issues_df.empty:
-        st.success("✅ No se detectaron issues de calidad en los datos.")
+        render_empty_state(
+            title="Todo en orden",
+            description="No se detectaron issues de calidad en los datos.",
+            icon="✅"
+        )
         return
     
     # Configurar columna de severidad como selectbox

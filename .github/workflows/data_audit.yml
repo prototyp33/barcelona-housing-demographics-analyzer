@@ -1,0 +1,60 @@
+name: Data Availability Audit
+
+on:
+  push:
+    branches: [ main, spike/* ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 8 * * 1' # Run every Monday at 8am
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'  # contourpy==1.3.3 requires Python >=3.11
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Create database schema
+      run: |
+        python -c "
+        from pathlib import Path
+        from src.database_setup import create_connection, create_database_schema
+        
+        db_path = Path('data/processed/database.db')
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        conn = create_connection(db_path)
+        try:
+            create_database_schema(conn)
+            print('✅ Database schema created successfully')
+        finally:
+            conn.close()
+        "
+    
+    - name: Create minimal barrios data
+      run: python scripts/create_minimal_barrios.py
+        
+    - name: Generate Mock Data
+      run: python scripts/generate_mock_idealista.py
+      
+    - name: Run Data Audit
+      continue-on-error: true
+      run: python scripts/audit_data_availability.py || echo "⚠️ Audit completed with warnings (expected in CI with mock data only)"
+      
+    - name: Upload Audit Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: audit-results
+        path: data/logs/audit_results.json

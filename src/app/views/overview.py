@@ -15,6 +15,7 @@ import streamlit as st
 from src.app.config import COLORS, COLOR_SCALES
 from src.app.data_loader import load_kpis, load_precios, load_available_years
 from src.app.styles import render_responsive_kpi_grid, apply_plotly_theme
+from src.app.components import render_empty_state
 
 
 def render_kpis() -> None:
@@ -74,7 +75,11 @@ def render_price_evolution(
             data.append({"año": year, "precio_medio": avg_precio})
     
     if not data:
-        st.warning("No hay datos de precios disponibles para el filtro seleccionado.")
+        render_empty_state(
+            title="Sin datos de precios",
+            description="No hay datos históricos para el filtro seleccionado.",
+            icon="📉"
+        )
         return
     
     import pandas as pd
@@ -121,7 +126,11 @@ def render_distrito_comparison(
     df = load_precios(year)
     
     if df.empty:
-        st.warning(f"No hay datos de precios para {year}.")
+        render_empty_state(
+            title="Datos no disponibles",
+            description=f"No hay registros de precios para el año {year}.",
+            icon="📉"
+        )
         return
     
     from src.app.styles import apply_plotly_theme
@@ -130,7 +139,11 @@ def render_distrito_comparison(
         # MODO LOCAL: Ranking de Barrios dentro del Distrito
         df_filtered = df[df["distrito_nombre"] == distrito_filter]
         if df_filtered.empty:
-            st.info(f"No hay datos detallados para {distrito_filter} en {year}.")
+            render_empty_state(
+                title="Sin datos detallados",
+                description=f"No hay información para {distrito_filter} en {year}.",
+                icon="🏘️"
+            )
             return
             
         ranking_data = (
