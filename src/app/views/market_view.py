@@ -85,7 +85,6 @@ def render_correlation_scatter(year: int) -> None:
         )
         
         if not df_merged.empty:
-        if not df_merged.empty:
             with card_standard(title="🧩 Correlación Precio vs Demografía"):
                 fig = px.scatter(
                     df_merged,
