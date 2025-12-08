@@ -85,15 +85,11 @@ def render_correlation_scatter(year: int) -> None:
         )
         
         if not df_merged.empty:
-            with card_standard(title="🧩 Correlación Precio vs Renta"):
+        if not df_merged.empty:
+            with card_standard(title="🧩 Correlación Precio vs Demografía"):
                 fig = px.scatter(
                     df_merged,
-                    x="renta_euros", # Asumiendo que load_demographics_by_barrio trae renta o similar? 
-                    # Espera, load_demographics_by_barrio trae fact_demografia. Renta está en fact_renta.
-                    # El prompt pedía "Scatter correlación precio vs demografía".
-                    # Usemos una métrica demográfica disponible como 'indice_envejecimiento' o 'renta' si estuviera.
-                    # Revisando schema: fact_demografia tiene 'indice_envejecimiento', 'porc_inmigracion'.
-                    # Vamos a usar 'indice_envejecimiento' como proxy demográfico interesante.
+                    x="indice_envejecimiento", 
                     y="precio_venta_m2",
                     size="poblacion_total",
                     color="distrito_nombre",
