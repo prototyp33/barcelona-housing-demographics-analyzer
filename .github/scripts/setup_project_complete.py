@@ -43,54 +43,105 @@ except ImportError:
     sys.exit(1)
 
 # =============================================================================
-# DETECCIÓN AUTOMÁTICA DE CONFIGURACIÓN
+# CONFIGURACIÓN Y AUTO-DETECCIÓN
 # =============================================================================
 
-def detect_git_config() -> tuple[str, str]:
-    """Detecta owner y repo desde git config."""
+def detect_git_repo() -> tuple[str, str]:
+    """
+    Detecta owner y repo desde git config.
+    Soporta SSH y HTTPS.
+    """
     try:
-        git_remote = subprocess.check_output(
+        url = subprocess.check_output(
             ['git', 'config', '--get', 'remote.origin.url'],
             stderr=subprocess.DEVNULL
         ).decode().strip()
         
-        if "github.com" in git_remote:
-            # Formato ssh: git@github.com:owner/repo.git
-            # Formato https: https://github.com/owner/repo.git
-            parts = git_remote.replace(".git", "").split("/")[-2:]
-            if ":" in parts[0]:
-                parts[0] = parts[0].split(":")[-1]
-            return parts[0], parts[1]
+        # Limpiar URL (soporta SSH y HTTPS)
+        clean_url = url.replace(".git", "").replace("git@github.com:", "").replace("https://github.com/", "")
+        
+        if "/" in clean_url:
+            parts = clean_url.split("/")
+            if len(parts) >= 2:
+                return parts[0], parts[1]
     except Exception:
         pass
     
     # Valores por defecto
     return "prototyp33", "barcelona-housing-demographics-analyzer"
 
-DETECTED_OWNER, DETECTED_REPO = detect_git_config()
+DETECTED_OWNER, DETECTED_NAME = detect_git_repo()
 
-# Configuración (con detección automática)
-REPO_OWNER = os.environ.get("REPO_OWNER", DETECTED_OWNER)
-REPO_NAME = os.environ.get("REPO_NAME", DETECTED_REPO)
-ORG_NAME = REPO_OWNER
-PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "1"))
+# Argumentos CLI
+parser = argparse.ArgumentParser(
+    description='Setup completo del proyecto GitHub con mejores prácticas',
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog="""
+Ejemplos:
+  # Uso básico (auto-detecta desde git)
+  python .github/scripts/setup_project_complete.py
 
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-if not GITHUB_TOKEN:
-    print("❌ Error: GITHUB_TOKEN no encontrado en variables de entorno")
-    print("   Ejecuta: export GITHUB_TOKEN='tu_token'")
+  # Especificar configuración manualmente
+  python .github/scripts/setup_project_complete.py --owner prototyp33 --repo mi-repo --project-number 2
+
+  # Sin crear campos automáticamente
+  python .github/scripts/setup_project_complete.py --no-auto-fields
+    """
+)
+
+parser.add_argument(
+    '--owner',
+    default=os.environ.get("REPO_OWNER", DETECTED_OWNER),
+    help='Dueño del repo (default: auto-detectado desde git)'
+)
+parser.add_argument(
+    '--repo',
+    default=os.environ.get("REPO_NAME", DETECTED_NAME),
+    help='Nombre del repo (default: auto-detectado desde git)'
+)
+parser.add_argument(
+    '--project-number',
+    type=int,
+    default=int(os.environ.get("PROJECT_NUMBER", "1")),
+    help='Número del Project V2 (default: 1)'
+)
+parser.add_argument(
+    '--token',
+    default=os.environ.get("GITHUB_TOKEN"),
+    help='GitHub Token (default: GITHUB_TOKEN env var)'
+)
+parser.add_argument(
+    '--no-auto-fields',
+    action='store_true',
+    help='No crear campos automáticamente (solo mostrar instrucciones)'
+)
+
+args = parser.parse_args()
+
+if not args.token:
+    print("❌ Error: GITHUB_TOKEN no encontrado")
+    print("   Exportalo o usa --token")
     sys.exit(1)
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 
 # =============================================================================
-# UTILIDADES GRAPHQL
+# HELPERS GRAPHQL
 # =============================================================================
 
 def graphql_request(query: str, variables: Dict = None) -> Dict:
-    """Ejecuta query GraphQL con manejo de errores."""
+    """
+    Ejecuta query GraphQL con manejo de errores.
+    
+    Args:
+        query: Query GraphQL como string
+        variables: Variables para la query
+    
+    Returns:
+        Respuesta JSON de la API
+    """
     headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {args.token}",
         "Content-Type": "application/json"
     }
     
@@ -101,17 +152,21 @@ def graphql_request(query: str, variables: Dict = None) -> Dict:
             headers=headers,
             timeout=30
         )
-        response.raise_for_status()
+        
+        if response.status_code != 200:
+            raise Exception(f"GraphQL Error ({response.status_code}): {response.text}")
         
         data = response.json()
         
         if "errors" in data:
             error_messages = [e.get("message", "Unknown error") for e in data["errors"]]
-            print(f"⚠️  GraphQL Warnings/Errors: {', '.join(error_messages)}")
+            # Solo mostrar warning si no es "already exists" (esperado)
+            if not any("already exists" in msg.lower() for msg in error_messages):
+                print(f"⚠️  GraphQL Warnings: {', '.join(error_messages)}")
         
         return data
     except requests.RequestException as e:
-        raise Exception(f"GraphQL Error ({getattr(e.response, 'status_code', 'unknown')}): {str(e)}")
+        raise Exception(f"GraphQL Request Error: {str(e)}")
 
 
 # =============================================================================
@@ -171,46 +226,72 @@ LABELS_CONFIG = [
 ]
 
 
-def setup_labels(repo):
-    """Configura labels del repositorio"""
-    print("\n" + "="*60)
-    print("📋 CONFIGURANDO LABELS")
-    print("="*60)
+def setup_labels_milestones(repo):
+    """
+    Configura labels y milestones de forma segura e idempotente.
     
-    existing_labels = {label.name: label for label in repo.get_labels()}
-    created = 0
-    updated = 0
+    Args:
+        repo: Repositorio de GitHub
+    """
+    print(f"\n🏷️  Sincronizando Metadatos en {repo.full_name}...")
     
-    for label_config in LABELS_CONFIG:
-        name = label_config["name"]
-        
+    # Labels
+    existing_labels = {l.name: l for l in repo.get_labels()}
+    labels_created = 0
+    labels_updated = 0
+    
+    for cfg in LABELS_CONFIG:
+        name = cfg["name"]
         try:
             if name in existing_labels:
-                # Actualizar label existente
-                label = existing_labels[name]
-                label.edit(
+                existing_labels[name].edit(
                     name=name,
-                    color=label_config["color"],
-                    description=label_config.get("description", "")
+                    color=cfg["color"],
+                    description=cfg.get("description", "")
                 )
-                print(f"  ✓ Actualizado: {name}")
-                updated += 1
+                labels_updated += 1
             else:
-                # Crear nuevo label
                 repo.create_label(
                     name=name,
-                    color=label_config["color"],
-                    description=label_config.get("description", "")
+                    color=cfg["color"],
+                    description=cfg.get("description", "")
                 )
-                print(f"  ✓ Creado: {name}")
-                created += 1
-            time.sleep(0.5)  # Rate limiting
+                labels_created += 1
+            time.sleep(0.3)  # Rate limiting
         except GithubException as e:
-            print(f"  ⚠️  Error con {name}: {e.data.get('message', str(e))}")
+            error_msg = e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)
+            print(f"   ⚠️  Error con label '{name}': {error_msg}")
         except Exception as e:
-            print(f"  ⚠️  Error con {name}: {e}")
+            print(f"   ⚠️  Error con label '{name}': {e}")
     
-    print(f"\n✅ Labels: {created} creados, {updated} actualizados (total: {len(LABELS_CONFIG)})")
+    if labels_created > 0 or labels_updated > 0:
+        print(f"   ✓ Labels: {labels_created} creados, {labels_updated} actualizados")
+    
+    # Milestones
+    existing_ms = {m.title: m for m in repo.get_milestones(state="all")}
+    milestones_created = 0
+    
+    for cfg in MILESTONES_CONFIG:
+        title = cfg["title"]
+        try:
+            if title not in existing_ms:
+                repo.create_milestone(
+                    title=title,
+                    description=cfg["description"],
+                    due_on=cfg.get("due_on")
+                )
+                milestones_created += 1
+                time.sleep(0.3)  # Rate limiting
+        except GithubException as e:
+            error_msg = e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)
+            print(f"   ⚠️  Error con milestone '{title}': {error_msg}")
+        except Exception as e:
+            print(f"   ⚠️  Error con milestone '{title}': {e}")
+    
+    if milestones_created > 0:
+        print(f"   ✓ Milestones: {milestones_created} creados")
+    
+    print(f"   ✅ Metadatos sincronizados ({len(LABELS_CONFIG)} labels, {len(MILESTONES_CONFIG)} milestones)")
 
 
 # =============================================================================
@@ -357,7 +438,7 @@ def setup_milestones(repo):
 
 def get_project_node_id(owner: str, number: int) -> Optional[str]:
     """
-    Busca el Project ID soportando Users y Organizations.
+    Obtiene ID del proyecto soportando User y Org.
     
     Args:
         owner: Owner del proyecto (usuario u organización)
@@ -387,57 +468,46 @@ def get_project_node_id(owner: str, number: int) -> Optional[str]:
         data = graphql_request(query, {"owner": owner, "number": number})
         result_data = data.get("data", {})
         
-        # Intentar obtener de User
+        # Intentar User
         if result_data.get("user") and result_data["user"].get("projectV2"):
             project = result_data["user"]["projectV2"]
-            print(f"  ✓ Proyecto encontrado (User): {project.get('title', 'Unknown')}")
+            print(f"   ✓ Proyecto encontrado (User): {project.get('title', 'Unknown')}")
             return project["id"]
         
-        # Intentar obtener de Org
+        # Intentar Org
         if result_data.get("organization") and result_data["organization"].get("projectV2"):
             project = result_data["organization"]["projectV2"]
-            print(f"  ✓ Proyecto encontrado (Organization): {project.get('title', 'Unknown')}")
+            print(f"   ✓ Proyecto encontrado (Organization): {project.get('title', 'Unknown')}")
             return project["id"]
         
         return None
     except Exception as e:
-        print(f"⚠️  Error obteniendo Project ID: {e}")
+        print(f"   ⚠️  Error obteniendo Project ID: {e}")
         return None
 
 
-def create_project_field(project_id: str, name: str, data_type: str, options: List[str] = None) -> bool:
+def create_project_field(project_id: str, name: str, data_type: str, options: List[Dict] = None):
     """
-    Crea un campo personalizado en el proyecto automáticamente usando GraphQL.
+    Crea campo usando GraphQL mutations.
     
     Args:
         project_id: ID del proyecto
         name: Nombre del campo
-        data_type: Tipo de campo (SINGLE_SELECT, TEXT, NUMBER, DATE)
-        options: Lista de opciones para SINGLE_SELECT
-    
-    Returns:
-        True si se creó exitosamente, False en caso contrario
+        data_type: Tipo de campo (SINGLE_SELECT, TEXT, NUMBER)
+        options: Lista de opciones para SINGLE_SELECT (formato: [{"name": "...", "color": "..."}])
     """
     mutation = """
-    mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!, $singleSelectOptions: [ProjectV2SingleSelectFieldOptionInput!]) {
+    mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!, $options: [ProjectV2SingleSelectFieldOptionInput!]) {
       createProjectV2Field(input: {
         projectId: $projectId
         name: $name
         dataType: $dataType
-        singleSelectOptions: $singleSelectOptions
+        singleSelectOptions: $options
       }) {
         projectV2Field {
           ... on ProjectV2Field {
             id
             name
-          }
-          ... on ProjectV2SingleSelectField {
-            id
-            name
-            options {
-              id
-              name
-            }
           }
         }
       }
@@ -448,98 +518,74 @@ def create_project_field(project_id: str, name: str, data_type: str, options: Li
         "projectId": project_id,
         "name": name,
         "dataType": data_type,
-        "singleSelectOptions": None
+        "options": options if options else None
     }
     
-    if options and data_type == "SINGLE_SELECT":
-        # Colores para opciones (puedes personalizar)
-        color_map = {
-            "High": "RED",
-            "Medium": "ORANGE",
-            "Low": "GREEN",
-            "Pending": "GRAY",
-            "Passed": "GREEN",
-            "Failed": "RED"
-        }
-        variables["singleSelectOptions"] = [
-            {"name": opt, "color": color_map.get(opt, "GRAY")}
-            for opt in options
-        ]
-    
     try:
-        result = graphql_request(mutation, variables)
-        if "errors" in result:
-            error_msg = result["errors"][0].get("message", "")
-            if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
-                print(f"     ℹ️  Campo '{name}' ya existe, saltando.")
-                return True
-            else:
-                print(f"     ❌ Error creando campo '{name}': {error_msg}")
-                return False
-        
-        field_data = result.get("data", {}).get("createProjectV2Field", {}).get("projectV2Field", {})
-        if field_data:
-            print(f"     ✓ Campo '{name}' creado exitosamente.")
-            return True
-        return False
+        graphql_request(mutation, variables)
+        print(f"   ✅ Campo creado: {name}")
     except Exception as e:
         error_str = str(e)
         if "already exists" in error_str.lower() or "duplicate" in error_str.lower():
-            print(f"     ℹ️  Campo '{name}' ya existe, saltando.")
-            return True
+            print(f"   ℹ️  Campo ya existe: {name}")
         else:
-            print(f"     ❌ Error creando campo '{name}': {e}")
-            return False
+            print(f"   ⚠️  Error creando {name}: {e}")
 
 
-def setup_project_fields(project_id: str, auto_create: bool = True):
+def setup_project_v2(project_id: str):
     """
-    Configura campos personalizados del proyecto.
+    Configura estructura completa del proyecto.
     
     Args:
         project_id: ID del proyecto
-        auto_create: Si True, intenta crear campos automáticamente
     """
-    print("\n" + "="*60)
-    print("🔧 CONFIGURANDO CAMPOS PERSONALIZADOS")
-    print("="*60)
+    print("\n🏗️  Configurando Campos del Proyecto (GraphQL)...")
     
-    fields_to_create = [
-        {"name": "Impacto", "type": "SINGLE_SELECT", "options": ["High", "Medium", "Low"]},
-        {"name": "Fuente de Datos", "type": "SINGLE_SELECT", 
-         "options": ["IDESCAT", "Incasòl", "OpenData BCN", "Portal Dades", "Internal"]},
-        {"name": "Estado DQC", "type": "SINGLE_SELECT", "options": ["Pending", "Passed", "Failed"]},
-        {"name": "KPI Objetivo", "type": "TEXT", "options": None},
-        {"name": "Confidence", "type": "NUMBER", "options": None},
-        {"name": "Owner", "type": "TEXT", "options": None}
-    ]
+    if args.no_auto_fields:
+        print("   ⏭️  Modo --no-auto-fields: saltando creación automática")
+        print(f"\n   📝 Ve a: https://github.com/users/{args.owner}/projects/{args.project_number}/settings")
+        print("   Y crea los campos manualmente según la documentación.")
+        return
     
-    if auto_create:
-        print("\n⚙️  Creando campos automáticamente...")
-        created_count = 0
-        for field in fields_to_create:
-            if create_project_field(project_id, field["name"], field["type"], field.get("options")):
-                created_count += 1
-            time.sleep(0.5)  # Rate limiting
-        
-        print(f"\n✅ {created_count}/{len(fields_to_create)} campos procesados")
+    # 1. Impacto (Single Select)
+    create_project_field(project_id, "Impacto", "SINGLE_SELECT", [
+        {"name": "High", "color": "RED"},
+        {"name": "Medium", "color": "YELLOW"},
+        {"name": "Low", "color": "GRAY"}
+    ])
+    time.sleep(0.5)  # Rate limiting
     
-    print(f"""
-⚠️  NOTA IMPORTANTE:
-
-1. El campo 'Sprint' (Iteration) debe configurarse manualmente en la UI
-   debido a limitaciones de la API para configuración de fechas.
-
-2. Ve a tu proyecto: https://github.com/users/{ORG_NAME}/projects/{PROJECT_NUMBER}
-   → Settings → Fields → Add field → Iteration
-
-3. Configura las iteraciones (Sprints) con fechas:
-   - Sprint 0 (Setup)
-   - Sprint 1 (IDESCAT)
-   - Sprint 2 (Renta)
-   - Sprint 3 (Incasòl)
-   - Sprint 4 (Precios)
-""")
+    # 2. Fuente de Datos (Single Select)
+    create_project_field(project_id, "Fuente de Datos", "SINGLE_SELECT", [
+        {"name": "IDESCAT", "color": "BLUE"},
+        {"name": "Incasòl", "color": "ORANGE"},
+        {"name": "OpenData BCN", "color": "PURPLE"},
+        {"name": "Portal Dades", "color": "ORANGE"},
+        {"name": "Internal", "color": "GRAY"}
+    ])
+    time.sleep(0.5)
+    
+    # 3. Estado DQC (Single Select)
+    create_project_field(project_id, "Estado DQC", "SINGLE_SELECT", [
+        {"name": "Passed", "color": "GREEN"},
+        {"name": "Failed", "color": "RED"},
+        {"name": "Pending", "color": "GRAY"}
+    ])
+    time.sleep(0.5)
+    
+    # 4. Otros Campos
+    create_project_field(project_id, "KPI Objetivo", "TEXT")
+    time.sleep(0.5)
+    
+    create_project_field(project_id, "Confidence", "NUMBER")
+    time.sleep(0.5)
+    
+    create_project_field(project_id, "Owner", "TEXT")
+    
+    print("\n📝 NOTA MANUAL IMPORTANTE:")
+    print("   La API no permite configurar fechas de iteraciones (Sprints).")
+    print(f"   Ve a: https://github.com/users/{args.owner}/projects/{args.project_number}/settings")
+    print("   Y configura el campo 'Iteration' manualmente con los sprints.")
 
 
 def setup_project_views(project_id: str):
@@ -738,95 +784,61 @@ def verify_templates():
 
 def main():
     """Ejecuta configuración completa del proyecto"""
-    global PROJECT_NUMBER
+    print("="*60)
+    print(f"🚀 SETUP DE PROYECTO: {args.owner}/{args.repo}")
+    print("="*60)
     
-    parser = argparse.ArgumentParser(
-        description="Configuración completa del proyecto GitHub"
-    )
-    parser.add_argument(
-        "--project-number",
-        type=int,
-        default=PROJECT_NUMBER,
-        help=f"Número del proyecto (default: {PROJECT_NUMBER})"
-    )
-    parser.add_argument(
-        "--no-auto-fields",
-        action="store_true",
-        help="No crear campos automáticamente (solo mostrar instrucciones)"
-    )
-    
-    args = parser.parse_args()
-    PROJECT_NUMBER = args.project_number
-    
-    print("\n" + "="*70)
-    print("🚀 CONFIGURACIÓN COMPLETA DEL PROYECTO")
-    print("   Barcelona Housing Demographics Analyzer")
-    print("="*70)
-    
-    print(f"\n📋 Configuración detectada:")
-    print(f"   Owner: {REPO_OWNER}")
-    print(f"   Repo: {REPO_NAME}")
-    print(f"   Project: #{PROJECT_NUMBER}")
-    
-    # Inicializar cliente GitHub
+    # Conexión
     try:
-        gh = Github(GITHUB_TOKEN)
-        repo = gh.get_repo(f"{REPO_OWNER}/{REPO_NAME}")
+        gh = Github(args.token)
+        repo = gh.get_repo(f"{args.owner}/{args.repo}")
         user = gh.get_user()
     except GithubException as e:
         error_msg = e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)
-        print(f"❌ Error accediendo a GitHub: {error_msg}")
+        print(f"❌ No se encuentra el repositorio: {error_msg}")
+        print("   Verifica nombre y permisos.")
         sys.exit(1)
     
     print(f"\n📦 Repositorio: {repo.full_name}")
     print(f"👤 Usuario: {user.login}")
     print(f"🔗 URL: {repo.html_url}")
     
-    # 1. Labels
-    setup_labels(repo)
-    time.sleep(1)
+    # 1. Configurar Repo (Labels y Milestones)
+    setup_labels_milestones(repo)
     
-    # 2. Milestones
-    setup_milestones(repo)
-    time.sleep(1)
+    # 2. Configurar Proyecto V2
+    project_id = get_project_node_id(args.owner, args.project_number)
     
-    # 3. Project v2
-    project_id = get_project_node_id(REPO_OWNER, PROJECT_NUMBER)
     if project_id:
-        print(f"\n✓ Project ID encontrado: {project_id[:20]}...")
-        setup_project_fields(project_id, auto_create=not args.no_auto_fields)
+        print(f"\n✓ Proyecto encontrado (ID: {project_id[:20]}...)")
+        setup_project_v2(project_id)
         setup_project_views(project_id)
         setup_project_automations(project_id)
     else:
-        print(f"\n⚠️  No se pudo obtener ID del proyecto #{PROJECT_NUMBER}")
-        print(f"   Verifica que el proyecto existe en: https://github.com/users/{REPO_OWNER}/projects/{PROJECT_NUMBER}")
-        print(f"   O ajusta PROJECT_NUMBER ({PROJECT_NUMBER}) si es diferente")
+        print(f"\n⚠️  No se encontró el Proyecto #{args.project_number}")
+        print(f"   Crea uno vacío primero en: https://github.com/users/{args.owner}/projects/new")
     
-    # 4. Columnas
+    # 3. Columnas y Templates
     setup_project_columns()
-    
-    # 5. Templates
     verify_templates()
     
     # Resumen final
-    print("\n" + "="*70)
-    print("✅ CONFIGURACIÓN COMPLETADA")
-    print("="*70)
+    print("\n" + "="*60)
+    print("✅ SETUP FINALIZADO")
+    print("="*60)
     
     print("""
 📋 **Resumen:**
 
-   ✓ Labels configurados (30+)
-   ✓ Milestones creados (7)
-   ✓ Campos personalizados (instrucciones proporcionadas)
-   ✓ Vistas del proyecto (instrucciones proporcionadas)
-   ✓ Automatizaciones (instrucciones proporcionadas)
+   ✓ Labels sincronizados
+   ✓ Milestones creados
+   ✓ Campos del proyecto configurados
    ✓ Templates verificados
 
 🎯 **Próximos pasos:**
 
-   1. Revisa campos personalizados en la UI del proyecto
-   2. Configura las vistas recomendadas
+   1. Configura el campo 'Iteration' (Sprints) manualmente en la UI
+   2. Crea las vistas recomendadas del proyecto
    3. Activa las automatizaciones built-in
    4. Ejecuta: python .github/scripts/create_sprint_issues.py
    5. Comienza Sprint 1
@@ -834,15 +846,7 @@ def main():
 📚 **Documentación:**
 
    - docs/PROJECT_MANAGEMENT.md
-   - docs/COMPLIANCE_CHECKLIST.md
-   - .github/CONTRIBUTING.md
-
-🤖 **Workflows activos:**
-
-   - AI PM audita issues diariamente
-   - Data Quality Checks en PRs
-   - Métricas actualizadas automáticamente
-   - Project automation en issues abiertos
+   - .github/scripts/README_SETUP.md
 """)
 
 
