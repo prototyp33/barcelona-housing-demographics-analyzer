@@ -24,7 +24,7 @@ from scripts.github_graphql import GitHubGraphQL
 # Configuración
 ORG_NAME = "prototyp33"
 REPO_NAME = "barcelona-housing-demographics-analyzer"
-PROJECT_NUMBER = 1  # Ajustar según tu proyecto
+PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "1"))  # Ajustar según tu proyecto
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,21 +33,42 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_project_info(gh: GitHubGraphQL) -> Dict:
+def get_project_info(gh: GitHubGraphQL, project_number: Optional[int] = None) -> Dict:
     """
     Obtiene ID del proyecto y campos personalizados.
+    
+    Args:
+        gh: Cliente GraphQL
+        project_number: Número del proyecto (default: PROJECT_NUMBER)
     
     Returns:
         Dict con project_id, title y fields mapeados
     """
-    project = gh.get_project_v2(
-        owner=ORG_NAME,
-        repo=REPO_NAME,
-        project_number=PROJECT_NUMBER
-    )
+    proj_num = project_number or PROJECT_NUMBER
     
-    if not project:
-        raise ValueError(f"Proyecto #{PROJECT_NUMBER} no encontrado")
+    try:
+        project = gh.get_project_v2(
+            owner=ORG_NAME,
+            repo=REPO_NAME,
+            project_number=proj_num
+        )
+        
+        if not project:
+            raise ValueError(f"Proyecto #{proj_num} no encontrado")
+    except Exception as e:
+        error_msg = str(e)
+        if "Could not resolve" in error_msg or "not found" in error_msg.lower():
+            logger.error(f"❌ Proyecto #{proj_num} no encontrado")
+            logger.error("   Posibles causas:")
+            logger.error(f"   1. El proyecto no existe o el número es incorrecto")
+            logger.error(f"   2. El proyecto está en una organización diferente")
+            logger.error(f"   3. El token no tiene permisos 'project'")
+            logger.error("")
+            logger.error("   Soluciones:")
+            logger.error(f"   - Verifica el número del proyecto en la URL: https://github.com/users/{ORG_NAME}/projects")
+            logger.error(f"   - Especifica el número correcto: export PROJECT_NUMBER=2")
+            logger.error(f"   - O usa: python .github/scripts/project_automation.py --issue 24 --project-number 2")
+        raise
     
     # Mapear campos para fácil acceso
     fields = {}
@@ -240,6 +261,7 @@ def sync_issue_with_project(
     sprint: Optional[str] = None,
     kpi_objetivo: Optional[str] = None,
     dqc_status: Optional[str] = None,
+    project_number: Optional[int] = None,
     auto_detect: bool = False
 ):
     """
@@ -253,12 +275,13 @@ def sync_issue_with_project(
         sprint: "Sprint 1", "Sprint 2", etc.
         kpi_objetivo: Descripción del KPI objetivo
         dqc_status: "Passed", "Failed", "Pending" (Estado DQC)
+        project_number: Número del proyecto (default: PROJECT_NUMBER)
         auto_detect: Si True, detecta automáticamente campos desde el issue
     """
     logger.info(f"Sincronizando issue #{issue_number}...")
     
     # 1. Obtener info del proyecto
-    project_info = get_project_info(gh)
+    project_info = get_project_info(gh, project_number=project_number)
     project_id = project_info["project_id"]
     fields = project_info["fields"]
     
@@ -409,6 +432,12 @@ def main():
         choices=["Passed", "Failed", "Pending"],
         help="Estado DQC (Passed, Failed, Pending)"
     )
+    parser.add_argument(
+        "--project-number",
+        type=int,
+        default=None,
+        help=f"Número del proyecto (default: {PROJECT_NUMBER} o PROJECT_NUMBER env var)"
+    )
     
     args = parser.parse_args()
     
@@ -439,6 +468,9 @@ def main():
     
     # Sincronizar issue
     try:
+        # Usar project_number del argumento o del env var
+        project_num = args.project_number if args.project_number is not None else PROJECT_NUMBER
+        
         sync_issue_with_project(
             gh=gh,
             issue_number=args.issue,
@@ -447,6 +479,7 @@ def main():
             sprint=args.sprint,
             kpi_objetivo=args.kpi_objetivo,
             dqc_status=args.dqc_status,
+            project_number=project_num,
             auto_detect=args.auto_detect
         )
     except Exception as e:
