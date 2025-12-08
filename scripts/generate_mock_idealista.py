@@ -108,11 +108,19 @@ def generate_mock_data():
     # Insert into DB
     df = pd.DataFrame(mock_data)
     
+    # Filtrar solo las columnas que existen en la tabla
+    # Obtener columnas de la tabla
+    table_info = pd.read_sql("PRAGMA table_info(fact_oferta_idealista)", conn)
+    valid_columns = set(table_info["name"].tolist())
+    
+    # Filtrar DataFrame para incluir solo columnas válidas
+    df_filtered = df[[col for col in df.columns if col in valid_columns]]
+    
     # Clear existing mock data
     conn.execute("DELETE FROM fact_oferta_idealista WHERE source = 'mock_generator'")
     
     # Append new data
-    df.to_sql("fact_oferta_idealista", conn, if_exists="append", index=False)
+    df_filtered.to_sql("fact_oferta_idealista", conn, if_exists="append", index=False)
     
     print(f"✅ Generated {len(df)} mock records for Idealista")
     conn.close()

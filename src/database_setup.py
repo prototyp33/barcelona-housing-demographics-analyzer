@@ -210,6 +210,7 @@ CREATE_TABLE_STATEMENTS = (
         dataset_id TEXT,
         source TEXT,
         etl_loaded_at TEXT,
+        is_mock INTEGER DEFAULT 0,
         FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
     );
     """,
@@ -262,6 +263,44 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     with conn:
         for statement in CREATE_TABLE_STATEMENTS:
             conn.executescript(statement)
+    
+    # Migraciones: añadir columnas que puedan faltar en bases de datos existentes
+    migrate_database_schema(conn)
+
+
+def migrate_database_schema(conn: sqlite3.Connection) -> None:
+    """
+    Aplica migraciones de esquema a bases de datos existentes.
+    
+    Args:
+        conn: Conexión SQLite activa.
+    """
+    logger.debug("Aplicando migraciones de esquema si es necesario")
+    
+    try:
+        # Verificar si la columna is_mock existe en fact_oferta_idealista
+        cursor = conn.execute(
+            "PRAGMA table_info(fact_oferta_idealista)"
+        )
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if "is_mock" not in columns:
+            logger.info("Añadiendo columna is_mock a fact_oferta_idealista")
+            conn.execute(
+                "ALTER TABLE fact_oferta_idealista ADD COLUMN is_mock INTEGER DEFAULT 0"
+            )
+            conn.commit()
+            logger.info("✓ Columna is_mock añadida exitosamente")
+            
+            # Actualizar registros existentes: si source = 'mock_generator', is_mock = 1
+            conn.execute(
+                "UPDATE fact_oferta_idealista SET is_mock = 1 WHERE source = 'mock_generator'"
+            )
+            conn.commit()
+            logger.info("✓ Registros mock actualizados con is_mock = 1")
+    except sqlite3.Error as e:
+        logger.warning("Error al aplicar migración de esquema: %s", e)
+        # No lanzar excepción para no romper el flujo si la tabla no existe aún
 
 
 def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
