@@ -21,7 +21,7 @@ import subprocess
 import argparse
 import requests
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional, Tuple
 
 try:
     from github import Github, GithubException
@@ -34,7 +34,7 @@ except ImportError:
 # 1. CONFIGURACIÓN Y AUTO-DETECCIÓN
 # =============================================================================
 
-def detect_git_context() -> tuple[str, str]:
+def detect_git_context() -> Tuple[str, str]:
     """
     Detecta owner y repo analizando el remote 'origin' de git.
     Soporta SSH y HTTPS.
@@ -218,7 +218,7 @@ def graphql_request(query: str, variables: Dict = None) -> Dict:
         variables: Variables para la query
     
     Returns:
-        Respuesta JSON de la API
+        Respuesta JSON de la API o dict vacío en caso de error
     """
     headers = {
         "Authorization": f"Bearer {args.token}",
@@ -233,9 +233,24 @@ def graphql_request(query: str, variables: Dict = None) -> Dict:
             timeout=30
         )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        
+        # Verificar errores de GraphQL
+        if "errors" in data:
+            error_messages = [e.get("message", "Unknown error") for e in data["errors"]]
+            # Solo mostrar si no es "already exists" (esperado en algunos casos)
+            if not any("already exists" in msg.lower() for msg in error_messages):
+                print(f"   ⚠️  GraphQL errors: {', '.join(error_messages)}")
+        
+        return data
+    except requests.Timeout:
+        print(f"   ⚠️  Timeout en GraphQL request")
+        return {}
     except requests.RequestException as e:
         print(f"   ⚠️  Error de red en GraphQL: {e}")
+        return {}
+    except Exception as e:
+        print(f"   ⚠️  Error inesperado en GraphQL: {e}")
         return {}
 
 def setup_repo_metadata(repo):
@@ -330,17 +345,26 @@ def get_project_node_id(owner: str, number: int) -> Optional[str]:
     
     data = graphql_request(query, {"owner": owner, "number": number})
     
+    if not data or "data" not in data:
+        return None
+    
+    data_node = data.get("data", {})
+    
     # Intentar User
-    if data.get("data", {}).get("user") and data["data"]["user"].get("projectV2"):
-        project = data["data"]["user"]["projectV2"]
-        print(f"   ✓ Proyecto encontrado (User): {project.get('title', 'Unknown')}")
-        return project["id"]
+    user_node = data_node.get("user")
+    if user_node and user_node.get("projectV2"):
+        project = user_node["projectV2"]
+        if project and project.get("id"):
+            print(f"   ✓ Proyecto encontrado (User): {project.get('title', 'Unknown')}")
+            return project["id"]
     
     # Intentar Org
-    if data.get("data", {}).get("organization") and data["data"]["organization"].get("projectV2"):
-        project = data["data"]["organization"]["projectV2"]
-        print(f"   ✓ Proyecto encontrado (Organization): {project.get('title', 'Unknown')}")
-        return project["id"]
+    org_node = data_node.get("organization")
+    if org_node and org_node.get("projectV2"):
+        project = org_node["projectV2"]
+        if project and project.get("id"):
+            print(f"   ✓ Proyecto encontrado (Organization): {project.get('title', 'Unknown')}")
+            return project["id"]
     
     return None
 
@@ -381,16 +405,30 @@ def create_project_field(project_id: str, name: str, data_type: str, options: Li
     
     res = graphql_request(mutation, variables)
     
+    if not res:
+        print(f"   ❌ Error: No se pudo conectar con GraphQL para crear '{name}'")
+        return
+    
+    # Verificar errores
     if "errors" in res:
         err_msg = res["errors"][0].get("message", "Unknown error")
         if "already exists" in err_msg.lower() or "duplicate" in err_msg.lower():
             print(f"   ℹ️  Campo '{name}' ya existe.")
         else:
             print(f"   ❌ Error creando '{name}': {err_msg}")
+        return
+    
+    # Verificar respuesta exitosa
+    data = res.get("data", {})
+    if not data:
+        print(f"   ⚠️  Respuesta vacía al crear '{name}'")
+        return
+    
+    field_data = data.get("createProjectV2Field", {}).get("projectV2Field", {})
+    if field_data and field_data.get("id"):
+        print(f"   ✅ Campo creado: {name}")
     else:
-        field_data = res.get("data", {}).get("createProjectV2Field", {}).get("projectV2Field", {})
-        if field_data:
-            print(f"   ✅ Campo creado: {name}")
+        print(f"   ⚠️  Campo '{name}' no se creó correctamente (verificar permisos)")
 
 def setup_project_v2_structure(project_id: str):
     """
@@ -445,24 +483,37 @@ def main():
     print("="*60)
     
     # 1. Conexión a GitHub
-    gh = Github(args.token)
+    try:
+        gh = Github(args.token)
+        # Verificar que el token es válido
+        user = gh.get_user()
+        print(f"✅ Conexión establecida con GitHub")
+        print(f"   👤 Usuario: {user.login}")
+    except GithubException as e:
+        error_msg = e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)
+        print(f"❌ Error: Token inválido o sin permisos.")
+        print(f"   Detalle: {error_msg}")
+        print("   Verifica que el token tenga permisos: repo, project")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error inesperado conectando a GitHub: {e}")
+        sys.exit(1)
+    
+    # 2. Verificar acceso al repositorio
     try:
         repo = gh.get_repo(f"{args.owner}/{args.repo}")
-        user = gh.get_user()
-        print(f"✅ Conexión establecida con repositorio.")
-        print(f"   📦 {repo.full_name}")
-        print(f"   👤 {user.login}")
+        print(f"   📦 Repositorio: {repo.full_name}")
     except GithubException as e:
         error_msg = e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)
         print(f"❌ Error: No se puede acceder a {args.owner}/{args.repo}.")
         print(f"   Detalle: {error_msg}")
-        print("   Verifica el token y que el repo exista.")
+        print("   Verifica que el repositorio exista y tengas permisos.")
         sys.exit(1)
     
-    # 2. Configurar Repo (REST API)
+    # 3. Configurar Repo (REST API)
     setup_repo_metadata(repo)
     
-    # 3. Configurar Proyecto (GraphQL)
+    # 4. Configurar Proyecto (GraphQL)
     if not args.no_auto_fields:
         project_id = get_project_node_id(args.owner, args.project_number)
         if project_id:
