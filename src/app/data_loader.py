@@ -3,6 +3,7 @@ Data loader module for the Barcelona Housing Dashboard.
 
 Provides cached functions to load data from the SQLite database.
 Uses Streamlit's cache to avoid reloading data on every interaction.
+Updated for Market Cockpit.
 """
 
 from __future__ import annotations
@@ -478,3 +479,115 @@ def build_geojson(df: pd.DataFrame) -> dict:
         })
     return {"type": "FeatureCollection", "features": features}
 
+
+@st.cache_data(ttl=3600)
+def load_price_trends(distritos: Optional[list[str]] = None) -> pd.DataFrame:
+    """
+    Carga la evolución temporal de precios.
+    
+    Args:
+        distritos: Lista opcional de distritos para filtrar.
+    
+    Returns:
+        DataFrame con anyo, barrio_nombre, precio_venta_m2, precio_alquiler_m2.
+    """
+    conn = get_connection()
+    try:
+        query = """
+        SELECT 
+            p.anio as anyo,
+            b.barrio_nombre,
+            b.distrito_nombre,
+            AVG(p.precio_m2_venta) as precio_venta_m2,
+            AVG(p.precio_mes_alquiler) as precio_alquiler_m2
+        FROM fact_precios p
+        JOIN dim_barrios b ON p.barrio_id = b.barrio_id
+        WHERE p.precio_m2_venta IS NOT NULL OR p.precio_mes_alquiler IS NOT NULL
+        """
+        params = []
+        
+        if distritos:
+            placeholders = ",".join(["?"] * len(distritos))
+            query += f" AND b.distrito_nombre IN ({placeholders})"
+            params.extend(distritos)
+            
+        query += " GROUP BY p.anio, b.barrio_nombre, b.distrito_nombre ORDER BY p.anio"
+        
+        df = pd.read_sql(query, conn, params=params)
+    finally:
+        conn.close()
+    return df
+
+
+@st.cache_data(ttl=3600)
+def load_demographics_by_barrio(year: int) -> pd.DataFrame:
+    """
+    Carga datos demográficos detallados por barrio para un año.
+    
+    Args:
+        year: Año a consultar.
+        
+    Returns:
+        DataFrame con métricas demográficas y nombres de barrio.
+    """
+    conn = get_connection()
+    try:
+        df = pd.read_sql(
+            """
+            SELECT 
+                b.barrio_nombre,
+                b.distrito_nombre,
+                d.*
+            FROM fact_demografia d
+            JOIN dim_barrios b ON d.barrio_id = b.barrio_id
+            WHERE d.anio = ?
+            """,
+            conn,
+            params=[year],
+        )
+    finally:
+        conn.close()
+    return df
+
+
+@st.cache_data(ttl=300) # Shorter TTL for "real-time" data
+def load_idealista_supply(distritos: Optional[list[str]] = None) -> pd.DataFrame:
+    """
+    Carga oferta inmobiliaria (Idealista).
+    
+    Args:
+        distritos: Lista opcional de distritos para filtrar.
+    
+    Returns:
+        DataFrame con oferta por barrio y operación.
+    """
+    conn = get_connection()
+    try:
+        query = """
+        SELECT 
+            o.anio,
+            o.mes,
+            o.operacion,
+            o.num_anuncios,
+            o.precio_medio,
+            o.precio_m2_medio,
+            o.is_mock,
+            b.barrio_nombre,
+            b.distrito_nombre
+        FROM fact_oferta_idealista o
+        JOIN dim_barrios b ON o.barrio_id = b.barrio_id
+        """
+        params = []
+        
+        if distritos:
+            placeholders = ",".join(["?"] * len(distritos))
+            query += f" WHERE b.distrito_nombre IN ({placeholders})"
+            params.extend(distritos)
+            
+        # Get latest snapshot
+        query += " ORDER BY o.anio DESC, o.mes DESC"
+        
+        df = pd.read_sql(query, conn, params=params)
+    finally:
+        conn.close()
+    return df

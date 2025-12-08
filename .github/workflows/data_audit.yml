@@ -1,0 +1,39 @@
+name: Data Availability Audit
+
+on:
+  push:
+    branches: [ main, spike/* ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 8 * * 1' # Run every Monday at 8am
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    - name: Generate Mock Data
+      run: python scripts/generate_mock_idealista.py
+      
+    - name: Run Data Audit
+      run: python scripts/audit_data_availability.py
+      
+    - name: Upload Audit Results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: audit-results
+        path: data/logs/audit_results.json

@@ -459,6 +459,89 @@ def inject_global_css() -> None:
         background-color: rgba(39, 174, 96, 0.1) !important;
         border-left: 3px solid {COLOR_TOKENS['accent_green']} !important;
     }}
+    /* ============================================
+       MICRO-INTERACCIONES
+       ============================================ */
+    .bh-kpi-card {{
+        transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+
+    .bh-kpi-card:hover {{
+        transform: translateY(-4px) scale(1.01);
+        box-shadow: 0px 20px 50px rgba(29, 22, 23, 0.15);
+    }}
+
+    /* Skeleton loading para datos */
+    @keyframes shimmer {{
+        0% {{ background-position: -1000px 0; }}
+        100% {{ background-position: 1000px 0; }}
+    }}
+
+    .skeleton {{
+        background: linear-gradient(
+            90deg,
+            #F0F2F5 0%,
+            #E0E0E0 20%,
+            #F0F2F5 40%,
+            #F0F2F5 100%
+        );
+        background-size: 1000px 100%;
+        animation: shimmer 1.5s infinite linear;
+        border-radius: 12px;
+    }}
+
+    /* Botones con estados mejorados */
+    button[data-testid="baseButton-secondary"]:hover {{
+        background-color: rgba(47, 128, 237, 0.08) !important;
+        border-color: {COLOR_TOKENS['accent_blue']} !important;
+        transform: translateY(-1px);
+    }}
+
+    /* Tooltips mejorados */
+    [data-baseweb="tooltip"] {{
+        backdrop-filter: blur(12px);
+        background-color: rgba(26, 26, 26, 0.92) !important;
+        border-radius: 12px !important;
+        padding: 8px 12px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+    }}
+    /* Breadcrumbs */
+    .bh-breadcrumbs {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 24px;
+        font-family: 'Inter', sans-serif;
+        font-size: 14px;
+        color: {COLOR_TOKENS['text_secondary']};
+    }}
+
+    .bh-breadcrumbs-item {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }}
+
+    .bh-breadcrumbs-link {{
+        color: {COLOR_TOKENS['text_secondary']};
+        text-decoration: none;
+        transition: color 0.2s ease;
+        cursor: pointer;
+    }}
+
+    .bh-breadcrumbs-link:hover {{
+        color: {COLOR_TOKENS['accent_blue']};
+    }}
+
+    .bh-breadcrumbs-active {{
+        color: {COLOR_TOKENS['text_primary']};
+        font-weight: 600;
+    }}
+
+    .bh-breadcrumbs-separator {{
+        color: {COLOR_TOKENS['text_secondary']};
+        opacity: 0.5;
+    }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -470,29 +553,44 @@ def render_kpi_card(
     style: str = "white",
     delta: str | None = None,
     delta_color: str = "green",
+    unit: str | None = None,
+    icon: str | None = None,
     render: bool = True,
 ) -> str:
     """
-    Renderiza una tarjeta KPI alineada con el Design System Kristin.
-    
+    Renderiza una tarjeta KPI - VERSIÓN REFINADA
+
+    Mejoras:
+    - Formateo inteligente de números grandes (K, M)
+    - Unidades separadas del valor
+    - Íconos opcionales
+    - Mejor tipografía y espaciado
+
     Args:
         title: Título de la métrica
-        value: Valor a mostrar (se formatea automáticamente)
+        value: Valor a mostrar
         style: "white", "warm", o "cool"
         delta: Texto opcional para la etiqueta/badge
-        delta_color: "green" o "red" (solo aplica en tarjetas white)
-        render: Si True, se imprime en Streamlit; si False, retorna el HTML
+        delta_color: "green" o "red"
+        unit: Unidad (ej: "€/m²", "%", "años")
+        icon: Emoji o ícono opcional
+        render: Si True, imprime; si False, retorna HTML
     """
-    # Formatear valor - si es string, usarlo directamente; si es número, formatearlo
+
+    # Formateo inteligente de números
     if isinstance(value, (int, float)):
-        if value >= 1000:
+        if value >= 1_000_000:
+            value_str = f"{value/1_000_000:.1f}M"
+        elif value >= 1_000:
+            value_str = f"{value/1_000:.1f}K"
+        elif value >= 100:
             value_str = f"{value:,.0f}"
         else:
-            value_str = f"{value:.0f}"  # Sin decimales para números pequeños
+            value_str = f"{value:.1f}"
     else:
-        value_str = str(value)  # Strings se usan tal cual (ej: "34,787 €")
-    
-    # Determinar estilos según tipo de tarjeta
+        value_str = str(value)
+
+    # Estilos según tipo
     if style == "warm":
         bg_card = GRADIENTS["warm"]
         color_title = "rgba(255, 255, 255, 0.9)"
@@ -519,51 +617,92 @@ def render_kpi_card(
         color_value = COLOR_TOKENS["text_primary"]
         if delta_color == "green":
             badge_base = (
-                "background: #E8F8F0; "
-                f"color: {COLOR_TOKENS['accent_green']};"
+                "background: rgba(39, 174, 96, 0.1); "
+                f"color: {COLOR_TOKENS['accent_green']}; "
+                "border: 1px solid rgba(39, 174, 96, 0.2);"
             )
         else:
             badge_base = (
-                "background: #FFE8E8; "
-                f"color: {COLOR_TOKENS['accent_red']};"
+                "background: rgba(235, 87, 87, 0.1); "
+                f"color: {COLOR_TOKENS['accent_red']}; "
+                "border: 1px solid rgba(235, 87, 87, 0.2);"
             )
-    
-    # Construir HTML completo de forma segura
-    unit_block = ""
-    base_value = value_str
-    if "/" in value_str:
-        base_value, unit = value_str.split("/", 1)
-        base_value = base_value.strip()
-        unit_block = (
-            f'<span style="font-size: 18px; font-weight: 600; margin-left: 6px; '
-            f'color: {color_value}; opacity: 0.85;">/{unit.strip()}</span>'
+
+    # Construir HTML
+    icon_html = (
+        f'<span style="font-size: 24px; margin-right: 8px; opacity: 0.9;">{icon}</span>'
+        if icon
+        else ""
+    )
+
+    # Valor con unidad
+    unit_html = ""
+    if unit:
+        unit_html = (
+            f'<span style="font-size: 18px; font-weight: 600; margin-left: 6px; opacity: 0.75;">{unit}</span>'
         )
 
-    value_block = (
-        f'<div style="font-size: 32px; font-weight: 700; color: {color_value}; '
-        f'margin-bottom: 8px; line-height: 1.1; font-family: Inter, sans-serif; '
-        f'white-space: nowrap;">{base_value}{unit_block}</div>'
-    )
+    value_block = f"""
+    <div style="
+        display: flex; 
+        align-items: baseline; 
+        gap: 4px;
+        margin: 12px 0;
+    ">
+        <span style="
+            font-size: 36px; 
+            font-weight: 700; 
+            color: {color_value}; 
+            line-height: 1;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: -0.5px;
+        ">{value_str}</span>
+        {unit_html}
+    </div>
+    """
+
+    badge_html = ""
     if delta:
-        badge_part = (
-            f'\n    <div class="bh-kpi-badge" style="display: inline-block; padding: 4px 12px; '
-            f'border-radius: 12px; font-size: 12px; font-weight: 600; font-family: Inter, sans-serif; '
-            f'{badge_base}">{delta}</div>'
-        )
-    else:
-        badge_part = ""
-    
-    html = dedent(
-        f"""\
-<div class="bh-kpi-card" style="background: {bg_card}; padding: 24px; border-radius: 24px; box-shadow: {COLOR_TOKENS['shadow_elevation_1']}; font-family: Inter, sans-serif; border: none;">
-  <div style="font-size: 14px; font-weight: 500; color: {color_title}; font-family: Inter, sans-serif; line-height: 1.4;">{title}</div>
-  <div>
-    {value_block}{badge_part}
-  </div>
-</div>
-"""
-    ).strip()
-    
+        badge_html = f"""
+        <div style="
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 14px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            {badge_base}
+        ">{delta}</div>
+        """
+
+    html = f"""
+    <div class="bh-kpi-card" style="
+        background: {bg_card}; 
+        padding: 20px 24px; 
+        border-radius: 20px; 
+        box-shadow: {COLOR_TOKENS['shadow_elevation_1']}; 
+        font-family: 'Inter', sans-serif; 
+        border: none;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    ">
+        <div style="
+            display: flex; 
+            align-items: center;
+            font-size: 13px; 
+            font-weight: 500; 
+            color: {color_title}; 
+            margin-bottom: 8px;
+            font-family: 'Inter', sans-serif;
+        ">
+            {icon_html}
+            {title}
+        </div>
+        {value_block}
+        {badge_html}
+    </div>
+    """
+
     if render:
         st.markdown(html, unsafe_allow_html=True)
         return ""

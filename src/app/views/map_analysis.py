@@ -16,6 +16,7 @@ from src.app.data_loader import (
     load_precios,
     load_temporal_comparison,
 )
+from src.app.components import render_empty_state
 
 
 def render_price_map(
@@ -34,7 +35,11 @@ def render_price_map(
     df = load_precios(year, distrito_filter)
     
     if df.empty:
-        st.warning(f"No hay datos de precios para {year}.")
+        render_empty_state(
+            title="Sin datos de precios",
+            description=f"No hay datos de precios disponibles para el año {year}.",
+            icon="🗺️"
+        )
         return
     
     geojson = build_geojson(df)
@@ -72,7 +77,11 @@ def render_snapshot(year: int = 2022, key: str | None = None) -> None:
     df = load_precios(year)
     
     if df.empty:
-        st.warning("No data")
+        render_empty_state(
+            title="Sin datos",
+            description="No hay datos para mostrar el snapshot.",
+            icon="🗺️"
+        )
         return
     
     geojson = build_geojson(df)
@@ -114,7 +123,11 @@ def render_affordability_map(year: int = 2022, key: str | None = None) -> None:
     df = load_affordability_data(year)
     
     if df.empty:
-        st.warning("No hay datos suficientes para calcular el esfuerzo de compra.")
+        render_empty_state(
+            title="Datos insuficientes",
+            description="No hay datos suficientes para calcular el esfuerzo de compra.",
+            icon="💰"
+        )
         return
     
     geojson = build_geojson(df)
@@ -163,7 +176,11 @@ def render_change_map(
     df = load_temporal_comparison(year_start, year_end)
     
     if df.empty:
-        st.warning(f"No hay datos suficientes para comparar {year_start} vs {year_end}.")
+        render_empty_state(
+            title="Comparación no disponible",
+            description=f"No hay datos suficientes para comparar {year_start} vs {year_end}.",
+            icon="📉"
+        )
         return
     
     geojson = build_geojson(df)
