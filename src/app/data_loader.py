@@ -9,6 +9,7 @@ Updated for Market Cockpit.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Optional
 
@@ -559,10 +560,13 @@ def load_idealista_supply(distritos: Optional[list[str]] = None) -> pd.DataFrame
         distritos: Lista opcional de distritos para filtrar.
     
     Returns:
-        DataFrame con oferta por barrio y operación.
+        DataFrame con oferta por barrio y operación, incluyendo is_mock.
+        Si la columna is_mock no existe, se usa COALESCE para proporcionar 0 por defecto.
     """
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
+        # Usar COALESCE para manejar bases de datos antiguas sin is_mock
         query = """
         SELECT 
             o.anio,
@@ -571,7 +575,7 @@ def load_idealista_supply(distritos: Optional[list[str]] = None) -> pd.DataFrame
             o.num_anuncios,
             o.precio_medio,
             o.precio_m2_medio,
-            o.is_mock,
+            COALESCE(o.is_mock, CASE WHEN o.source = 'mock_generator' THEN 1 ELSE 0 END) AS is_mock,
             b.barrio_nombre,
             b.distrito_nombre
         FROM fact_oferta_idealista o
@@ -584,10 +588,34 @@ def load_idealista_supply(distritos: Optional[list[str]] = None) -> pd.DataFrame
             query += f" WHERE b.distrito_nombre IN ({placeholders})"
             params.extend(distritos)
             
-        # Get latest snapshot
+        # Get latest snapshot (último año/mes disponible)
         query += " ORDER BY o.anio DESC, o.mes DESC"
         
         df = pd.read_sql(query, conn, params=params)
+        
+        # Si el DataFrame está vacío, retornar DataFrame vacío con columnas esperadas
+        if df.empty:
+            return pd.DataFrame(columns=[
+                "anio", "mes", "operacion", "num_anuncios", 
+                "precio_medio", "precio_m2_medio", "is_mock",
+                "barrio_nombre", "distrito_nombre"
+            ])
+            
+    except sqlite3.OperationalError as e:
+        # Si la tabla no existe o hay error de esquema, retornar DataFrame vacío
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error al cargar oferta Idealista: {e}")
+        return pd.DataFrame(columns=[
+            "anio", "mes", "operacion", "num_anuncios", 
+            "precio_medio", "precio_m2_medio", "is_mock",
+            "barrio_nombre", "distrito_nombre"
+        ])
+    except Exception as e:
+        # Catch-all for other DB errors
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error inesperado en load_idealista_supply: {e}")
+        return pd.DataFrame()
     finally:
-        conn.close()
+        if conn:
+            conn.close()
     return df

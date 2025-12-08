@@ -136,8 +136,14 @@ def render_supply_analysis(distritos: list[str] | None) -> None:
         )
         return
 
-    # Check for mock data
-    is_mock = df["is_mock"].any()
+    # Check for mock data (defensive: column might not exist in old databases)
+    is_mock = False
+    if "is_mock" in df.columns:
+        is_mock = df["is_mock"].any() if not df.empty else False
+    elif not df.empty:
+        # Fallback: detectar mock por source column
+        is_mock = (df["source"] == "mock_generator").any() if "source" in df.columns else False
+    
     if is_mock:
         st.warning("⚠️ **Datos Simulados**: Mostrando datos generados sintéticamente (Mock) porque no hay credenciales de API activas.")
 
