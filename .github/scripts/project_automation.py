@@ -415,8 +415,24 @@ def main():
     # Obtener token
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        logger.error("GITHUB_TOKEN no encontrado en variables de entorno")
-        sys.exit(1)
+        # Intentar obtener desde gh CLI
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["gh", "auth", "token"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            token = result.stdout.strip()
+            logger.info("✓ Token obtenido desde gh CLI")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logger.error("GITHUB_TOKEN no encontrado en variables de entorno")
+            logger.error("Opciones:")
+            logger.error("  1. Exportar: export GITHUB_TOKEN='ghp_xxx'")
+            logger.error("  2. Usar gh CLI: gh auth login")
+            logger.error("  3. Crear PAT: https://github.com/settings/tokens")
+            sys.exit(1)
     
     # Inicializar cliente GraphQL
     gh = GitHubGraphQL(token=token)
