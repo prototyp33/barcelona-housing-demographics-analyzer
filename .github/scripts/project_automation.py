@@ -239,6 +239,7 @@ def sync_issue_with_project(
     fuente: Optional[str] = None,
     sprint: Optional[str] = None,
     kpi_objetivo: Optional[str] = None,
+    dqc_status: Optional[str] = None,
     auto_detect: bool = False
 ):
     """
@@ -251,6 +252,7 @@ def sync_issue_with_project(
         fuente: "IDESCAT", "Incasòl", "OpenData BCN", etc.
         sprint: "Sprint 1", "Sprint 2", etc.
         kpi_objetivo: Descripción del KPI objetivo
+        dqc_status: "Passed", "Failed", "Pending" (Estado DQC)
         auto_detect: Si True, detecta automáticamente campos desde el issue
     """
     logger.info(f"Sincronizando issue #{issue_number}...")
@@ -349,6 +351,18 @@ def sync_issue_with_project(
                     kpi_objetivo, "text")
         updated_fields.append("KPI objetivo")
     
+    if dqc_status and "Estado DQC" in fields:
+        dqc_field = fields["Estado DQC"]
+        if dqc_field.get("dataType") == "SINGLE_SELECT":
+            dqc_options = dqc_field.get("options", {})
+            dqc_option_id = dqc_options.get(dqc_status)
+            if dqc_option_id:
+                update_field(gh, project_id, item_id, dqc_field["id"],
+                            dqc_option_id, "single_select")
+                updated_fields.append(f"Estado DQC: {dqc_status}")
+            else:
+                logger.warning(f"Opción '{dqc_status}' no encontrada en campo Estado DQC. Opciones disponibles: {list(dqc_options.keys())}")
+    
     if updated_fields:
         logger.info(f"✓ Campos actualizados: {', '.join(updated_fields)}")
     else:
@@ -390,6 +404,11 @@ def main():
         action="store_true",
         help="Detectar automáticamente campos desde el issue"
     )
+    parser.add_argument(
+        "--dqc-status",
+        choices=["Passed", "Failed", "Pending"],
+        help="Estado DQC (Passed, Failed, Pending)"
+    )
     
     args = parser.parse_args()
     
@@ -411,6 +430,7 @@ def main():
             fuente=args.fuente,
             sprint=args.sprint,
             kpi_objetivo=args.kpi_objetivo,
+            dqc_status=args.dqc_status,
             auto_detect=args.auto_detect
         )
     except Exception as e:
