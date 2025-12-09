@@ -227,12 +227,11 @@ def get_issue_node_id(gh: GitHubGraphQL, issue_number: int) -> str:
         "number": issue_number
     })
     
-    # Validaciones defensivas
-    if not isinstance(result, dict) or "data" not in result:
+    # execute_query ya devuelve el nodo "data"; aquí esperamos "repository"
+    if not isinstance(result, dict):
         raise ValueError(f"No se pudo obtener datos de GraphQL para issue #{issue_number}")
     
-    data = result.get("data") or {}
-    repo_node = data.get("repository") or {}
+    repo_node = result.get("repository") or {}
     issue = repo_node.get("issue")
     
     if not issue:
