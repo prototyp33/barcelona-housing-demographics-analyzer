@@ -58,25 +58,54 @@ def detect_repo() -> Tuple[str, str]:
 
 def parse_roadmap(filepath: Path) -> List[Dict[str, Any]]:
     """
-    Parsea DATA_EXPANSION_ROADMAP.md y extrae sprints S{n}.
+    Parsea DATA_EXPANSION_ROADMAP.md y extrae sprints con formato "## S{n}:".
+    
+    Busca secciones que empiecen con "## S{n}:" (ej: "## S1: Implementar IDESCATExtractor")
+    y extrae:
+    - Título (después de "S{n}:")
+    - Objetivo (sección "**Objetivo:**")
+    - Entregables (lista de items bajo "**Entregables:**")
+    - KPI objetivo (sección "**KPI:**")
+    - Fuente de datos (inferir del contexto: IDESCAT, Incasòl, etc.)
 
     Returns:
         Lista de dicts: num, title, body, objetivo, kpi, entregables, fuente
     """
     text = filepath.read_text(encoding="utf-8")
     sections = []
-    pattern = re.compile(r"^##\s*S(?P<num>\d+):\s*(?P<title>.+)$", re.MULTILINE)
+    
+    # Buscar secciones con formato "## S{n}:" (ej: "## S1: Título")
+    pattern = re.compile(r"^##\s+S(?P<num>\d+):\s*(?P<title>.+)$", re.MULTILINE)
     matches = list(pattern.finditer(text))
+    
+    if not matches:
+        logging.warning("No se encontraron secciones con formato '## S{n}:' en el roadmap.")
+        logging.info("Formato esperado: '## S1: Título del Sprint'")
+        return sections
+    
     for i, m in enumerate(matches):
         start = m.end()
+        # Buscar siguiente sprint o fin del documento
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         chunk = text[start:end]
+        
         num = m.group("num")
         title = m.group("title").strip()
+        
+        # Extraer información del chunk
         objetivo = extract_field(chunk, "Objetivo")
         kpi = extract_field(chunk, "KPI")
         entregables = extract_entregables(chunk)
-        fuente = infer_fuente(chunk)
+        fuente = extract_field(chunk, "Fuente") or infer_fuente(chunk + title)
+        
+        # Si no hay objetivo explícito, usar el título como objetivo
+        if not objetivo:
+            objetivo = f"Implementar {title}"
+        
+        # Si no hay KPI explícito, intentar extraerlo del contexto
+        if not kpi:
+            kpi = extract_kpi_from_chunk(chunk) or "Completar KPI objetivo"
+        
         sections.append(
             {
                 "num": num,
@@ -88,7 +117,73 @@ def parse_roadmap(filepath: Path) -> List[Dict[str, Any]]:
                 "fuente": fuente,
             }
         )
+    
     return sections
+
+
+def extract_impacto_text(chunk: str) -> str:
+    """Extrae texto de impacto desde '**Impacto**:' o lista de puntos."""
+    lines = chunk.splitlines()
+    collecting = False
+    impact_lines = []
+    for line in lines:
+        if "**Impacto**" in line or "**Impacto:**" in line:
+            collecting = True
+            # Extraer texto después de "Impacto:"
+            after_colon = line.split(":", 1)[-1].strip()
+            if after_colon:
+                impact_lines.append(after_colon)
+            continue
+        if collecting:
+            if line.strip().startswith("-") or line.strip().startswith("*"):
+                impact_lines.append(line.strip().lstrip("-*").strip())
+            elif line.strip() == "":
+                continue
+            elif line.strip().startswith("**"):
+                break
+    return " ".join(impact_lines) if impact_lines else ""
+
+
+def extract_kpi_from_chunk(chunk: str) -> str:
+    """Extrae KPI desde bloque de código o métricas."""
+    # Buscar en bloque de código: "Cobertura: 2015-2022"
+    cobertura_match = re.search(r"Cobertura:\s*([^\n]+)", chunk)
+    if cobertura_match:
+        return f"Cobertura: {cobertura_match.group(1).strip()}"
+    
+    # Buscar indicador
+    indicador_match = re.search(r"Indicador:\s*([^\n]+)", chunk)
+    if indicador_match:
+        return f"Indicador: {indicador_match.group(1).strip()}"
+    
+    return "Completar KPI objetivo"
+
+
+def extract_entregables_from_plan(full_text: str, propuesta_num: str) -> List[str]:
+    """Busca entregables en sección 'Plan de Implementación Técnica'."""
+    plan_match = re.search(r"## 🛠️ Plan de Implementación Técnica(.*?)(?=##|$)", full_text, re.DOTALL)
+    if not plan_match:
+        return []
+    
+    plan_section = plan_match.group(1)
+    # Buscar "Fase {num}" que corresponda a la propuesta
+    # Mapeo aproximado: propuesta 1-2 -> Fase 1, propuesta 3-5 -> Fase 3, etc.
+    fase_num = int(propuesta_num) if propuesta_num.isdigit() else 0
+    fase_pattern = re.compile(rf"### Fase {fase_num}:(.*?)(?=### Fase|$)", re.DOTALL)
+    fase_match = fase_pattern.search(plan_section)
+    
+    if not fase_match:
+        return []
+    
+    fase_text = fase_match.group(1)
+    entregables = []
+    # Buscar lista de tareas numeradas o con "-"
+    for line in fase_text.splitlines():
+        line = line.strip()
+        if line.startswith(("1.", "2.", "3.", "4.", "5.")) or (line.startswith("-") and len(line) > 3):
+            entregables.append(line.lstrip("1234567890.-*").strip())
+    
+    return entregables
 
 
 def extract_field(chunk: str, field: str) -> str:
