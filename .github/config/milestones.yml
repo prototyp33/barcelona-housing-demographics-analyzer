@@ -2,5 +2,137 @@
 # Barcelona Housing Demographics Analyzer
 # Run: python .github/scripts/setup_project_complete.py
 
-milestones: []
+milestones:
+  - title: "Sprint 0: Foundation & Setup"
+    description: |
+      **Objetivo:** Configurar infraestructura base del proyecto
+      
+      **Entregables clave:**
+      - Esquema de base de datos SQLite
+      - Framework ETL básico
+      - Estructura de proyecto completa
+      - Sistema de logging
+      - GitHub Project configurado
+      - CI/CD pipeline inicial
+      
+      **Duración:** 2 semanas
+      **Estado:** Completado
+    due_on: "2025-12-15"
+    state: "closed"
+
+  - title: "Sprint 1: IDESCAT Integration"
+    description: |
+      **Objetivo:** Integrar datos de renta desde IDESCAT/Open Data BCN
+      
+      **Entregables clave:**
+      - IDESCATExtractor funcional
+      - Datos de renta 2015-2023 (≥80% cobertura)
+      - Tests completos (≥80% coverage)
+      - Documentación en docs/sources/idescat.md
+      - Campo fact_renta_hist validado con DQC
+      
+      **KPI:** Extractor funcional con tests pasando (13/13)
+      **Duración:** 2 semanas
+    due_on: "2026-01-05"
+    state: "open"
+
+  - title: "Sprint 2: Income Pipeline"
+    description: |
+      **Objetivo:** Pipeline completo de renta histórica
+      
+      **Entregables clave:**
+      - Tabla fact_renta_hist poblada
+      - ETL automatizado end-to-end
+      - Validación DQC (≥95% completitud, ≥98% validez)
+      - Documentación de metodología
+      - Dashboard básico con visualización de renta
+      
+      **KPI:** Tabla fact_renta_hist con ≥80% cobertura 2015-2023
+      **Duración:** 2 semanas
+    due_on: "2026-01-19"
+    state: "open"
+
+  - title: "Sprint 3: Incasòl Integration"
+    description: |
+      **Objetivo:** Integrar oferta de vivienda protegida
+      
+      **Entregables clave:**
+      - IncasolExtractor funcional
+      - Datos de oferta inmobiliaria 2020-2024
+      - Integración con dim_barrios
+      - Validación de mapeo territorial
+      - Tests completos
+      
+      **KPI:** 100% barrios con oferta Incasòl mapeados
+      **Duración:** 2 semanas
+    due_on: "2026-02-02"
+    state: "open"
+
+  - title: "Sprint 4: Market Prices"
+    description: |
+      **Objetivo:** Completar datos de precios de mercado
+      
+      **Entregables clave:**
+      - fact_precios actualizada con datos 2023-2024
+      - Indicadores de asequibilidad calculados
+      - Dashboard Market Cockpit v1
+      - Análisis de correlaciones precio-renta
+      - Documentación de fuentes de precios
+      
+      **KPI:** Dashboard con filtros funcionales por barrio/distrito
+      **Duración:** 2 semanas
+    due_on: "2026-02-16"
+    state: "open"
+
+  - title: "Dashboard & Visualization"
+    description: |
+      **Objetivo:** Dashboard interactivo completo
+      
+      **Entregables clave:**
+      - Streamlit app funcional con todas las fuentes
+      - Mapas interactivos (Folium/Plotly)
+      - Filtros por barrio/distrito/año
+      - Visualizaciones de correlaciones
+      - Export de datos (CSV/Excel)
+      - Documentación de usuario
+      
+      **KPI:** Dashboard deployado con ≥5 visualizaciones interactivas
+      **Duración:** 3-4 semanas
+    due_on: "2026-03-16"
+    state: "open"
+
+  - title: "Testing & Quality Assurance"
+    description: |
+      **Objetivo:** Asegurar calidad y preparar release
+      
+      **Entregables clave:**
+      - Cobertura de tests ≥80%
+      - Integration tests completos
+      - DQC automatizado en CI/CD
+      - Performance benchmarks
+      - Security audit (dependencias)
+      - Documentación técnica completa
+      
+      **KPI:** Cobertura ≥80%, DQC pass rate ≥95%
+      **Duración:** 2 semanas
+    due_on: "2026-03-30"
+    state: "open"
+
+  - title: "Documentation & Release v1.0"
+    description: |
+      **Objetivo:** Preparar proyecto para release público
+      
+      **Entregables clave:**
+      - README completo con setup instructions
+      - Guías de usuario
+      - Documentación de API/módulos
+      - CONTRIBUTING.md
+      - LICENSE
+      - Release notes v1.0
+      - Deployment guide (Docker/cloud)
+      
+      **KPI:** Release v1.0 publicado en GitHub
+      **Duración:** 1-2 semanas
+    due_on: "2026-04-13"
+    state: "open"
 
