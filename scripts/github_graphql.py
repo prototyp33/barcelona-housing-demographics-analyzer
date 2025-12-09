@@ -371,9 +371,8 @@ class GitHubGraphQL:
             project = self.get_project_v2(owner=owner, repo=repo, project_number=project_number)
             if project:
                 return project
-        except Exception:
-            # Continuar con siguientes intentos
-            pass
+        except Exception as e:
+            logger.debug("Repo project lookup failed: %s", e)
 
         # 2. Proyecto de usuario
         query_user = """
@@ -427,8 +426,8 @@ class GitHubGraphQL:
             user_node = data.get("user", {})
             if user_node and user_node.get("projectV2"):
                 return user_node.get("projectV2", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("User project lookup failed: %s", e)
 
         # 3. Proyecto de organización
         query_org = """
@@ -482,8 +481,8 @@ class GitHubGraphQL:
             org_node = data.get("organization", {})
             if org_node and org_node.get("projectV2"):
                 return org_node.get("projectV2", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Org project lookup failed: %s", e)
 
         return {}
     

@@ -65,7 +65,7 @@ def get_project_info(
             raise ValueError(f"Proyecto #{proj_num} no encontrado")
     except Exception as e:
         error_msg = str(e)
-        if "Could not resolve" in error_msg or "not found" in error_msg.lower():
+        if "Could not resolve" in error_msg or "not found" in error_msg.lower() or "404" in error_msg:
             logger.error(f"❌ Proyecto #{proj_num} no encontrado")
             logger.error("   Posibles causas:")
             logger.error(f"   1. El proyecto no existe o el número es incorrecto")
@@ -77,6 +77,8 @@ def get_project_info(
             logger.error(f"   - Especifica el número correcto: export PROJECT_NUMBER=2")
             logger.error(f"   - O usa: python .github/scripts/project_automation.py --issue 24 --project-number 2")
             logger.error(f"   - Si el proyecto es de otra organización/usuario, especifica: --project-owner <owner>")
+            logger.error(f"   - Confirma scopes del token: debe incluir 'project' (no solo read:project)")
+            logger.error(f"   - Si el proyecto es privado, el token debe tener acceso a proyectos privados del owner")
         raise
     
     # Mapear campos para fácil acceso
