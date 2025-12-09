@@ -294,15 +294,7 @@ class GitHubGraphQL:
     
     def get_project_v2(self, owner: str, repo: str, project_number: int) -> Dict[str, Any]:
         """
-        Obtiene información de un Project v2.
-        
-        Args:
-            owner: Propietario del repositorio.
-            repo: Nombre del repositorio.
-            project_number: Número del proyecto.
-        
-        Returns:
-            Dict con información del proyecto.
+        Obtiene información de un Project v2 asociado a un repositorio.
         """
         query = """
         query($owner: String!, $repo: String!, $projectNumber: Int!) {
@@ -360,6 +352,140 @@ class GitHubGraphQL:
         data = self.execute_query(query, variables)
         repository = data.get("repository", {})
         return repository.get("projectV2", {})
+
+    def get_project_v2_any(
+        self,
+        owner: str,
+        repo: str,
+        project_owner: str,
+        project_number: int
+    ) -> Dict[str, Any]:
+        """
+        Obtiene información de un Project v2 intentando en este orden:
+        1) Proyecto de repositorio
+        2) Proyecto de usuario (user login)
+        3) Proyecto de organización
+        """
+        # 1. Proyecto de repositorio
+        try:
+            project = self.get_project_v2(owner=owner, repo=repo, project_number=project_number)
+            if project:
+                return project
+        except Exception:
+            # Continuar con siguientes intentos
+            pass
+
+        # 2. Proyecto de usuario
+        query_user = """
+        query($owner: String!, $projectNumber: Int!) {
+            user(login: $owner) {
+                projectV2(number: $projectNumber) {
+                    id
+                    title
+                    number
+                    url
+                    shortDescription
+                    public
+                    closed
+                    createdAt
+                    updatedAt
+                    fields(first: 20) {
+                        nodes {
+                            ... on ProjectV2Field {
+                                id
+                                name
+                                dataType
+                            }
+                            ... on ProjectV2IterationField {
+                                id
+                                name
+                                configuration {
+                                    iterations {
+                                        id
+                                        title
+                                        startDate
+                                        duration
+                                    }
+                                }
+                            }
+                            ... on ProjectV2SingleSelectField {
+                                id
+                                name
+                                options {
+                                    id
+                                    name
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        try:
+            data = self.execute_query(query_user, {"owner": project_owner, "projectNumber": project_number})
+            user_node = data.get("user", {})
+            if user_node and user_node.get("projectV2"):
+                return user_node.get("projectV2", {})
+        except Exception:
+            pass
+
+        # 3. Proyecto de organización
+        query_org = """
+        query($owner: String!, $projectNumber: Int!) {
+            organization(login: $owner) {
+                projectV2(number: $projectNumber) {
+                    id
+                    title
+                    number
+                    url
+                    shortDescription
+                    public
+                    closed
+                    createdAt
+                    updatedAt
+                    fields(first: 20) {
+                        nodes {
+                            ... on ProjectV2Field {
+                                id
+                                name
+                                dataType
+                            }
+                            ... on ProjectV2IterationField {
+                                id
+                                name
+                                configuration {
+                                    iterations {
+                                        id
+                                        title
+                                        startDate
+                                        duration
+                                    }
+                                }
+                            }
+                            ... on ProjectV2SingleSelectField {
+                                id
+                                name
+                                options {
+                                    id
+                                    name
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        try:
+            data = self.execute_query(query_org, {"owner": project_owner, "projectNumber": project_number})
+            org_node = data.get("organization", {})
+            if org_node and org_node.get("projectV2"):
+                return org_node.get("projectV2", {})
+        except Exception:
+            pass
+
+        return {}
     
     def get_project_items(
         self,

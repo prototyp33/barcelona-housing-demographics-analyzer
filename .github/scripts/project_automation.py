@@ -25,6 +25,7 @@ from scripts.github_graphql import GitHubGraphQL
 ORG_NAME = "prototyp33"
 REPO_NAME = "barcelona-housing-demographics-analyzer"
 PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "1"))  # Ajustar según tu proyecto
+PROJECT_OWNER = os.environ.get("PROJECT_OWNER", ORG_NAME)  # Owner del Project V2 (user u org)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,26 +34,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_project_info(gh: GitHubGraphQL, project_number: Optional[int] = None) -> Dict:
+def get_project_info(
+    gh: GitHubGraphQL,
+    project_number: Optional[int] = None,
+    project_owner: Optional[str] = None
+) -> Dict:
     """
     Obtiene ID del proyecto y campos personalizados.
     
     Args:
         gh: Cliente GraphQL
         project_number: Número del proyecto (default: PROJECT_NUMBER)
+        project_owner: Owner del proyecto (user u org, default: PROJECT_OWNER)
     
     Returns:
         Dict con project_id, title y fields mapeados
     """
     proj_num = project_number or PROJECT_NUMBER
+    proj_owner = project_owner or PROJECT_OWNER
     
     try:
-        project = gh.get_project_v2(
+        project = gh.get_project_v2_any(
             owner=ORG_NAME,
             repo=REPO_NAME,
+            project_owner=proj_owner,
             project_number=proj_num
         )
-        
+
         if not project:
             raise ValueError(f"Proyecto #{proj_num} no encontrado")
     except Exception as e:
@@ -65,9 +73,10 @@ def get_project_info(gh: GitHubGraphQL, project_number: Optional[int] = None) ->
             logger.error(f"   3. El token no tiene permisos 'project'")
             logger.error("")
             logger.error("   Soluciones:")
-            logger.error(f"   - Verifica el número del proyecto en la URL: https://github.com/users/{ORG_NAME}/projects")
+            logger.error(f"   - Verifica el número del proyecto en la URL: https://github.com/users/{proj_owner}/projects")
             logger.error(f"   - Especifica el número correcto: export PROJECT_NUMBER=2")
             logger.error(f"   - O usa: python .github/scripts/project_automation.py --issue 24 --project-number 2")
+            logger.error(f"   - Si el proyecto es de otra organización/usuario, especifica: --project-owner <owner>")
         raise
     
     # Mapear campos para fácil acceso
@@ -262,6 +271,7 @@ def sync_issue_with_project(
     kpi_objetivo: Optional[str] = None,
     dqc_status: Optional[str] = None,
     project_number: Optional[int] = None,
+    project_owner: Optional[str] = None,
     auto_detect: bool = False
 ):
     """
@@ -276,12 +286,17 @@ def sync_issue_with_project(
         kpi_objetivo: Descripción del KPI objetivo
         dqc_status: "Passed", "Failed", "Pending" (Estado DQC)
         project_number: Número del proyecto (default: PROJECT_NUMBER)
+        project_owner: Owner del proyecto (user u org, default: PROJECT_OWNER)
         auto_detect: Si True, detecta automáticamente campos desde el issue
     """
     logger.info(f"Sincronizando issue #{issue_number}...")
     
     # 1. Obtener info del proyecto
-    project_info = get_project_info(gh, project_number=project_number)
+    project_info = get_project_info(
+        gh,
+        project_number=project_number,
+        project_owner=project_owner
+    )
     project_id = project_info["project_id"]
     fields = project_info["fields"]
     
@@ -438,6 +453,12 @@ def main():
         default=None,
         help=f"Número del proyecto (default: {PROJECT_NUMBER} o PROJECT_NUMBER env var)"
     )
+    parser.add_argument(
+        "--project-owner",
+        type=str,
+        default=None,
+        help=f"Owner del proyecto (user u org). Default: {PROJECT_OWNER}"
+    )
     
     args = parser.parse_args()
     
@@ -480,6 +501,7 @@ def main():
             kpi_objetivo=args.kpi_objetivo,
             dqc_status=args.dqc_status,
             project_number=project_num,
+            project_owner=args.project_owner if args.project_owner else PROJECT_OWNER,
             auto_detect=args.auto_detect
         )
     except Exception as e:
