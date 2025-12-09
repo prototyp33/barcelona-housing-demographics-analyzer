@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import yaml
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 
 DEFAULT_LABELS_PATH = ".github/config/labels.yml"
 DEFAULT_MILESTONES_PATH = ".github/config/milestones.yml"
@@ -180,7 +180,7 @@ def main():
         sys.exit(1)
 
     try:
-        gh = Github(token)
+        gh = Github(auth=Auth.Token(token))
         repo = gh.get_repo(args.repo)
         logging.info("Repositorio: %s", repo.full_name)
     except GithubException as e:
@@ -197,8 +197,19 @@ def main():
         logging.error("Archivo de milestones no encontrado: %s", milestones_path)
         sys.exit(1)
 
-    labels_cfg = load_yaml(labels_path) or []
-    ms_cfg = load_yaml(milestones_path) or []
+    labels_yaml = load_yaml(labels_path) or {}
+    ms_yaml = load_yaml(milestones_path) or {}
+
+    # Extraer listas desde las llaves raíz
+    if isinstance(labels_yaml, dict):
+        labels_cfg = labels_yaml.get("labels", [])
+    else:
+        labels_cfg = labels_yaml or []
+
+    if isinstance(ms_yaml, dict):
+        ms_cfg = ms_yaml.get("milestones", [])
+    else:
+        ms_cfg = ms_yaml or []
 
     logging.info("Iniciando sincronización (dry_run=%s, verify=%s)", args.dry_run, args.verify)
     sync_labels(repo, labels_cfg, dry=args.dry_run, verify=args.verify)
