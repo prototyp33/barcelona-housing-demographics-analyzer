@@ -21,8 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from github import Github, GithubException
-from github.Auth import Token
+from github import Auth, Github, GithubException
 
 try:
     from tqdm import tqdm
@@ -270,12 +269,12 @@ def build_body(s: Dict[str, Any]) -> str:
 # ---------------- GitHub helpers ---------------- #
 
 def ensure_milestone(repo, sprint_num: str) -> Optional[int]:
-    """Busca milestone que comience con 'Sprint {n}'."""
-    title_prefix = f"Sprint {int(sprint_num)}" if sprint_num.isdigit() else f"Sprint {sprint_num}"
+    """Busca milestone cuyo título empiece con 'Sprint {n}:'."""
+    title_prefix = f"Sprint {int(sprint_num)}:" if sprint_num.isdigit() else f"Sprint {sprint_num}:"
     for ms in repo.get_milestones(state="all"):
         if ms.title.startswith(title_prefix):
             return ms.number
-    logging.warning("Milestone no encontrado para %s", title_prefix)
+    logging.warning("Milestone no encontrado para prefijo %s", title_prefix)
     return None
 
 
@@ -308,18 +307,17 @@ def create_github_issue(repo, sprint_data: Dict[str, Any], assignee: str, force:
         return {"title": issue_title, "status": "dry-run"}
 
     try:
-        # Construir parámetros condicionalmente (milestone solo si existe)
-        issue_params = {
+        kwargs = {
             "title": issue_title,
             "body": body,
             "labels": labels,
         }
-        if milestone_obj:
-            issue_params["milestone"] = milestone_obj
         if assignee:
-            issue_params["assignees"] = [assignee]
-        
-        issue = repo.create_issue(**issue_params)
+            kwargs["assignees"] = [assignee]
+        if milestone_obj:
+            kwargs["milestone"] = milestone_obj
+
+        issue = repo.create_issue(**kwargs)
         logging.info("✅ Creada issue #%s: %s", issue.number, issue.title)
         return {"title": issue_title, "status": "created", "number": issue.number}
     except GithubException as e:
@@ -380,7 +378,7 @@ def main():
         sys.exit(1)
 
     try:
-        gh = Github(auth=Token(token))
+        gh = Github(auth=Auth.Token(token))
         repo = gh.get_repo(args.repo)
     except GithubException as e:
         logging.error("No se pudo acceder al repo %s: %s", args.repo, e.data.get("message", e))
