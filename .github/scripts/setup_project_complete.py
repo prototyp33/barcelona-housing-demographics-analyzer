@@ -113,13 +113,15 @@ def sync_milestones(repo, ms_cfg: List[Dict[str, Any]], dry: bool, verify: bool)
         desc = cfg.get("description", "")
         due_raw = cfg.get("due_on")
         due_on = parse_due(due_raw) if due_raw else None
+        desired_state = cfg.get("state")  # "open" o "closed"
 
         if title in existing:
             ms = existing[title]
-            if (ms.description or "") != desc or (ms.due_on != due_on):
-                to_update.append((ms, desc, due_on))
+            state_differs = desired_state and ms.state.lower() != desired_state.lower()
+            if (ms.description or "") != desc or (ms.due_on != due_on) or state_differs:
+                to_update.append((ms, desc, due_on, desired_state))
         else:
-            to_create.append((title, desc, due_on))
+            to_create.append((title, desc, due_on, desired_state))
 
     logging.info(
         "Milestones existentes: %d | Crear: %d | Actualizar: %d",
@@ -130,22 +132,27 @@ def sync_milestones(repo, ms_cfg: List[Dict[str, Any]], dry: bool, verify: bool)
 
     if verify or dry:
         if to_create:
-            logging.info("[dry-run] Crear milestones: %s", [t for t, _, _ in to_create])
+            logging.info("[dry-run] Crear milestones: %s", [t for t, _, _, _ in to_create])
         if to_update:
-            logging.info("[dry-run] Actualizar milestones: %s", [ms.title for ms, _, _ in to_update])
+            logging.info("[dry-run] Actualizar milestones: %s", [ms.title for ms, _, _, _ in to_update])
         return
 
-    for title, desc, due_on in to_create:
+    for title, desc, due_on, desired_state in to_create:
         try:
-            repo.create_milestone(title=title, description=desc, due_on=due_on)
+            repo.create_milestone(title=title, description=desc, due_on=due_on, state=desired_state or "open")
             logging.info("✓ Creado milestone: %s", title)
         except GithubException as e:
             logging.error("Error creando milestone %s: %s", title, e.data.get("message", e))
 
-    for ms, desc, due_on in to_update:
+    for ms, desc, due_on, desired_state in to_update:
         try:
-            ms.edit(title=ms.title, description=desc, due_on=due_on)
-            logging.info("✓ Actualizado milestone: %s", ms.title)
+            kwargs = {"title": ms.title, "description": desc, "due_on": due_on}
+            if desired_state and desired_state.lower() in ("open", "closed"):
+                kwargs["state"] = desired_state.lower()
+            ms.edit(**kwargs)
+            logging.info("✓ Actualizado milestone: %s%s",
+                         ms.title,
+                         f" (state -> {kwargs.get('state')})" if "state" in kwargs else "")
         except GithubException as e:
             logging.error("Error actualizando milestone %s: %s", ms.title, e.data.get("message", e))
 
