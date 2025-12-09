@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from github import Github, GithubException
+from github.Auth import Token
 
 try:
     from tqdm import tqdm
@@ -307,13 +308,18 @@ def create_github_issue(repo, sprint_data: Dict[str, Any], assignee: str, force:
         return {"title": issue_title, "status": "dry-run"}
 
     try:
-        issue = repo.create_issue(
-            title=issue_title,
-            body=body,
-            labels=labels,
-            milestone=milestone_obj,
-            assignees=[assignee] if assignee else None,
-        )
+        # Construir parámetros condicionalmente (milestone solo si existe)
+        issue_params = {
+            "title": issue_title,
+            "body": body,
+            "labels": labels,
+        }
+        if milestone_obj:
+            issue_params["milestone"] = milestone_obj
+        if assignee:
+            issue_params["assignees"] = [assignee]
+        
+        issue = repo.create_issue(**issue_params)
         logging.info("✅ Creada issue #%s: %s", issue.number, issue.title)
         return {"title": issue_title, "status": "created", "number": issue.number}
     except GithubException as e:
@@ -374,7 +380,7 @@ def main():
         sys.exit(1)
 
     try:
-        gh = Github(token)
+        gh = Github(auth=Token(token))
         repo = gh.get_repo(args.repo)
     except GithubException as e:
         logging.error("No se pudo acceder al repo %s: %s", args.repo, e.data.get("message", e))
