@@ -1,0 +1,6 @@
+# GitHub Milestones Configuration
+# Barcelona Housing Demographics Analyzer
+# Run: python .github/scripts/setup_project_complete.py
+
+milestones: []
+
