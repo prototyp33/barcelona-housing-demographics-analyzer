@@ -227,9 +227,19 @@ def get_issue_node_id(gh: GitHubGraphQL, issue_number: int) -> str:
         "number": issue_number
     })
     
-    issue = result["data"]["repository"]["issue"]
+    # Validaciones defensivas
+    if not isinstance(result, dict) or "data" not in result:
+        raise ValueError(f"No se pudo obtener datos de GraphQL para issue #{issue_number}")
+    
+    data = result.get("data") or {}
+    repo_node = data.get("repository") or {}
+    issue = repo_node.get("issue")
+    
     if not issue:
-        raise ValueError(f"Issue #{issue_number} no encontrado")
+        raise ValueError(
+            f"Issue #{issue_number} no encontrado en {ORG_NAME}/{REPO_NAME}. "
+            "Verifica que el número es correcto y que el token tiene scope repo."
+        )
     
     return issue["id"]
 
