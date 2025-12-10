@@ -96,8 +96,14 @@ def get_project_info(
         # Para campos single select, mapear opciones
         if field.get("dataType") == "SINGLE_SELECT" and "options" in field:
             field_data["options"] = {
-                opt["name"]: opt["id"] 
+                opt["name"]: opt["id"]
                 for opt in field.get("options", [])
+            }
+        # Para Iteration, mapear iteraciones
+        if field.get("dataType") == "ITERATION" and "configuration" in field:
+            iterations = field.get("configuration", {}).get("iterations", [])
+            field_data["iterations"] = {
+                it["title"]: it["id"] for it in iterations if it.get("title") and it.get("id")
             }
         
         fields[field_name] = field_data
@@ -174,6 +180,8 @@ def update_field(gh: GitHubGraphQL, project_id: str, item_id: str,
         value_payload = f'text: "{value}"'
     elif field_type == "number":
         value_payload = f'number: {value}'
+    elif field_type == "iteration":
+        value_payload = f'iterationId: "{value}"'
     else:
         raise ValueError(f"Tipo de campo no soportado: {field_type}")
     
@@ -273,12 +281,26 @@ def detect_impact_from_labels(labels: list) -> str:
         return "Low"
 
 
+def _resolve_option(value: Optional[str], options: Dict[str, str]) -> Optional[str]:
+    """
+    Devuelve el option_id haciendo match case-insensitive por nombre.
+    """
+    if not value:
+        return None
+    for name, opt_id in options.items():
+        if name.lower() == value.lower():
+            return opt_id
+    return options.get(value)
+
+
 def sync_issue_with_project(
     gh: GitHubGraphQL,
     issue_number: int,
     impact: Optional[str] = None,
     fuente: Optional[str] = None,
     sprint: Optional[str] = None,
+    status: Optional[str] = None,
+    owner: Optional[str] = None,
     kpi_objetivo: Optional[str] = None,
     dqc_status: Optional[str] = None,
     project_number: Optional[int] = None,
@@ -362,7 +384,7 @@ def sync_issue_with_project(
         impact_field = fields["Impacto"]
         if impact_field.get("dataType") == "SINGLE_SELECT":
             impact_options = impact_field.get("options", {})
-            impact_option_id = impact_options.get(impact)
+            impact_option_id = _resolve_option(impact, impact_options)
             if impact_option_id:
                 update_field(gh, project_id, item_id, impact_field["id"], 
                             impact_option_id, "single_select")
@@ -374,7 +396,7 @@ def sync_issue_with_project(
         fuente_field = fields["Fuente de Datos"]
         if fuente_field.get("dataType") == "SINGLE_SELECT":
             fuente_options = fuente_field.get("options", {})
-            fuente_option_id = fuente_options.get(fuente)
+            fuente_option_id = _resolve_option(fuente, fuente_options)
             if fuente_option_id:
                 update_field(gh, project_id, item_id, fuente_field["id"],
                             fuente_option_id, "single_select")
@@ -382,17 +404,18 @@ def sync_issue_with_project(
             else:
                 logger.warning(f"Opción '{fuente}' no encontrada en campo Fuente de Datos")
     
-    if sprint and "Sprint" in fields:
-        sprint_field = fields["Sprint"]
-        if sprint_field.get("dataType") == "SINGLE_SELECT":
-            sprint_options = sprint_field.get("options", {})
-            sprint_option_id = sprint_options.get(sprint)
-            if sprint_option_id:
-                update_field(gh, project_id, item_id, sprint_field["id"],
-                            sprint_option_id, "single_select")
-                updated_fields.append(f"Sprint: {sprint}")
+    # Iteration (usando argumento --sprint)
+    if sprint and "Iteration" in fields:
+        iteration_field = fields["Iteration"]
+        if iteration_field.get("dataType") == "ITERATION":
+            iter_options = iteration_field.get("iterations", {})
+            iter_id = _resolve_option(sprint, iter_options)
+            if iter_id:
+                update_field(gh, project_id, item_id, iteration_field["id"],
+                            iter_id, "iteration")
+                updated_fields.append(f"Iteration: {sprint}")
             else:
-                logger.warning(f"Opción '{sprint}' no encontrada en campo Sprint")
+                logger.warning(f"Opción '{sprint}' no encontrada en campo Iteration")
     
     if kpi_objetivo and "KPI objetivo" in fields:
         kpi_field = fields["KPI objetivo"]
@@ -404,13 +427,37 @@ def sync_issue_with_project(
         dqc_field = fields["Estado DQC"]
         if dqc_field.get("dataType") == "SINGLE_SELECT":
             dqc_options = dqc_field.get("options", {})
-            dqc_option_id = dqc_options.get(dqc_status)
+            dqc_option_id = _resolve_option(dqc_status, dqc_options)
             if dqc_option_id:
                 update_field(gh, project_id, item_id, dqc_field["id"],
                             dqc_option_id, "single_select")
                 updated_fields.append(f"Estado DQC: {dqc_status}")
             else:
                 logger.warning(f"Opción '{dqc_status}' no encontrada en campo Estado DQC. Opciones disponibles: {list(dqc_options.keys())}")
+
+    if status and "Status" in fields:
+        status_field = fields["Status"]
+        if status_field.get("dataType") == "SINGLE_SELECT":
+            status_options = status_field.get("options", {})
+            status_option_id = _resolve_option(status, status_options)
+            if status_option_id:
+                update_field(gh, project_id, item_id, status_field["id"],
+                            status_option_id, "single_select")
+                updated_fields.append(f"Status: {status}")
+            else:
+                logger.warning(f"Opción '{status}' no encontrada en campo Status. Opciones: {list(status_options.keys())}")
+
+    if owner and "Owner" in fields:
+        owner_field = fields["Owner"]
+        if owner_field.get("dataType") == "SINGLE_SELECT":
+            owner_options = owner_field.get("options", {})
+            owner_option_id = _resolve_option(owner, owner_options)
+            if owner_option_id:
+                update_field(gh, project_id, item_id, owner_field["id"],
+                            owner_option_id, "single_select")
+                updated_fields.append(f"Owner: {owner}")
+            else:
+                logger.warning(f"Opción '{owner}' no encontrada en campo Owner. Opciones: {list(owner_options.keys())}")
     
     if updated_fields:
         logger.info(f"✓ Campos actualizados: {', '.join(updated_fields)}")
@@ -432,8 +479,7 @@ def main():
     )
     parser.add_argument(
         "--impact",
-        choices=["High", "Medium", "Low"],
-        help="Impacto del issue"
+        help="Impacto del issue (High, Medium, Low, Critical)"
     )
     parser.add_argument(
         "--fuente",
@@ -442,6 +488,14 @@ def main():
     parser.add_argument(
         "--sprint",
         help="Sprint (Sprint 1, Sprint 2, etc.)"
+    )
+    parser.add_argument(
+        "--status",
+        help="Status (Backlog, Ready, In Progress, Review/QA, Blocked..., Done)"
+    )
+    parser.add_argument(
+        "--owner",
+        help="Owner (Data Engineering, Data Analysis, Product, Infraestructure)"
     )
     parser.add_argument(
         "--kpi-objetivo",
@@ -455,8 +509,8 @@ def main():
     )
     parser.add_argument(
         "--dqc-status",
-        choices=["Passed", "Failed", "Pending"],
-        help="Estado DQC (Passed, Failed, Pending)"
+        choices=["Passed", "Failed", "Pending", "N/A"],
+        help="Estado DQC (Passed, Failed, Pending, N/A)"
     )
     parser.add_argument(
         "--project-number",
@@ -509,6 +563,8 @@ def main():
             impact=args.impact,
             fuente=args.fuente,
             sprint=args.sprint,
+            status=args.status,
+            owner=args.owner,
             kpi_objetivo=args.kpi_objetivo,
             dqc_status=args.dqc_status,
             project_number=project_num,
