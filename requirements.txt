@@ -5,8 +5,8 @@
 # Core Data Processing
 # =============================================================================
 pandas==2.3.3
-numpy>=1.26.0,<2.0.0  # numpy 2.x no existe aún; usar última versión 1.x estable
-pyarrow==21.0.0
+numpy>=1.26.0,<3.0.0  # numpy 2.x no existe aún; usar última versión 1.x estable
+pyarrow==22.0.0
 
 # =============================================================================
 # Web Requests & Scraping
@@ -37,7 +37,7 @@ playwright==1.48.0
 # =============================================================================
 # Visualization & Dashboard
 # =============================================================================
-streamlit==1.51.0
+streamlit==1.52.0  # Actualizado para soportar pyarrow 22.0.0
 plotly==6.4.0
 altair==5.5.0
 matplotlib==3.10.7
