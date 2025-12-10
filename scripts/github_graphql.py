@@ -120,8 +120,20 @@ class GitHubGraphQL:
             
             # Verificar errores de GraphQL
             if "errors" in data:
-                error_messages = [e.get("message", "Unknown error") for e in data["errors"]]
-                raise RuntimeError(f"GraphQL errors: {', '.join(error_messages)}")
+                error_details = []
+                for err in data["errors"]:
+                    msg = err.get("message", "Unknown error")
+                    # Manejar path de forma segura (puede estar vacío o no existir)
+                    path = err.get("path", [])
+                    if path and len(path) > 0:
+                        path_str = " -> ".join(str(p) for p in path)
+                        error_details.append(f"{msg} (path: {path_str})")
+                    else:
+                        error_details.append(msg)
+                
+                error_messages_str = ", ".join(error_details)
+                logger.error(f"Errores GraphQL: {error_messages_str}")
+                raise RuntimeError(f"GraphQL errors: {error_messages_str}")
             
             # Verificar rate limiting
             if "rateLimit" in data.get("data", {}):

@@ -1,0 +1,119 @@
+name: ETL Data Refresh
+
+on:
+  schedule:
+    # Run quarterly: First day of Jan, Apr, Jul, Oct at 03:00 UTC
+    - cron: '0 3 1 1,4,7,10 *'
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      sources:
+        description: 'Data sources to refresh (comma-separated: all, opendatabcn, ine, portaldades)'
+        required: false
+        default: 'all'
+
+concurrency:
+  group: etl-refresh
+  cancel-in-progress: false  # Don't cancel long ETL runs
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  extract-and-load:
+    name: 🔄 Extract & Load Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # ETL can take time
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-etl-${{ hashFiles('requirements.txt') }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run data extraction
+        id: extract
+        run: |
+          python scripts/extract_priority_sources.py --log-level INFO 2>&1 | tee extract.log
+          echo "extraction_status=$?" >> $GITHUB_OUTPUT
+      
+      - name: Process and load to database
+        if: steps.extract.outputs.extraction_status == '0'
+        run: |
+          python scripts/process_and_load.py \
+            --raw-dir data/raw \
+            --processed-dir data/processed \
+            --log-level INFO
+      
+      - name: Verify data quality
+        run: |
+          python scripts/verify_integrity.py
+      
+      - name: Generate ETL report
+        if: always()
+        run: |
+          python << 'EOF'
+          import json, sqlite3
+          from pathlib import Path
+          from datetime import datetime
+          
+          report = {"timestamp": datetime.utcnow().isoformat(), "status": "completed"}
+          
+          db = Path("data/processed/database.db")
+          if db.exists():
+              conn = sqlite3.connect(db)
+              c = conn.cursor()
+              c.execute("SELECT COUNT(*) FROM dim_barrios")
+              report["barrios_count"] = c.fetchone()[0]
+              c.execute("SELECT COUNT(*) FROM fact_precios")
+              report["precios_count"] = c.fetchone()[0]
+              conn.close()
+          
+          with open("etl_report.json", "w") as f:
+              json.dump(report, f, indent=2)
+          print(f"📊 ETL Report: {report}")
+          EOF
+      
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-${{ github.run_id }}
+          path: data/processed/database.db
+          retention-days: 90
+      
+      - name: Upload ETL logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etl-logs-${{ github.run_id }}
+          path: |
+            extract.log
+            etl_report.json
+          retention-days: 30
+      
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[AUTO] ETL Refresh Failed - ${new Date().toISOString().split('T')[0]}`,
+              body: `ETL refresh workflow failed. Check logs:\n\n[Workflow Run](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              labels: ['etl', 'bug', 'automated']
+            });
+
