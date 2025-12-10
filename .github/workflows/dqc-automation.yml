@@ -42,10 +42,9 @@ jobs:
       - name: Extract linked issues from PR
         id: extract_issues
         if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-
           # Buscar patrones: Closes #123, Fixes #45, Resolves #67
           ISSUES=$(echo "$PR_BODY" | grep -oE '(Closes|Fixes|Resolves) #[0-9]+' | grep -oE '#[0-9]+' | sed 's/#//' | tr '\n' ',' | sed 's/,$//')
 
