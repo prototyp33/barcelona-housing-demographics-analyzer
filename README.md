@@ -388,6 +388,15 @@ make sync-issues
 
 ## 📚 Documentation
 
+### 📘 Guías de Contribución
+
+Para mantener la calidad y el orden en el proyecto, consulta nuestras guías oficiales:
+
+- **[📘 Mejores Prácticas de Gestión (Project Management)](docs/PROJECT_BEST_PRACTICES.md)** ⭐ - Guía completa de GitHub Projects, workflows y automatización
+- **[🛠 Configuración del Entorno](.github/scripts/README_SETUP.md)** - Setup automatizado de proyectos y scripts
+
+### 📖 Documentación Técnica
+
 - **[Project Status](docs/PROJECT_STATUS.md)** ⭐ - Current state, achievements, issues, and next steps
 - **[Project Metrics](docs/PROJECT_METRICS.md)** 📊 - Issue metrics and KPIs
 - **[Best Practices - Issues](docs/BEST_PRACTICES_GITHUB_ISSUES.md)** - Issue creation guidelines

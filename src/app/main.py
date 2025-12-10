@@ -11,9 +11,9 @@ import streamlit as st
 
 from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2, DB_PATH
 from src.app.data_loader import load_distritos, load_available_years, load_kpis, load_precios
-from src.app.components import card_standard, card_chart, card_snapshot, card_metric
+from src.app.components import card_standard, card_chart, card_snapshot, card_metric, render_skeleton_kpi, render_breadcrumbs
 from src.app.styles import inject_global_css, render_responsive_kpi_grid, render_ranking_item
-from src.app.views import overview, map_analysis, correlations, demographics, data_quality
+from src.app.views import overview, map_analysis, correlations, demographics, data_quality, market_view
 
 
 def configure_page() -> None:
@@ -218,7 +218,12 @@ def render_primary_dashboard(year: int, distrito_filter: str | None) -> None:
             "delta_color": "red",
         },
     ]
-    render_responsive_kpi_grid(kpi_data)
+    
+    # Simular estado de carga si se solicita (para demo)
+    if st.session_state.get("loading_kpis", False):
+        render_skeleton_kpi(4)
+    else:
+        render_responsive_kpi_grid(kpi_data)
     
     col_main, col_details = st.columns([2, 1])
     with col_main:
@@ -238,7 +243,8 @@ def render_primary_dashboard(year: int, distrito_filter: str | None) -> None:
                 key="home_map_snapshot",
             )
             if st.button("🔎 Ampliar en Territorio", key="btn_nav_territorio", type="secondary"):
-                st.toast("👉 Ve a la pestaña 'Territorio' abajo para explorar el mapa interactivo", icon="🗺️")
+                from src.app.components import show_notification
+                show_notification("👉 Ve a la pestaña 'Territorio' abajo para explorar el mapa interactivo", type="info")
     
     ranking_title = f"📋 Ranking de Barrios: {distrito_filter}" if distrito_filter else "📋 Desglose por distrito"
     st.markdown(f"### {ranking_title}")
@@ -256,13 +262,22 @@ def main() -> None:
     # Sidebar con filtros (incluye Smart Date Selector)
     selected_year, distrito_filter, selected_metric = render_sidebar()
     
+    # Breadcrumbs Navigation
+    crumbs = [{"label": "Home", "path": "home"}, {"label": "Dashboard", "path": "dashboard"}]
+    if distrito_filter:
+        crumbs.append({"label": distrito_filter, "path": "district"})
+    else:
+        crumbs.append({"label": "Global BCN", "path": "global"})
+        
+    render_breadcrumbs(crumbs)
+    
     render_custom_header(distrito_filter, selected_metric, selected_year)
     st.markdown("<br>", unsafe_allow_html=True)
     render_primary_dashboard(selected_year, distrito_filter)
     st.markdown("### 📚 Profundiza por módulo")
     
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["Territorio", "Demografía", "Correlaciones", "Calidad de Datos"]
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Territorio", "Demografía", "Correlaciones", "Calidad de Datos", "Market Cockpit"]
     )
     
     with tab1:
@@ -280,6 +295,9 @@ def main() -> None:
     
     with tab4:
         data_quality.render(year=selected_year, key_prefix="tab_data_quality")
+
+    with tab5:
+        market_view.render_market_cockpit()
 
 
 if __name__ == "__main__":

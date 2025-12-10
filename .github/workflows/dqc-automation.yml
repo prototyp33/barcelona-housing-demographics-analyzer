@@ -1,0 +1,201 @@
+name: ⚙️ Project Automations & DQC
+
+on:
+  # Se ejecuta en cada Pull Request
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  
+  # Se ejecuta cuando se completa un workflow de tests de datos
+  workflow_run:
+    workflows: ["Data Quality Checks", "ETL Smoke Tests"]
+    types:
+      - completed
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  PROJECT_NUMBER: 1
+  ORG_NAME: prototyp33
+
+jobs:
+  # 1. Mover issues vinculadas a PRs automáticamente
+  update_issue_status:
+    runs-on: ubuntu-latest
+    permissions:
+      repository-projects: write
+      issues: write
+      pull-requests: write
+      contents: read
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Extract linked issues from PR
+        id: extract_issues
+        if: github.event_name == 'pull_request'
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          
+          # Buscar patrones: Closes #123, Fixes #45, Resolves #67
+          ISSUES=$(echo "$PR_BODY" | grep -oE '(Closes|Fixes|Resolves) #[0-9]+' | grep -oE '#[0-9]+' | sed 's/#//' | tr '\n' ',' | sed 's/,$//')
+          
+          if [ -z "$ISSUES" ]; then
+            echo "ISSUES=" >> $GITHUB_OUTPUT
+            echo "No issues found in PR body"
+          else
+            echo "ISSUES=$ISSUES" >> $GITHUB_OUTPUT
+            echo "Found issues: $ISSUES"
+          fi
+      
+      - name: Move issues to In Progress
+        if: github.event_name == 'pull_request' && github.event.action == 'opened' && steps.extract_issues.outputs.ISSUES != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IFS=',' read -ra ISSUE_ARRAY <<< "${{ steps.extract_issues.outputs.ISSUES }}"
+          for issue_num in "${ISSUE_ARRAY[@]}"; do
+            echo "Moving issue #$issue_num to In Progress..."
+            python .github/scripts/project_automation.py \
+              --issue "$issue_num" \
+              --auto-detect || echo "⚠️ Could not sync issue #$issue_num"
+          done
+      
+      - name: Move to In Review on PR update
+        if: github.event_name == 'pull_request' && (github.event.action == 'synchronize' || github.event.action == 'reopened')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "PR updated. Issues should be in 'In Review' status."
+          # El movimiento de columnas se puede hacer manualmente o con más automatización
+          # Por ahora, el workflow built-in de GitHub Projects maneja esto
+      
+      - name: Move to Done on PR merge
+        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "PR merged. Issues will be moved to Done automatically by GitHub Projects workflow."
+
+  # 2. Actualizar estado DQC basado en tests
+  update_dqc_field:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run'
+    permissions:
+      repository-projects: write
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+      
+      - name: Determine DQC Status
+        id: dqc_status
+        run: |
+          WORKFLOW_CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+          
+          if [ "$WORKFLOW_CONCLUSION" == "success" ]; then
+            echo "STATUS=Passed" >> $GITHUB_OUTPUT
+            echo "✅ Data Quality Checks passed"
+          elif [ "$WORKFLOW_CONCLUSION" == "failure" ]; then
+            echo "STATUS=Failed" >> $GITHUB_OUTPUT
+            echo "❌ Data Quality Checks failed"
+          else
+            echo "STATUS=Pending" >> $GITHUB_OUTPUT
+            echo "⏳ Data Quality Checks pending"
+          fi
+      
+      - name: Extract issues from triggering workflow
+        id: extract_workflow_issues
+        run: |
+          # Intentar obtener issues desde el workflow que se ejecutó
+          # Esto requiere que el workflow anterior pase el issue number como output
+          # Por ahora, intentamos obtenerlo del PR asociado si existe
+          echo "ISSUES=" >> $GITHUB_OUTPUT
+          echo "Note: Issue extraction from workflow_run requires workflow outputs"
+      
+      - name: Get PR number from workflow
+        id: get_pr
+        run: |
+          # Intentar obtener PR number desde el workflow que se ejecutó
+          # Esto requiere que el workflow anterior pase el PR number como output
+          WORKFLOW_RUN_ID="${{ github.event.workflow_run.id }}"
+          echo "Workflow run ID: $WORKFLOW_RUN_ID"
+          # Por ahora, intentamos obtener issues desde el PR asociado
+          echo "PR_NUMBER=" >> $GITHUB_OUTPUT
+      
+      - name: Update DQC field via GraphQL
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DQC_STATUS="${{ steps.dqc_status.outputs.STATUS }}"
+          
+          if [ -z "$DQC_STATUS" ] || [ "$DQC_STATUS" == "Pending" ]; then
+            echo "⏭️ Skipping DQC update (status: $DQC_STATUS)"
+            exit 0
+          fi
+          
+          echo "🔄 Updating DQC field to: $DQC_STATUS"
+          echo "ℹ️  Note: Direct DQC field update requires extending project_automation.py"
+          echo "   For now, update manually in Project UI or use:"
+          echo "   python .github/scripts/project_automation.py --issue <NUM> --auto-detect"
+
+  # 3. Notificación de cambios de estado
+  notify_status_change:
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'workflow_run'
+    permissions:
+      issues: write
+      pull-requests: write
+    
+    steps:
+      - name: Comment on related issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conclusion = context.payload.workflow_run.conclusion;
+            const workflowName = context.payload.workflow_run.name;
+            
+            let message = '';
+            if (conclusion === 'success') {
+              message = `✅ **Data Quality Checks Passed**\n\n` +
+                        `The workflow "${workflowName}" completed successfully.\n` +
+                        `Estado DQC has been updated to **Passed**.`;
+            } else if (conclusion === 'failure') {
+              message = `❌ **Data Quality Checks Failed**\n\n` +
+                        `The workflow "${workflowName}" failed.\n` +
+                        `Estado DQC has been updated to **Failed**.\n\n` +
+                        `Please review the workflow logs and fix the issues.`;
+            }
+            
+            if (message) {
+              // Buscar issues relacionadas (simplificado)
+              // En producción, esto debería extraer issues del workflow o PR
+              console.log('Would comment on related issues:', message);
+              // github.rest.issues.createComment({
+              //   owner: context.repo.owner,
+              //   repo: context.repo.repo,
+              //   issue_number: issueNumber,
+              //   body: message
+              // });
+            }
+

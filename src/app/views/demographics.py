@@ -19,6 +19,7 @@ import streamlit as st
 from src.app.config import COLOR_SCALES
 from src.app.data_loader import load_demografia, load_precios
 from src.app.styles import apply_plotly_theme, render_gradient_kpi, render_ranking_item
+from src.app.components import render_empty_state
 
 
 def render_demographic_kpis(year: int = 2022) -> None:
@@ -31,7 +32,11 @@ def render_demographic_kpis(year: int = 2022) -> None:
     df_demo = load_demografia(year)
     
     if df_demo.empty:
-        st.warning(f"No hay datos demográficos para {year}.")
+        render_empty_state(
+            title="Datos demográficos no encontrados",
+            description=f"No hay registros demográficos disponibles para el año {year}.",
+            icon="👥"
+        )
         return
     
     # Calcular métricas agregadas
@@ -76,7 +81,11 @@ def render_price_vs_age_correlation(year: int = 2022) -> None:
     df_precios = load_precios(year)
     
     if df_demo.empty or df_precios.empty:
-        st.warning(f"No hay datos suficientes para {year}.")
+        render_empty_state(
+            title="Datos insuficientes",
+            description=f"Faltan datos de precios o demografía para el año {year}.",
+            icon="📉"
+        )
         return
     
     # Merge de datos
@@ -87,7 +96,11 @@ def render_price_vs_age_correlation(year: int = 2022) -> None:
     )
     
     if df_merged.empty:
-        st.warning("No se pudieron combinar datos de precios y demografía.")
+        render_empty_state(
+            title="Error de cruce de datos",
+            description="No se pudieron combinar los datos de precios y demografía.",
+            icon="⚠️"
+        )
         return
     
     st.subheader("Correlación Precio vs. Estructura Demográfica")
@@ -201,7 +214,11 @@ def render_aging_map(year: int = 2022) -> None:
     df_precios = load_precios(year)
     
     if df_demo.empty or df_precios.empty:
-        st.warning(f"No hay datos suficientes para {year}.")
+        render_empty_state(
+            title="Datos insuficientes",
+            description=f"Faltan datos para generar el mapa del año {year}.",
+            icon="🗺️"
+        )
         return
     
     # Merge con geometrías
@@ -260,7 +277,11 @@ def render_aging_ranking(year: int = 2022, top_n: int = 10) -> None:
     df_demo = load_demografia(year)
     
     if df_demo.empty:
-        st.warning(f"No hay datos demográficos para {year}.")
+        render_empty_state(
+            title="Ranking no disponible",
+            description=f"No hay datos demográficos para el año {year}.",
+            icon="📋"
+        )
         return
     
     # Cargar nombres de barrios

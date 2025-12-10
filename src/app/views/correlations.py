@@ -14,6 +14,7 @@ import streamlit as st
 
 from src.app.config import COLOR_SCALES
 from src.app.data_loader import load_correlation_data
+from src.app.components import render_empty_state
 
 
 def render_correlation_matrix(year: int = 2022) -> None:
@@ -26,7 +27,11 @@ def render_correlation_matrix(year: int = 2022) -> None:
     df = load_correlation_data(year)
     
     if df.empty:
-        st.warning(f"No hay datos suficientes para calcular correlaciones en {year}.")
+        render_empty_state(
+            title="Correlaciones no disponibles",
+            description=f"No hay datos suficientes para calcular correlaciones en {year}.",
+            icon="📉"
+        )
         return
     
     corr_cols = ["avg_precio_m2", "renta_euros", "densidad_hab_km2", "poblacion_total"]
@@ -77,7 +82,11 @@ def render_scatter_plots(year: int = 2022) -> None:
     df = load_correlation_data(year)
     
     if df.empty:
-        st.warning(f"No hay datos suficientes para el año {year}.")
+        render_empty_state(
+            title="Sin datos para gráficos",
+            description=f"No hay datos suficientes para el año {year}.",
+            icon="📉"
+        )
         return
     
     fig = make_subplots(
@@ -153,7 +162,11 @@ def render_top_barrios(year: int = 2022) -> None:
     df = load_affordability_data(year)
     
     if df.empty:
-        st.warning("No hay datos disponibles.")
+        render_empty_state(
+            title="Ranking no disponible",
+            description="No hay datos de asequibilidad disponibles.",
+            icon="📋"
+        )
         return
     
     col1, col2 = st.columns(2)

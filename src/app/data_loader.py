@@ -3,11 +3,13 @@ Data loader module for the Barcelona Housing Dashboard.
 
 Provides cached functions to load data from the SQLite database.
 Uses Streamlit's cache to avoid reloading data on every interaction.
+Updated for Market Cockpit.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Optional
 
@@ -478,3 +480,142 @@ def build_geojson(df: pd.DataFrame) -> dict:
         })
     return {"type": "FeatureCollection", "features": features}
 
+
+@st.cache_data(ttl=3600)
+def load_price_trends(distritos: Optional[list[str]] = None) -> pd.DataFrame:
+    """
+    Carga la evolución temporal de precios.
+    
+    Args:
+        distritos: Lista opcional de distritos para filtrar.
+    
+    Returns:
+        DataFrame con anyo, barrio_nombre, precio_venta_m2, precio_alquiler_m2.
+    """
+    conn = get_connection()
+    try:
+        query = """
+        SELECT 
+            p.anio as anyo,
+            b.barrio_nombre,
+            b.distrito_nombre,
+            AVG(p.precio_m2_venta) as precio_venta_m2,
+            AVG(p.precio_mes_alquiler) as precio_alquiler_m2
+        FROM fact_precios p
+        JOIN dim_barrios b ON p.barrio_id = b.barrio_id
+        WHERE p.precio_m2_venta IS NOT NULL OR p.precio_mes_alquiler IS NOT NULL
+        """
+        params = []
+        
+        if distritos:
+            placeholders = ",".join(["?"] * len(distritos))
+            query += f" AND b.distrito_nombre IN ({placeholders})"
+            params.extend(distritos)
+            
+        query += " GROUP BY p.anio, b.barrio_nombre, b.distrito_nombre ORDER BY p.anio"
+        
+        df = pd.read_sql(query, conn, params=params)
+    finally:
+        conn.close()
+    return df
+
+
+@st.cache_data(ttl=3600)
+def load_demographics_by_barrio(year: int) -> pd.DataFrame:
+    """
+    Carga datos demográficos detallados por barrio para un año.
+    
+    Args:
+        year: Año a consultar.
+        
+    Returns:
+        DataFrame con métricas demográficas y nombres de barrio.
+    """
+    conn = get_connection()
+    try:
+        df = pd.read_sql(
+            """
+            SELECT 
+                b.barrio_nombre,
+                b.distrito_nombre,
+                d.*
+            FROM fact_demografia d
+            JOIN dim_barrios b ON d.barrio_id = b.barrio_id
+            WHERE d.anio = ?
+            """,
+            conn,
+            params=[year],
+        )
+    finally:
+        conn.close()
+    return df
+
+
+@st.cache_data(ttl=300) # Shorter TTL for "real-time" data
+def load_idealista_supply(distritos: Optional[list[str]] = None) -> pd.DataFrame:
+    """
+    Carga oferta inmobiliaria (Idealista).
+    
+    Args:
+        distritos: Lista opcional de distritos para filtrar.
+    
+    Returns:
+        DataFrame con oferta por barrio y operación, incluyendo is_mock.
+        Si la columna is_mock no existe, se usa COALESCE para proporcionar 0 por defecto.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        # Usar COALESCE para manejar bases de datos antiguas sin is_mock
+        query = """
+        SELECT 
+            o.anio,
+            o.mes,
+            o.operacion,
+            o.num_anuncios,
+            o.precio_medio,
+            o.precio_m2_medio,
+            COALESCE(o.is_mock, CASE WHEN o.source = 'mock_generator' THEN 1 ELSE 0 END) AS is_mock,
+            b.barrio_nombre,
+            b.distrito_nombre
+        FROM fact_oferta_idealista o
+        JOIN dim_barrios b ON o.barrio_id = b.barrio_id
+        """
+        params = []
+        
+        if distritos:
+            placeholders = ",".join(["?"] * len(distritos))
+            query += f" WHERE b.distrito_nombre IN ({placeholders})"
+            params.extend(distritos)
+            
+        # Get latest snapshot (último año/mes disponible)
+        query += " ORDER BY o.anio DESC, o.mes DESC"
+        
+        df = pd.read_sql(query, conn, params=params)
+        
+        # Si el DataFrame está vacío, retornar DataFrame vacío con columnas esperadas
+        if df.empty:
+            return pd.DataFrame(columns=[
+                "anio", "mes", "operacion", "num_anuncios", 
+                "precio_medio", "precio_m2_medio", "is_mock",
+                "barrio_nombre", "distrito_nombre"
+            ])
+            
+    except sqlite3.OperationalError as e:
+        # Si la tabla no existe o hay error de esquema, retornar DataFrame vacío
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error al cargar oferta Idealista: {e}")
+        return pd.DataFrame(columns=[
+            "anio", "mes", "operacion", "num_anuncios", 
+            "precio_medio", "precio_m2_medio", "is_mock",
+            "barrio_nombre", "distrito_nombre"
+        ])
+    except Exception as e:
+        # Catch-all for other DB errors
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error inesperado en load_idealista_supply: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
+    return df

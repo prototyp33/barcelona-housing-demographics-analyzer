@@ -1,0 +1,178 @@
+# GitHub Labels Configuration
+# Barcelona Housing Demographics Analyzer
+# Run: python .github/scripts/setup_project_complete.py
+
+labels:
+  # === TYPE ===
+  - name: "type:feature"
+    color: "0e8a16"
+    description: "Nueva funcionalidad"
+
+  - name: "type:bug"
+    color: "d73a4a"
+    description: "Corrección de error"
+
+  - name: "type:task"
+    color: "d4c5f9"
+    description: "Tarea general"
+
+  - name: "type:investigation"
+    color: "fbca04"
+    description: "Investigación/Spike"
+
+  - name: "type:docs"
+    color: "0075ca"
+    description: "Documentación"
+
+  # === DOMAIN ===
+  - name: "domain:etl"
+    color: "fbca04"
+    description: "Pipeline ETL"
+
+  - name: "domain:data-extraction"
+    color: "fbca04"
+    description: "Extracción de datos"
+
+  - name: "domain:data-processing"
+    color: "fbca04"
+    description: "Procesamiento y limpieza"
+
+  - name: "domain:data-quality"
+    color: "fbca04"
+    description: "Validación y DQC"
+
+  - name: "domain:database"
+    color: "006b75"
+    description: "Esquema y queries"
+
+  - name: "domain:analysis"
+    color: "c2e0c6"
+    description: "Análisis de datos"
+
+  - name: "domain:dashboard"
+    color: "1d76db"
+    description: "Dashboard Streamlit"
+
+  - name: "domain:testing"
+    color: "0e8a16"
+    description: "Tests y QA"
+
+  - name: "domain:automation"
+    color: "5319e7"
+    description: "Automatización"
+
+  - name: "domain:infrastructure"
+    color: "95a5a6"
+    description: "CI/CD, DevOps"
+
+  # === SOURCE (Data sources) ===
+  - name: "source:idescat"
+    color: "fef2c0"
+    description: "Fuente: IDESCAT"
+
+  - name: "source:incasol"
+    color: "fef2c0"
+    description: "Fuente: Incasòl"
+
+  - name: "source:opendatabcn"
+    color: "fef2c0"
+    description: "Fuente: Open Data BCN"
+
+  - name: "source:portaldades"
+    color: "fef2c0"
+    description: "Fuente: Portal de Dades"
+
+  - name: "source:internal"
+    color: "e0e0e0"
+    description: "Fuente: Interna"
+
+  # === PRIORITY (opcional, ya existe campo Impacto) ===
+  - name: "priority:high"
+    color: "b60205"
+    description: "Prioridad alta"
+
+  - name: "priority:medium"
+    color: "fbca04"
+    description: "Prioridad media"
+
+  - name: "priority:low"
+    color: "0e8a16"
+    description: "Prioridad baja"
+
+  # === STATUS (para issues sin proyecto) ===
+  - name: "status:in-progress"
+    color: "c5def5"
+    description: "En progreso"
+
+  - name: "status:needs-review"
+    color: "fbca04"
+    description: "Requiere revisión"
+
+  - name: "status:blocked"
+    color: "d93f0b"
+    description: "Bloqueado"
+
+  # === WORKFLOW ===
+  - name: "workflow:needs-dqc"
+    color: "f2c94c"
+    description: "Requiere Data Quality Check"
+
+  - name: "workflow:needs-docs"
+    color: "0075ca"
+    description: "Requiere documentación"
+
+  - name: "workflow:needs-tests"
+    color: "27ae60"
+    description: "Requiere tests"
+
+  # === SPRINT ===
+  - name: "sprint-0"
+    color: "e99695"
+    description: "Sprint 0: Setup"
+
+  - name: "sprint-1"
+    color: "f9d0c4"
+    description: "Sprint 1: IDESCAT"
+
+  - name: "sprint-2"
+    color: "c2e0c6"
+    description: "Sprint 2: Renta"
+
+  - name: "sprint-3"
+    color: "bfdadc"
+    description: "Sprint 3: Incasòl"
+
+  - name: "sprint-4"
+    color: "d4c5f9"
+    description: "Sprint 4: Precios"
+
+  - name: "sprint-5"
+    color: "c5def5"
+    description: "Sprint 5: Dashboard"
+
+  # === ROADMAP ===
+  - name: "roadmap"
+    color: "5319e7"
+    description: "Parte del roadmap principal"
+
+  # === SPECIAL ===
+  - name: "good-first-issue"
+    color: "7057ff"
+    description: "Bueno para nuevos contribuidores"
+
+  - name: "help-wanted"
+    color: "008672"
+    description: "Se busca ayuda"
+
+  - name: "wontfix"
+    color: "ffffff"
+    description: "No se implementará"
+
+  - name: "duplicate"
+    color: "cfd3d7"
+    description: "Duplicado de otra issue"
+
+  - name: "reminder"
+    color: "f2c94c"
+    description: "Recordatorio automático"
+

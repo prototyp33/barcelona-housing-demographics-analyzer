@@ -1,0 +1,47 @@
+name: Project Automation Sync
+
+on:
+  issues:
+    types: [opened, reopened, transferred]
+  workflow_dispatch:
+
+jobs:
+  sync-to-project:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      PROJECT_NUMBER: 7
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests
+          fi
+
+      - name: Sync Issue to Project #7
+        env:
+          GITHUB_TOKEN: ${{ secrets.PROJECTS_TOKEN }}  # PAT con Projects RW + repo
+        run: |
+          echo "🚀 Syncing Issue #${{ github.event.issue.number }} to Project #$PROJECT_NUMBER..."
+          python3 .github/scripts/project_automation_v2.py \
+            --issues ${{ github.event.issue.number }} \
+            --project-number $PROJECT_NUMBER \
+            --owner "Data Engineering" \
+            --status "Todo" \
+            --impact "Medium" \
+            --rate-limit-delay 0
