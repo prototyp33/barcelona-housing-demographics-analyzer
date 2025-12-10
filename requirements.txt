@@ -115,7 +115,7 @@ PyDispatcher==2.0.7
 zope.interface==8.1.1
 
 # Protocol buffers (for some data formats)
-protobuf==6.33.1
+protobuf==6.33.2
 jmespath==1.0.1
 
 # XML processing
