@@ -9,11 +9,13 @@ Uso:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Tuple, List
 
 # Añadir el directorio raíz al path para imports
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -27,17 +29,37 @@ REPO_NAME = "barcelona-housing-demographics-analyzer"
 PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "1"))  # Ajustar según tu proyecto
 PROJECT_OWNER = os.environ.get("PROJECT_OWNER", ORG_NAME)  # Owner del Project V2 (user u org)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
+
+
+class ProjectCache:
+    """Cache simple en memoria para project info y items."""
+
+    _project_info: Dict[Tuple[int, str], Dict[str, Any]] = {}
+    _items_cache: Dict[str, Dict[int, str]] = {}
+
+    @classmethod
+    def get_project_info(cls, key: Tuple[int, str]) -> Optional[Dict[str, Any]]:
+        return cls._project_info.get(key)
+
+    @classmethod
+    def set_project_info(cls, key: Tuple[int, str], info: Dict[str, Any]) -> None:
+        cls._project_info[key] = info
+
+    @classmethod
+    def get_items(cls, project_id: str) -> Optional[Dict[int, str]]:
+        return cls._items_cache.get(project_id)
+
+    @classmethod
+    def set_items(cls, project_id: str, mapping: Dict[int, str]) -> None:
+        cls._items_cache[project_id] = mapping
 
 
 def get_project_info(
     gh: GitHubGraphQL,
     project_number: Optional[int] = None,
-    project_owner: Optional[str] = None
+    project_owner: Optional[str] = None,
+    cached_fields: Optional[Dict[str, Any]] = None
 ) -> Dict:
     """
     Obtiene ID del proyecto y campos personalizados.
@@ -52,14 +74,26 @@ def get_project_info(
     """
     proj_num = project_number or PROJECT_NUMBER
     proj_owner = project_owner or PROJECT_OWNER
+    cache_key = (proj_num, proj_owner)
+
+    cached = ProjectCache.get_project_info(cache_key)
+    if cached and not cached_fields:
+        return cached
     
     try:
-        project = gh.get_project_v2_any(
-            owner=ORG_NAME,
-            repo=REPO_NAME,
-            project_owner=proj_owner,
-            project_number=proj_num
-        )
+        if cached_fields:
+            project = {
+                "id": cached_fields.get("project_id"),
+                "title": cached_fields.get("title", "Unknown"),
+                "fields": {"nodes": cached_fields.get("raw_fields", [])},
+            }
+        else:
+            project = gh.get_project_v2_any(
+                owner=ORG_NAME,
+                repo=REPO_NAME,
+                project_owner=proj_owner,
+                project_number=proj_num
+            )
 
         if not project:
             raise ValueError(f"Proyecto #{proj_num} no encontrado")
@@ -108,11 +142,14 @@ def get_project_info(
         
         fields[field_name] = field_data
     
-    return {
+    result_info = {
         "project_id": project["id"],
         "title": project.get("title", "Unknown"),
         "fields": fields
     }
+    if not cached_fields:
+        ProjectCache.set_project_info(cache_key, result_info)
+    return result_info
 
 
 def add_issue_to_project(gh: GitHubGraphQL, project_id: str, issue_id: str) -> str:
@@ -305,7 +342,9 @@ def sync_issue_with_project(
     dqc_status: Optional[str] = None,
     project_number: Optional[int] = None,
     project_owner: Optional[str] = None,
-    auto_detect: bool = False
+    auto_detect: bool = False,
+    skip_add: bool = False,
+    items_map: Optional[Dict[int, str]] = None
 ):
     """
     Sincroniza un issue con el proyecto y configura sus campos.
@@ -355,26 +394,31 @@ def sync_issue_with_project(
                     impact = detect_impact_from_labels(issue.get("labels", []))
                 break
     
-    # 4. Añadir al proyecto
-    try:
-        item_id = add_issue_to_project(gh, project_id, issue_id)
-        logger.info(f"✓ Issue añadido al proyecto (item_id: {item_id[:20]}...)")
-    except Exception as e:
-        logger.warning(f"No se pudo añadir issue (puede que ya esté): {e}")
-        # Intentar obtener item_id existente
-        items_data = gh.get_project_items(project_id=project_id, limit=100)
-        item_id = None
-        for item in items_data.get("items", []):
-            content = item.get("content", {})
-            if content:
-                # Obtener el node ID del issue desde el content
-                issue_node_id = get_issue_node_id(gh, content.get("number", 0))
-                if issue_node_id == issue_id:
-                    item_id = item["id"]
-                    logger.info(f"✓ Issue ya está en el proyecto (item_id: {item_id[:20]}...)")
-                    break
-        
-        if not item_id:
+    # 4. Añadir al proyecto (o reutilizar item_id cacheado)
+    item_id = None
+    cached_items = items_map or ProjectCache.get_items(project_id)
+    if cached_items:
+        item_id = cached_items.get(issue_number)
+
+    if item_id is None and not skip_add:
+        try:
+            item_id = add_issue_to_project(gh, project_id, issue_id)
+            logger.info(f"✓ Issue añadido al proyecto (item_id: {item_id[:20]}...)")
+        except Exception as e:
+            logger.warning(f"No se pudo añadir issue (puede que ya esté): {e}")
+
+    if item_id is None:
+        items_data = gh.get_project_items(project_id=project_id, limit=200)
+        mapping = {
+            itm.get("content", {}).get("number"): itm["id"]
+            for itm in items_data.get("items", [])
+            if itm.get("content") and itm.get("content", {}).get("number")
+        }
+        ProjectCache.set_items(project_id, mapping)
+        item_id = mapping.get(issue_number)
+        if item_id:
+            logger.info(f"✓ Issue ya está en el proyecto (item_id: {item_id[:20]}...)")
+        else:
             raise ValueError("No se pudo añadir ni encontrar el issue en el proyecto")
     
     # 5. Configurar campos personalizados
@@ -469,68 +513,41 @@ def sync_issue_with_project(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sincroniza issues con GitHub Projects v2"
+        description="Sincroniza issues con GitHub Projects v2 (optimizado batch)"
     )
-    parser.add_argument(
-        "--issue",
-        type=int,
-        required=True,
-        help="Número del issue a sincronizar"
-    )
-    parser.add_argument(
-        "--impact",
-        help="Impacto del issue (High, Medium, Low, Critical)"
-    )
-    parser.add_argument(
-        "--fuente",
-        help="Fuente de datos (IDESCAT, Incasòl, OpenData BCN, Portal Dades, Internal)"
-    )
-    parser.add_argument(
-        "--sprint",
-        help="Sprint (Sprint 1, Sprint 2, etc.)"
-    )
-    parser.add_argument(
-        "--status",
-        help="Status (Backlog, Ready, In Progress, Review/QA, Blocked..., Done)"
-    )
-    parser.add_argument(
-        "--owner",
-        help="Owner (Data Engineering, Data Analysis, Product, Infraestructure)"
-    )
-    parser.add_argument(
-        "--kpi-objetivo",
-        dest="kpi_objetivo",
-        help="Descripción del KPI objetivo"
-    )
-    parser.add_argument(
-        "--auto-detect",
-        action="store_true",
-        help="Detectar automáticamente campos desde el issue"
-    )
+    parser.add_argument("--issue", type=int, help="Número del issue (usar --issues para batch)")
+    parser.add_argument("--issues", nargs="+", type=int, help="Lista de issues a procesar")
+    parser.add_argument("--impact", help="Impacto (High, Medium, Low, Critical)")
+    parser.add_argument("--fuente", help="Fuente de datos (IDESCAT, Incasòl, OpenData BCN, Portal Dades, Internal)")
+    parser.add_argument("--sprint", help="Sprint/Iteration (ej: Sprint 1 (Idescat))")
+    parser.add_argument("--status", help="Status (Backlog, Ready, In Progress, Review/QA, Blocked..., Done)")
+    parser.add_argument("--owner", help="Owner (Data Engineering, Data Analysis, Product, Infraestructure)")
+    parser.add_argument("--kpi-objetivo", dest="kpi_objetivo", help="Descripción del KPI objetivo")
     parser.add_argument(
         "--dqc-status",
         choices=["Passed", "Failed", "Pending", "N/A"],
         help="Estado DQC (Passed, Failed, Pending, N/A)"
     )
-    parser.add_argument(
-        "--project-number",
-        type=int,
-        default=None,
-        help=f"Número del proyecto (default: {PROJECT_NUMBER} o PROJECT_NUMBER env var)"
-    )
-    parser.add_argument(
-        "--project-owner",
-        type=str,
-        default=None,
-        help=f"Owner del proyecto (user u org). Default: {PROJECT_OWNER}"
-    )
+    parser.add_argument("--project-number", type=int, default=None, help=f"Número del proyecto (default: {PROJECT_NUMBER})")
+    parser.add_argument("--project-owner", type=str, default=None, help=f"Owner del proyecto (default: {PROJECT_OWNER})")
+    parser.add_argument("--skip-add", action="store_true", help="No intentar añadir al proyecto (más rápido si ya está)")
+    parser.add_argument("--rate-limit-delay", type=float, default=0.5, help="Delay entre issues (default: 0.5s)")
+    parser.add_argument("--quiet", action="store_true", help="Solo warnings/errores")
+    parser.add_argument("--get-fields-only", action="store_true", help="Imprime campos del proyecto en JSON y termina")
+    parser.add_argument("--use-cached-fields", help="Ruta a JSON con campos cacheados")
+    parser.add_argument("--auto-detect", action="store_true", help="Detectar campos desde el issue (desactivado por defecto)")
+    parser.add_argument("--verbose", action="store_true", help="Log DEBUG")
     
     args = parser.parse_args()
-    
-    # Obtener token
+
+    if not args.issue and not args.issues and not args.get_fields_only:
+        parser.error("Debes indicar --issue, --issues o --get-fields-only")
+
+    logging_level = logging.DEBUG if args.verbose else (logging.WARNING if args.quiet else logging.INFO)
+    logging.basicConfig(level=logging_level, format="%(asctime)s - %(levelname)s - %(message)s")
+
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        # Intentar obtener desde gh CLI
         try:
             import subprocess
             result = subprocess.run(
@@ -543,37 +560,65 @@ def main():
             logger.info("✓ Token obtenido desde gh CLI")
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.error("GITHUB_TOKEN no encontrado en variables de entorno")
-            logger.error("Opciones:")
-            logger.error("  1. Exportar: export GITHUB_TOKEN='ghp_xxx'")
-            logger.error("  2. Usar gh CLI: gh auth login")
-            logger.error("  3. Crear PAT: https://github.com/settings/tokens")
             sys.exit(1)
-    
-    # Inicializar cliente GraphQL
+
     gh = GitHubGraphQL(token=token)
-    
-    # Sincronizar issue
-    try:
-        # Usar project_number del argumento o del env var
-        project_num = args.project_number if args.project_number is not None else PROJECT_NUMBER
-        
-        sync_issue_with_project(
-            gh=gh,
-            issue_number=args.issue,
-            impact=args.impact,
-            fuente=args.fuente,
-            sprint=args.sprint,
-            status=args.status,
-            owner=args.owner,
-            kpi_objetivo=args.kpi_objetivo,
-            dqc_status=args.dqc_status,
-            project_number=project_num,
-            project_owner=args.project_owner if args.project_owner else PROJECT_OWNER,
-            auto_detect=args.auto_detect
-        )
-    except Exception as e:
-        logger.error(f"Error sincronizando issue: {e}", exc_info=True)
-        sys.exit(1)
+    project_num = args.project_number if args.project_number is not None else PROJECT_NUMBER
+    project_owner = args.project_owner if args.project_owner else PROJECT_OWNER
+
+    cached_fields = None
+    if args.use_cached_fields:
+        with open(args.use_cached_fields, "r", encoding="utf-8") as f:
+            cached_fields = json.load(f)
+
+    if args.get_fields_only:
+        info = get_project_info(gh, project_number=project_num, project_owner=project_owner, cached_fields=cached_fields)
+        out = {
+            "project_id": info["project_id"],
+            "title": info["title"],
+            "raw_fields": info["fields"].get("nodes", []),
+        }
+        print(json.dumps(out, indent=2))
+        sys.exit(0)
+
+    project_info = get_project_info(gh, project_number=project_num, project_owner=project_owner, cached_fields=cached_fields)
+    project_id = project_info["project_id"]
+
+    issues_to_process: List[int] = []
+    if args.issue:
+        issues_to_process.append(args.issue)
+    if args.issues:
+        issues_to_process.extend(args.issues)
+
+    start_time = time.time()
+
+    items_cache = ProjectCache.get_items(project_id)
+
+    for idx, issue_num in enumerate(issues_to_process, start=1):
+        try:
+            sync_issue_with_project(
+                gh=gh,
+                issue_number=issue_num,
+                impact=args.impact,
+                fuente=args.fuente,
+                sprint=args.sprint,
+                status=args.status,
+                owner=args.owner,
+                kpi_objetivo=args.kpi_objetivo,
+                dqc_status=args.dqc_status,
+                project_number=project_num,
+                project_owner=project_owner,
+                auto_detect=args.auto_detect,
+                skip_add=args.skip_add,
+                items_map=items_cache
+            )
+        except Exception as e:
+            logger.error(f"Error sincronizando issue {issue_num}: {e}", exc_info=args.verbose)
+        if len(issues_to_process) > 1 and idx < len(issues_to_process):
+            time.sleep(args.rate_limit_delay)
+
+    duration = time.time() - start_time
+    logger.info("Tiempo total: %.2fs (%.2fs por issue)", duration, duration / max(1, len(issues_to_process)))
 
 
 if __name__ == "__main__":
