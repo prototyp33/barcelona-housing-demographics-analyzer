@@ -1,350 +1,327 @@
 #!/usr/bin/env python3
 """
-Automatización de GitHub Projects v2 para Barcelona Housing Analyzer
-Sincroniza issues con el tablero del proyecto y actualiza campos personalizados
+Automatización optimizada (v2) de GitHub Projects v2 para Barcelona Housing Analyzer.
 
-Uso:
-    python .github/scripts/project_automation.py --issue 24 --impact High --fuente IDESCAT --sprint "Sprint 1"
-    python .github/scripts/project_automation.py --issue 24 --auto-detect
+Características:
+- Cache singleton de metadatos.
+- Lookup O(1) de items por número de issue.
+- Mutaciones batch con aliases para campos múltiples.
+- CLI con rate limiting y soporte de skip-add.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import logging
 import os
-import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, List, Callable
+from typing import Any, Dict, List, Optional, Tuple
 
-# Añadir el directorio raíz al path para imports
 REPO_ROOT = Path(__file__).parent.parent.parent
+
+# Asegurar imports locales
+import sys
+
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.github_graphql import GitHubGraphQL
 
-try:
-    from tqdm import tqdm  # type: ignore
-except ImportError:  # pragma: no cover
-    tqdm = None
-
-# Configuración
-ORG_NAME = "prototyp33"
-REPO_NAME = "barcelona-housing-demographics-analyzer"
-PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "1"))  # Ajustar según tu proyecto
-PROJECT_OWNER = os.environ.get("PROJECT_OWNER", ORG_NAME)  # Owner del Project V2 (user u org)
-
 logger = logging.getLogger(__name__)
 
-def run_with_retry(fn: Callable[[], Any], retries: int = 3, delay: float = 0.5) -> Any:
-    """
-    Ejecuta una función con reintentos simples.
-    """
-    last_exc: Optional[Exception] = None
-    for attempt in range(retries):
-        try:
-            return fn()
-        except Exception as exc:  # pragma: no cover - comportamiento de red
-            last_exc = exc
-            if attempt < retries - 1:
-                time.sleep(delay)
-    if last_exc:
-        raise last_exc
-    raise RuntimeError("run_with_retry failed without exception")
+ORG_NAME = "prototyp33"
+REPO_NAME = "barcelona-housing-demographics-analyzer"
+PROJECT_OWNER = os.environ.get("PROJECT_OWNER", ORG_NAME)
+PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "7"))
+
+# Mapeo explícito de argumentos CLI a nombres de campos en GitHub Project
+FIELD_MAPPING = {
+    "impact": "Impacto",
+    "fuente": "Fuente",
+    "sprint": "Sprint",
+    "kpi_objetivo": "KPI",
+    "status": "Status",
+    "owner": "Owner",
+    "dqc_status": "Estado DQC",
+}
+
+
+@dataclass
+class FieldUpdate:
+    """Representa una actualización de campo."""
+
+    alias: str
+    field_id: str
+    value_payload: str
 
 
 class ProjectCache:
-    """Cache simple en memoria para project info y items."""
+    """
+    Singleton para cachear metadatos del proyecto y el índice de items.
 
-    _project_info: Dict[Tuple[int, str], Dict[str, Any]] = {}
-    _items_cache: Dict[str, Dict[int, str]] = {}
+    Performance:
+        Evita llamadas repetidas a get_project_v2_any y reduce O(n) de
+        paginar items a búsquedas O(1) usando un índice en memoria.
+    """
 
-    @classmethod
-    def get_project_info(cls, key: Tuple[int, str]) -> Optional[Dict[str, Any]]:
-        return cls._project_info.get(key)
+    _instance: Optional["ProjectCache"] = None
 
-    @classmethod
-    def set_project_info(cls, key: Tuple[int, str], info: Dict[str, Any]) -> None:
-        cls._project_info[key] = info
+    def __new__(cls) -> "ProjectCache":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._project_info: Dict[Tuple[int, str], Dict[str, Any]] = {}
+            cls._instance._item_index: Dict[str, Dict[int, str]] = {}
+        return cls._instance
 
-    @classmethod
-    def get_items(cls, project_id: str) -> Optional[Dict[int, str]]:
-        return cls._items_cache.get(project_id)
+    def get_project_info(
+        self, key: Tuple[int, str]
+    ) -> Optional[Dict[str, Any]]:
+        return self._project_info.get(key)
 
-    @classmethod
-    def set_items(cls, project_id: str, mapping: Dict[int, str]) -> None:
-        cls._items_cache[project_id] = mapping
+    def set_project_info(
+        self, key: Tuple[int, str], info: Dict[str, Any]
+    ) -> None:
+        self._project_info[key] = info
+
+    def get_item_id(self, project_id: str, issue_number: int) -> Optional[str]:
+        items = self._item_index.get(project_id, {})
+        return items.get(issue_number)
+
+    def set_item_id(self, project_id: str, issue_number: int, item_id: str) -> None:
+        self._item_index.setdefault(project_id, {})[issue_number] = item_id
+
+
+def _map_fields(raw_nodes: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """
+    Construye un dict de campos con opciones e iteraciones mapeadas.
+    """
+    fields: Dict[str, Dict[str, Any]] = {}
+    for field in raw_nodes:
+        field_name = field.get("name")
+        if not field_name:
+            continue
+        entry: Dict[str, Any] = {
+            "name": field_name,
+            "id": field.get("id"),
+            "dataType": field.get("dataType"),
+        }
+        if field.get("dataType") == "SINGLE_SELECT":
+            entry["options"] = {
+                opt["name"]: opt["id"] for opt in field.get("options", [])
+            }
+        if field.get("dataType") == "ITERATION":
+            iterations = field.get("configuration", {}).get("iterations", [])
+            entry["iterations"] = {
+                it["title"]: it["id"]
+                for it in iterations
+                if it.get("title") and it.get("id")
+            }
+        fields[field_name.lower()] = entry
+    return fields
 
 
 def get_project_info(
     gh: GitHubGraphQL,
     project_number: Optional[int] = None,
     project_owner: Optional[str] = None,
-    cached_fields: Optional[Dict[str, Any]] = None
-) -> Dict:
+    cached_fields: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
-    Obtiene ID del proyecto y campos personalizados.
-    
-    Args:
-        gh: Cliente GraphQL
-        project_number: Número del proyecto (default: PROJECT_NUMBER)
-        project_owner: Owner del proyecto (user u org, default: PROJECT_OWNER)
-    
-    Returns:
-        Dict con project_id, title y fields mapeados
+    Obtiene info del proyecto y campos, usando cache si está disponible.
+
+    Performance:
+        Reutiliza metadatos en memoria para evitar múltiples llamadas a
+        get_project_v2_any. Costo O(1) tras la primera carga.
     """
+    cache = ProjectCache()
     proj_num = project_number or PROJECT_NUMBER
     proj_owner = project_owner or PROJECT_OWNER
     cache_key = (proj_num, proj_owner)
 
-    cached = ProjectCache.get_project_info(cache_key)
+    cached = cache.get_project_info(cache_key)
     if cached and not cached_fields:
         return cached
-    
-    try:
-        if cached_fields:
-            project = {
-                "id": cached_fields.get("project_id"),
-                "title": cached_fields.get("title", "Unknown"),
-                "fields": {"nodes": cached_fields.get("raw_fields", [])},
-            }
-        else:
-            project = gh.get_project_v2_any(
-                owner=ORG_NAME,
-                repo=REPO_NAME,
-                project_owner=proj_owner,
-                project_number=proj_num
-            )
 
-        if not project:
-            raise ValueError(f"Proyecto #{proj_num} no encontrado")
-    except Exception as e:
-        error_msg = str(e)
-        if "Could not resolve" in error_msg or "not found" in error_msg.lower() or "404" in error_msg:
-            logger.error(f"❌ Proyecto #{proj_num} no encontrado")
-            logger.error("   Posibles causas:")
-            logger.error(f"   1. El proyecto no existe o el número es incorrecto")
-            logger.error(f"   2. El proyecto está en una organización diferente")
-            logger.error(f"   3. El token no tiene permisos 'project'")
-            logger.error("")
-            logger.error("   Soluciones:")
-            logger.error(f"   - Verifica el número del proyecto en la URL: https://github.com/users/{proj_owner}/projects")
-            logger.error(f"   - Especifica el número correcto: export PROJECT_NUMBER=2")
-            logger.error(f"   - O usa: python .github/scripts/project_automation.py --issue 24 --project-number 2")
-            logger.error(f"   - Si el proyecto es de otra organización/usuario, especifica: --project-owner <owner>")
-            logger.error(f"   - Confirma scopes del token: debe incluir 'project' (no solo read:project)")
-            logger.error(f"   - Si el proyecto es privado, el token debe tener acceso a proyectos privados del owner")
-        raise
-    
-    # Mapear campos para fácil acceso
-    fields = {}
-    raw_nodes = project.get("fields", {}).get("nodes", [])
-    for field in raw_nodes:
-        field_name = field.get("name")
-        if not field_name:
-            continue
-            
-        field_data = {
-            "id": field.get("id"),
-            "dataType": field.get("dataType"),
+    if cached_fields:
+        raw_fields = cached_fields.get("raw_fields", [])
+        project_info = {
+            "project_id": cached_fields.get("project_id"),
+            "title": cached_fields.get("title", "Unknown"),
+            "raw_fields": raw_fields,
+            "fields": _map_fields(raw_fields),
         }
-        
-        # Para campos single select, mapear opciones
-        if field.get("dataType") == "SINGLE_SELECT" and "options" in field:
-            field_data["options"] = {
-                opt["name"]: opt["id"]
-                for opt in field.get("options", [])
-            }
-        # Para Iteration, mapear iteraciones
-        if field.get("dataType") == "ITERATION" and "configuration" in field:
-            iterations = field.get("configuration", {}).get("iterations", [])
-            field_data["iterations"] = {
-                it["title"]: it["id"] for it in iterations if it.get("title") and it.get("id")
-            }
-        
-        fields[field_name] = field_data
-    
-    result_info = {
-        "project_id": project["id"],
-        "title": project.get("title", "Unknown"),
-        "fields": fields,
-        "raw_fields": raw_nodes
-    }
-    if not cached_fields:
-        ProjectCache.set_project_info(cache_key, result_info)
-    return result_info
+        cache.set_project_info(cache_key, project_info)
+        return project_info
 
-
-def add_issue_to_project(gh: GitHubGraphQL, project_id: str, issue_id: str) -> str:
-    """
-    Añade un issue al proyecto y retorna el item_id.
-    
-    Args:
-        gh: Cliente GraphQL
-        project_id: ID del proyecto
-        issue_id: Node ID del issue
-    
-    Returns:
-        item_id del item creado en el proyecto
-    """
-    mutation = """
-    mutation($projectId: ID!, $contentId: ID!) {
-      addProjectV2ItemById(input: {
-        projectId: $projectId
-        contentId: $contentId
-      }) {
-        item {
+    # Intentar primero como organización; si no, como usuario (projectV2 personal)
+    query_org = """
+    query($owner: String!, $number: Int!) {
+      organization(login: $owner) {
+        projectV2(number: $number) {
           id
+          title
+          fields(first: 50) {
+            nodes {
+              __typename
+              ... on ProjectV2FieldCommon {
+                id
+                name
+                dataType
+              }
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration { iterations { id title } }
+              }
+            }
+          }
         }
       }
     }
     """
-    
-    result = run_with_retry(lambda: gh.execute_query(mutation, {
-        "projectId": project_id,
-        "contentId": issue_id
-    }))
-    
-    if "errors" in result:
-        # Si el issue ya está en el proyecto, obtener su item_id
-        logger.warning("Issue ya está en el proyecto, obteniendo item_id existente...")
-        items_data = gh.get_project_items(project_id=project_id, limit=100)
-        for item in items_data.get("items", []):
-            content = item.get("content", {})
-            if content:
-                # Obtener el node ID del issue desde el content
-                issue_node_id = get_issue_node_id(gh, content.get("number", 0))
-                if issue_node_id == issue_id:
-                    return item["id"]
-        raise ValueError("No se pudo añadir ni encontrar el issue en el proyecto")
-    
-    return result["data"]["addProjectV2ItemById"]["item"]["id"]
-
-
-def update_field(gh: GitHubGraphQL, project_id: str, item_id: str, 
-                 field_id: str, value: str, field_type: str = "single_select"):
-    """
-    Actualiza un campo del item en el proyecto.
-    
-    Args:
-        gh: Cliente GraphQL
-        project_id: ID del proyecto
-        item_id: ID del item en el proyecto
-        field_id: ID del campo a actualizar
-        value: Valor a establecer
-        field_type: Tipo de campo (single_select, text, number)
-    """
-    if field_type == "single_select":
-        value_payload = f'singleSelectOptionId: "{value}"'
-    elif field_type == "text":
-        value_payload = f'text: "{value}"'
-    elif field_type == "number":
-        value_payload = f'number: {value}'
-    elif field_type == "iteration":
-        value_payload = f'iterationId: "{value}"'
-    else:
-        raise ValueError(f"Tipo de campo no soportado: {field_type}")
-    
-    mutation = f"""
-    mutation {{
-      updateProjectV2ItemFieldValue(input: {{
-        projectId: "{project_id}"
-        itemId: "{item_id}"
-        fieldId: "{field_id}"
-        value: {{
-          {value_payload}
-        }}
-      }}) {{
-        projectV2Item {{
+    query_user = """
+    query($owner: String!, $number: Int!) {
+      user(login: $owner) {
+        projectV2(number: $number) {
           id
-        }}
-      }}
-    }}
+          title
+          fields(first: 50) {
+            nodes {
+              __typename
+              ... on ProjectV2FieldCommon {
+                id
+                name
+                dataType
+              }
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration { iterations { id title } }
+              }
+            }
+          }
+        }
+      }
+    }
     """
-    
-    result = run_with_retry(lambda: gh.execute_query(mutation))
-    if "errors" in result:
-        logger.error(f"Error actualizando campo: {result['errors']}")
-        raise ValueError(f"No se pudo actualizar el campo: {result['errors']}")
+
+    variables = {"owner": proj_owner, "number": proj_num}
+
+    # Try org; fallback to user
+    project = None
+    try:
+        org_resp = gh.execute_query(query_org, variables)
+        if org_resp.get("organization") and org_resp["organization"].get("projectV2"):
+            project = org_resp["organization"]["projectV2"]
+    except RuntimeError:
+        logger.info("Proyecto no encontrado en Org; se probará ámbito User...")
+
+    if project is None:
+        user_resp = gh.execute_query(query_user, variables)
+        if user_resp.get("user") and user_resp["user"].get("projectV2"):
+            project = user_resp["user"]["projectV2"]
+
+    if not project:
+        raise ValueError(
+            f"Proyecto #{proj_num} no encontrado como organización ni usuario: {proj_owner}"
+        )
+
+    raw_fields = project.get("fields", {}).get("nodes", [])
+    project_info = {
+        "project_id": project["id"],
+        "title": project.get("title", "Unknown"),
+        "raw_fields": raw_fields,
+        "fields": _map_fields(raw_fields),
+    }
+    cache.set_project_info(cache_key, project_info)
+    return project_info
 
 
 def get_issue_node_id(gh: GitHubGraphQL, issue_number: int) -> str:
     """
     Obtiene el node ID de un issue por su número.
-    
-    Args:
-        gh: Cliente GraphQL
-        issue_number: Número del issue
-    
-    Returns:
-        Node ID del issue
+
+    Performance:
+        Query directa O(1) al issue en vez de recorrer listas de issues.
     """
     query = """
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         issue(number: $number) {
           id
-          title
-          state
         }
       }
     }
     """
-    
-    result = gh.execute_query(query, {
-        "owner": ORG_NAME,
-        "repo": REPO_NAME,
-        "number": issue_number
-    })
-    
-    # execute_query ya devuelve el nodo "data"; aquí esperamos "repository"
-    if not isinstance(result, dict):
-        raise ValueError(f"No se pudo obtener datos de GraphQL para issue #{issue_number}")
-    
-    repo_node = result.get("repository") or {}
-    issue = repo_node.get("issue")
-    
+    result = gh.execute_query(
+        query,
+        {"owner": ORG_NAME, "repo": REPO_NAME, "number": issue_number},
+    )
+    repo_node = result.get("repository") if isinstance(result, dict) else None
+    issue = repo_node.get("issue") if repo_node else None
     if not issue:
-        raise ValueError(
-            f"Issue #{issue_number} no encontrado en {ORG_NAME}/{REPO_NAME}. "
-            "Verifica que el número es correcto y que el token tiene scope repo."
-        )
-    
+        raise ValueError(f"Issue #{issue_number} no encontrado en {ORG_NAME}/{REPO_NAME}")
     return issue["id"]
 
 
-def detect_fuente_from_title(title: str) -> str:
-    """Detecta la fuente de datos desde el título del issue."""
-    title_lower = title.lower()
-    
-    if "idescat" in title_lower:
-        return "IDESCAT"
-    elif "incasol" in title_lower or "incasòl" in title_lower:
-        return "Incasòl"
-    elif "opendata" in title_lower or "open data" in title_lower:
-        return "OpenData BCN"
-    elif "portal" in title_lower and "dades" in title_lower:
-        return "Portal Dades"
-    else:
-        return "Internal"
-
-
-def detect_impact_from_labels(labels: list) -> str:
-    """Detecta el impacto desde los labels del issue."""
-    label_names = [label.get("name", "").lower() for label in labels]
-    
-    if any("critical" in label or "high" in label for label in label_names):
-        return "High"
-    elif any("medium" in label for label in label_names):
-        return "Medium"
-    else:
-        return "Low"
-
-
-def _resolve_option(value: Optional[str], options: Dict[str, str]) -> Optional[str]:
+def get_item_id_for_issue_optimized(
+    gh: GitHubGraphQL,
+    project_id: str,
+    issue_number: int,
+    owner: str,
+    repo: str,
+) -> Optional[str]:
     """
-    Devuelve el option_id haciendo match case-insensitive por nombre.
+    Lookup directo del item usando query filtrada en items(first:1).
+
+    Performance:
+        Evita paginar todos los items (O(n)) usando filtro query O(1).
     """
+    query = """
+    query($projectId: ID!, $queryString: String!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          items(first: 1, query: $queryString) {
+            nodes {
+              id
+              content {
+                ... on Issue {
+                  number
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    query_string = f"repo:{owner}/{repo} number:{issue_number} is:issue"
+    variables = {"projectId": project_id, "queryString": query_string}
+    result = gh.execute_query(query, variables)
+    node = result.get("node") if isinstance(result, dict) else None
+    items = node.get("items", {}) if node else {}
+    nodes = items.get("nodes") or []
+    if not nodes:
+        return None
+    return nodes[0].get("id")
+
+
+def _resolve_option(
+    value: Optional[str], options: Dict[str, str]
+) -> Optional[str]:
+    """Match case-insensitive para opciones single select/iteration."""
     if not value:
         return None
     for name, opt_id in options.items():
@@ -353,323 +330,404 @@ def _resolve_option(value: Optional[str], options: Dict[str, str]) -> Optional[s
     return options.get(value)
 
 
-def sync_issue_with_project(
-    gh: GitHubGraphQL,
-    issue_number: int,
-    impact: Optional[str] = None,
-    fuente: Optional[str] = None,
-    sprint: Optional[str] = None,
-    status: Optional[str] = None,
-    owner: Optional[str] = None,
-    kpi_objetivo: Optional[str] = None,
-    dqc_status: Optional[str] = None,
-    project_number: Optional[int] = None,
-    project_owner: Optional[str] = None,
-    auto_detect: bool = False,
-    skip_add: bool = False,
-    items_map: Optional[Dict[int, str]] = None,
-    dry_run: bool = False
-):
+def _build_field_updates(
+    project_fields: Dict[str, Dict[str, Any]],
+    impact: Optional[str],
+    fuente: Optional[str],
+    sprint: Optional[str],
+    status: Optional[str],
+    owner: Optional[str],
+    dqc_status: Optional[str],
+    kpi_objetivo: Optional[str],
+) -> List[FieldUpdate]:
     """
-    Sincroniza un issue con el proyecto y configura sus campos.
-    
-    Args:
-        gh: Cliente GraphQL
-        issue_number: Número del issue
-        impact: "High", "Medium", "Low"
-        fuente: "IDESCAT", "Incasòl", "OpenData BCN", etc.
-        sprint: "Sprint 1", "Sprint 2", etc.
-        kpi_objetivo: Descripción del KPI objetivo
-        dqc_status: "Passed", "Failed", "Pending" (Estado DQC)
-        project_number: Número del proyecto (default: PROJECT_NUMBER)
-        project_owner: Owner del proyecto (user u org, default: PROJECT_OWNER)
-        auto_detect: Si True, detecta automáticamente campos desde el issue
+    Prepara la lista de updates con payloads ya formateados.
     """
-    logger.info(f"Sincronizando issue #{issue_number}...")
-    
-    # 1. Obtener info del proyecto
-    project_info = get_project_info(
-        gh,
-        project_number=project_number,
-        project_owner=project_owner
+    updates: List[FieldUpdate] = []
+    alias_counter = 1
+
+    def next_alias() -> str:
+        nonlocal alias_counter
+        alias = f"f{alias_counter}"
+        alias_counter += 1
+        return alias
+    def resolve_field(name_key: str) -> Optional[Dict[str, Any]]:
+        mapped = FIELD_MAPPING.get(name_key, name_key)
+        field = project_fields.get(mapped.lower())
+        if not field:
+            logger.warning(
+                "Field '%s' (from arg '%s') not found in project.",
+                mapped,
+                name_key,
+            )
+        return field
+
+    if impact:
+        field = resolve_field("impact")
+        opt_id = _resolve_option(impact, field.get("options", {})) if field else None
+        if field and opt_id:
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f'singleSelectOptionId: "{opt_id}"',
+                )
+            )
+
+    if fuente:
+        field = resolve_field("fuente")
+        opt_id = _resolve_option(fuente, field.get("options", {})) if field else None
+        if field and opt_id:
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f'singleSelectOptionId: "{opt_id}"',
+                )
+            )
+
+    if sprint:
+        field = resolve_field("sprint")
+        iter_id = _resolve_option(sprint, field.get("iterations", {})) if field else None
+        if field and iter_id:
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f'iterationId: "{iter_id}"',
+                )
+            )
+
+    if status:
+        field = resolve_field("status")
+        opt_id = _resolve_option(status, field.get("options", {})) if field else None
+        if field and opt_id:
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f'singleSelectOptionId: "{opt_id}"',
+                )
+            )
+
+    if owner:
+        field = resolve_field("owner")
+        opt_id = _resolve_option(owner, field.get("options", {})) if field else None
+        if field and opt_id:
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f'singleSelectOptionId: "{opt_id}"',
+                )
+            )
+
+    if dqc_status:
+        field = resolve_field("dqc_status")
+        opt_id = _resolve_option(dqc_status, field.get("options", {})) if field else None
+        if field and opt_id:
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f'singleSelectOptionId: "{opt_id}"',
+                )
+            )
+
+    if kpi_objetivo:
+        field = resolve_field("kpi_objetivo")
+        if field:
+            kpi_json = json.dumps(kpi_objetivo)
+            updates.append(
+                FieldUpdate(
+                    alias=next_alias(),
+                    field_id=field["id"],
+                    value_payload=f"text: {kpi_json}",
+                )
+            )
+
+    return updates
+
+
+def update_fields_batch(
+    gh: GitHubGraphQL, project_id: str, item_id: str, updates: List[FieldUpdate]
+) -> None:
+    """
+    Ejecuta una mutación única con aliases para múltiples campos.
+
+    Performance:
+        Reemplaza 6+ mutaciones individuales por una sola llamada. Reduce
+        roundtrips y latencia acumulada de ~O(k) a O(1) por issue.
+    """
+    if not updates:
+        logger.info("No hay campos para actualizar")
+        return
+
+    mutation_lines = ["mutation UpdateFields {"]
+    for upd in updates:
+        mutation_lines.append(
+            f"""{upd.alias}: updateProjectV2ItemFieldValue(input: {{
+        projectId: "{project_id}"
+        itemId: "{item_id}"
+        fieldId: "{upd.field_id}"
+        value: {{
+          {upd.value_payload}
+        }}
+      }}) {{
+        projectV2Item {{ id }}
+      }}"""
+        )
+    mutation_lines.append("}")
+    mutation = "\n".join(mutation_lines)
+
+    result = gh.execute_query(mutation)
+    if isinstance(result, dict) and result.get("errors"):
+        raise ValueError(f"Error en mutación batch: {result['errors']}")
+
+
+def add_issue_to_project(gh: GitHubGraphQL, project_id: str, issue_id: str) -> str:
+    """
+    Añade el issue al proyecto y retorna el item_id.
+
+    Performance:
+        Se usa solo cuando no existe item y skip_add es False, evitando
+        intentos repetidos gracias al cache previo.
+    """
+    mutation = """
+    mutation($projectId: ID!, $contentId: ID!) {
+      addProjectV2ItemById(input: {
+        projectId: $projectId
+        contentId: $contentId
+      }) {
+        item { id }
+      }
+    }
+    """
+    result = gh.execute_query(
+        mutation, {"projectId": project_id, "contentId": issue_id}
     )
+    if isinstance(result, dict) and result.get("errors"):
+        raise ValueError(result["errors"])
+    return result["addProjectV2ItemById"]["item"]["id"]
+
+
+def sync_issue(
+    gh: GitHubGraphQL,
+    project_info: Dict[str, Any],
+    issue_number: int,
+    impact: Optional[str],
+    fuente: Optional[str],
+    sprint: Optional[str],
+    status: Optional[str],
+    owner: Optional[str],
+    dqc_status: Optional[str],
+    kpi_objetivo: Optional[str],
+    skip_add: bool,
+) -> None:
+    """
+    Sincroniza un issue: lookup, optional add, y mutación batch.
+
+    Performance:
+        - Lookup O(1) de item.
+        - Una mutación batch por issue.
+        - Cache en memoria para evitar re-fetch de metadatos.
+    """
+    cache = ProjectCache()
     project_id = project_info["project_id"]
     fields = project_info["fields"]
-    
-    logger.info(f"Proyecto: {project_info['title']} (ID: {project_id[:20]}...)")
-    
-    # 2. Obtener node ID del issue
-    issue_id = get_issue_node_id(gh, issue_number)
-    
-    # 3. Obtener detalles del issue para auto-detección
-    if auto_detect:
-        issue_details = gh.get_issues_with_details(
+
+    logger.info("Procesando issue #%s", issue_number)
+
+    cached_item_id = cache.get_item_id(project_id, issue_number)
+    item_id = cached_item_id
+    if not item_id:
+        item_id = get_item_id_for_issue_optimized(
+            gh=gh,
+            project_id=project_id,
+            issue_number=issue_number,
             owner=ORG_NAME,
             repo=REPO_NAME,
-            state="OPEN",
-            limit=1
         )
-        # Buscar el issue específico
-        for issue in issue_details.get("issues", []):
-            if issue.get("number") == issue_number:
-                if not fuente:
-                    fuente = detect_fuente_from_title(issue.get("title", ""))
-                if not impact:
-                    impact = detect_impact_from_labels(issue.get("labels", []))
-                break
-    
-    # 4. Añadir al proyecto (o reutilizar item_id cacheado)
-    item_id = None
-    cached_items = items_map or ProjectCache.get_items(project_id)
-    if cached_items:
-        item_id = cached_items.get(issue_number)
-
-    if item_id is None and not skip_add and not dry_run:
-        try:
-            item_id = add_issue_to_project(gh, project_id, issue_id)
-            logger.info(f"✓ Issue añadido al proyecto (item_id: {item_id[:20]}...)")
-        except Exception as e:
-            logger.warning(f"No se pudo añadir issue (puede que ya esté): {e}")
-
-    if item_id is None:
-        items_data = gh.get_project_items(project_id=project_id, limit=200)
-        mapping = {
-            itm.get("content", {}).get("number"): itm["id"]
-            for itm in items_data.get("items", [])
-            if itm.get("content") and itm.get("content", {}).get("number")
-        }
-        ProjectCache.set_items(project_id, mapping)
-        item_id = mapping.get(issue_number)
         if item_id:
-            logger.info(f"✓ Issue ya está en el proyecto (item_id: {item_id[:20]}...)")
-        else:
-            raise ValueError("No se pudo añadir ni encontrar el issue en el proyecto")
-    
-    # 5. Configurar campos personalizados
-    updated_fields = []
-    
-    if impact and "Impacto" in fields:
-        impact_field = fields["Impacto"]
-        if impact_field.get("dataType") == "SINGLE_SELECT":
-            impact_options = impact_field.get("options", {})
-            impact_option_id = _resolve_option(impact, impact_options)
-            if impact_option_id:
-                if dry_run:
-                    logger.info(f"[dry-run] Impacto -> {impact}")
-                else:
-                    update_field(gh, project_id, item_id, impact_field["id"], 
-                                impact_option_id, "single_select")
-                updated_fields.append(f"Impacto: {impact}")
-            else:
-                logger.warning(f"Opción '{impact}' no encontrada en campo Impacto")
-    
-    if fuente and "Fuente de Datos" in fields:
-        fuente_field = fields["Fuente de Datos"]
-        if fuente_field.get("dataType") == "SINGLE_SELECT":
-            fuente_options = fuente_field.get("options", {})
-            fuente_option_id = _resolve_option(fuente, fuente_options)
-            if fuente_option_id:
-                if dry_run:
-                    logger.info(f"[dry-run] Fuente -> {fuente}")
-                else:
-                    update_field(gh, project_id, item_id, fuente_field["id"],
-                                fuente_option_id, "single_select")
-                updated_fields.append(f"Fuente: {fuente}")
-            else:
-                logger.warning(f"Opción '{fuente}' no encontrada en campo Fuente de Datos")
-    
-    # Iteration (usando argumento --sprint)
-    if sprint and "Iteration" in fields:
-        iteration_field = fields["Iteration"]
-        if iteration_field.get("dataType") == "ITERATION":
-            iter_options = iteration_field.get("iterations", {})
-            iter_id = _resolve_option(sprint, iter_options)
-            if iter_id:
-                if dry_run:
-                    logger.info(f"[dry-run] Iteration -> {sprint}")
-                else:
-                    update_field(gh, project_id, item_id, iteration_field["id"],
-                                iter_id, "iteration")
-                updated_fields.append(f"Iteration: {sprint}")
-            else:
-                logger.warning(f"Opción '{sprint}' no encontrada en campo Iteration")
-    
-    if kpi_objetivo and "KPI objetivo" in fields:
-        kpi_field = fields["KPI objetivo"]
-        if dry_run:
-            logger.info(f"[dry-run] KPI objetivo -> {kpi_objetivo}")
-        else:
-            update_field(gh, project_id, item_id, kpi_field["id"],
-                        kpi_objetivo, "text")
-        updated_fields.append("KPI objetivo")
-    
-    if dqc_status and "Estado DQC" in fields:
-        dqc_field = fields["Estado DQC"]
-        if dqc_field.get("dataType") == "SINGLE_SELECT":
-            dqc_options = dqc_field.get("options", {})
-            dqc_option_id = _resolve_option(dqc_status, dqc_options)
-            if dqc_option_id:
-                if dry_run:
-                    logger.info(f"[dry-run] Estado DQC -> {dqc_status}")
-                else:
-                    update_field(gh, project_id, item_id, dqc_field["id"],
-                                dqc_option_id, "single_select")
-                updated_fields.append(f"Estado DQC: {dqc_status}")
-            else:
-                logger.warning(f"Opción '{dqc_status}' no encontrada en campo Estado DQC. Opciones disponibles: {list(dqc_options.keys())}")
+            cache.set_item_id(project_id, issue_number, item_id)
 
-    if status and "Status" in fields:
-        status_field = fields["Status"]
-        if status_field.get("dataType") == "SINGLE_SELECT":
-            status_options = status_field.get("options", {})
-            status_option_id = _resolve_option(status, status_options)
-            if status_option_id:
-                if dry_run:
-                    logger.info(f"[dry-run] Status -> {status}")
-                else:
-                    update_field(gh, project_id, item_id, status_field["id"],
-                                status_option_id, "single_select")
-                updated_fields.append(f"Status: {status}")
-            else:
-                logger.warning(f"Opción '{status}' no encontrada en campo Status. Opciones: {list(status_options.keys())}")
+    if not item_id and skip_add:
+        logger.info("Item no existe y skip_add activo; se omite issue #%s", issue_number)
+        return
 
-    if owner and "Owner" in fields:
-        owner_field = fields["Owner"]
-        if owner_field.get("dataType") == "SINGLE_SELECT":
-            owner_options = owner_field.get("options", {})
-            owner_option_id = _resolve_option(owner, owner_options)
-            if owner_option_id:
-                if dry_run:
-                    logger.info(f"[dry-run] Owner -> {owner}")
-                else:
-                    update_field(gh, project_id, item_id, owner_field["id"],
-                                owner_option_id, "single_select")
-                updated_fields.append(f"Owner: {owner}")
-            else:
-                logger.warning(f"Opción '{owner}' no encontrada en campo Owner. Opciones: {list(owner_options.keys())}")
-    
-    if updated_fields:
-        logger.info(f"✓ Campos actualizados: {', '.join(updated_fields)}")
-    else:
-        logger.warning("No se actualizaron campos (verificar que existan en el proyecto)")
-    
-    logger.info(f"✅ Issue #{issue_number} sincronizado correctamente\n")
+    if not item_id:
+        issue_node_id = get_issue_node_id(gh, issue_number)
+        item_id = add_issue_to_project(gh, project_id, issue_node_id)
+        cache.set_item_id(project_id, issue_number, item_id)
+        logger.info("Issue añadido al proyecto (item_id %s)", item_id)
 
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Sincroniza issues con GitHub Projects v2 (optimizado batch)"
+    updates = _build_field_updates(
+        project_fields=fields,
+        impact=impact,
+        fuente=fuente,
+        sprint=sprint,
+        status=status,
+        owner=owner,
+        dqc_status=dqc_status,
+        kpi_objetivo=kpi_objetivo,
     )
-    parser.add_argument("--issue", type=int, help="Número del issue (usar --issues para batch)")
-    parser.add_argument("--issues", nargs="+", type=int, help="Lista de issues a procesar")
+    if updates:
+        update_fields_batch(gh, project_id, item_id, updates)
+        logger.info("Campos actualizados para issue #%s", issue_number)
+    else:
+        logger.info("No hay campos para actualizar en issue #%s", issue_number)
+
+
+def sync_issues_batch(
+    gh: GitHubGraphQL,
+    issues: List[int],
+    project_number: Optional[int],
+    project_owner: Optional[str],
+    impact: Optional[str],
+    fuente: Optional[str],
+    sprint: Optional[str],
+    status: Optional[str],
+    owner: Optional[str],
+    dqc_status: Optional[str],
+    kpi_objetivo: Optional[str],
+    skip_add: bool,
+    rate_limit_delay: float,
+) -> None:
+    """
+    Sincroniza en batch una lista de issues con cache compartido.
+
+    Performance:
+        - Carga de proyecto una sola vez.
+        - Reutiliza cache y lookup O(1) por issue.
+        - Una mutación batch por issue reduce roundtrips.
+    """
+    project_info = get_project_info(
+        gh, project_number=project_number, project_owner=project_owner
+    )
+    start = time.time()
+    for idx, issue in enumerate(issues, start=1):
+        try:
+            sync_issue(
+                gh=gh,
+                project_info=project_info,
+                issue_number=issue,
+                impact=impact,
+                fuente=fuente,
+                sprint=sprint,
+                status=status,
+                owner=owner,
+                dqc_status=dqc_status,
+                kpi_objetivo=kpi_objetivo,
+                skip_add=skip_add,
+            )
+        except Exception as exc:
+            logger.error("Error en issue #%s: %s", issue, exc, exc_info=True)
+        if idx < len(issues):
+            time.sleep(rate_limit_delay)
+    duration = time.time() - start
+    if issues:
+        logger.info(
+            "Tiempo total: %.2fs (%.2fs por issue)",
+            duration,
+            duration / len(issues),
+        )
+
+
+def parse_args() -> argparse.Namespace:
+    """Parsea argumentos CLI."""
+    parser = argparse.ArgumentParser(
+        description="Sincroniza issues con GitHub Projects v2 (versión optimizada)"
+    )
+    parser.add_argument(
+        "--issues",
+        nargs="+",
+        type=int,
+        required=True,
+        help="Lista de números de issue a procesar",
+    )
     parser.add_argument("--impact", help="Impacto (High, Medium, Low, Critical)")
-    parser.add_argument("--fuente", help="Fuente de datos (IDESCAT, Incasòl, OpenData BCN, Portal Dades, Internal)")
-    parser.add_argument("--sprint", help="Sprint/Iteration (ej: Sprint 1 (Idescat))")
-    parser.add_argument("--status", help="Status (Backlog, Ready, In Progress, Review/QA, Blocked..., Done)")
-    parser.add_argument("--owner", help="Owner (Data Engineering, Data Analysis, Product, Infraestructure)")
-    parser.add_argument("--kpi-objetivo", dest="kpi_objetivo", help="Descripción del KPI objetivo")
+    parser.add_argument(
+        "--fuente",
+        help="Fuente de datos (IDESCAT, Incasòl, OpenData BCN, Portal Dades, Internal)",
+    )
+    parser.add_argument("--sprint", help='Iteration, ej: "Sprint 1 (Idescat)"')
+    parser.add_argument(
+        "--status",
+        help="Status (Backlog, Ready, In Progress, Review/QA, Blocked..., Done)",
+    )
+    parser.add_argument(
+        "--owner",
+        help="Owner (Data Engineering, Data Analysis, Product, Infraestructure)",
+    )
+    parser.add_argument(
+        "--kpi-objetivo",
+        dest="kpi_objetivo",
+        help="Descripción del KPI objetivo",
+    )
     parser.add_argument(
         "--dqc-status",
         choices=["Passed", "Failed", "Pending", "N/A"],
-        help="Estado DQC (Passed, Failed, Pending, N/A)"
+        help="Estado DQC",
     )
-    parser.add_argument("--project-number", type=int, default=None, help=f"Número del proyecto (default: {PROJECT_NUMBER})")
-    parser.add_argument("--project-owner", type=str, default=None, help=f"Owner del proyecto (default: {PROJECT_OWNER})")
-    parser.add_argument("--skip-add", action="store_true", help="No intentar añadir al proyecto (más rápido si ya está)")
-    parser.add_argument("--rate-limit-delay", type=float, default=0.5, help="Delay entre issues (default: 0.5s)")
-    parser.add_argument("--quiet", action="store_true", help="Solo warnings/errores")
-    parser.add_argument("--get-fields-only", action="store_true", help="Imprime campos del proyecto en JSON y termina")
-    parser.add_argument("--use-cached-fields", help="Ruta a JSON con campos cacheados")
-    parser.add_argument("--auto-detect", action="store_true", help="Detectar campos desde el issue (desactivado por defecto)")
-    parser.add_argument("--verbose", action="store_true", help="Log DEBUG")
-    parser.add_argument("--dry-run", action="store_true", help="No aplicar cambios, solo simular")
-    
-    args = parser.parse_args()
+    parser.add_argument(
+        "--project-number",
+        type=int,
+        default=int(os.environ.get("PROJECT_NUMBER", "7")),
+        help="Número del proyecto (default: env PROJECT_NUMBER o 7)",
+    )
+    parser.add_argument(
+        "--project-owner",
+        type=str,
+        default=None,
+        help=f"Owner del proyecto (default: {PROJECT_OWNER})",
+    )
+    parser.add_argument(
+        "--skip-add",
+        action="store_true",
+        help="No intentar añadir el issue si no existe en el proyecto",
+    )
+    parser.add_argument(
+        "--rate-limit-delay",
+        type=float,
+        default=0.1,
+        help="Delay entre issues (segundos)",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Habilita logging DEBUG",
+    )
+    return parser.parse_args()
 
-    if not args.issue and not args.issues and not args.get_fields_only:
-        parser.error("Debes indicar --issue, --issues o --get-fields-only")
 
-    logging_level = logging.DEBUG if args.verbose else (logging.WARNING if args.quiet else logging.INFO)
-    logging.basicConfig(level=logging_level, format="%(asctime)s - %(levelname)s - %(message)s")
+def main() -> None:
+    """Punto de entrada CLI."""
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["gh", "auth", "token"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            token = result.stdout.strip()
-            logger.info("✓ Token obtenido desde gh CLI")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logger.error("GITHUB_TOKEN no encontrado en variables de entorno")
-            sys.exit(1)
+        raise RuntimeError("GITHUB_TOKEN no encontrado en variables de entorno")
 
     gh = GitHubGraphQL(token=token)
-    project_num = args.project_number if args.project_number is not None else PROJECT_NUMBER
-    project_owner = args.project_owner if args.project_owner else PROJECT_OWNER
-
-    cached_fields = None
-    if args.use_cached_fields:
-        with open(args.use_cached_fields, "r", encoding="utf-8") as f:
-            cached_fields = json.load(f)
-
-    if args.get_fields_only:
-        info = get_project_info(gh, project_number=project_num, project_owner=project_owner, cached_fields=cached_fields)
-        out = {
-            "project_id": info["project_id"],
-            "title": info["title"],
-            "raw_fields": info["fields"].get("nodes", []),
-        }
-        print(json.dumps(out, indent=2))
-        sys.exit(0)
-
-    project_info = get_project_info(gh, project_number=project_num, project_owner=project_owner, cached_fields=cached_fields)
-    project_id = project_info["project_id"]
-
-    issues_to_process: List[int] = []
-    if args.issue:
-        issues_to_process.append(args.issue)
-    if args.issues:
-        issues_to_process.extend(args.issues)
-
-    start_time = time.time()
-
-    items_cache = ProjectCache.get_items(project_id)
-
-    iterator = issues_to_process
-    if tqdm and not args.quiet and len(issues_to_process) > 1:
-        iterator = tqdm(issues_to_process, desc="Procesando issues")
-
-    for idx, issue_num in enumerate(iterator, start=1):
-        try:
-            sync_issue_with_project(
-                gh=gh,
-                issue_number=issue_num,
-                impact=args.impact,
-                fuente=args.fuente,
-                sprint=args.sprint,
-                status=args.status,
-                owner=args.owner,
-                kpi_objetivo=args.kpi_objetivo,
-                dqc_status=args.dqc_status,
-                project_number=project_num,
-                project_owner=project_owner,
-                auto_detect=args.auto_detect,
-                skip_add=args.skip_add,
-                items_map=items_cache,
-                dry_run=args.dry_run
-            )
-        except Exception as e:
-            logger.error(f"Error sincronizando issue {issue_num}: {e}", exc_info=args.verbose)
-        if len(issues_to_process) > 1 and idx < len(issues_to_process):
-            time.sleep(args.rate_limit_delay)
-
-    duration = time.time() - start_time
-    logger.info("Tiempo total: %.2fs (%.2fs por issue)", duration, duration / max(1, len(issues_to_process)))
+    sync_issues_batch(
+        gh=gh,
+        issues=args.issues,
+        project_number=args.project_number,
+        project_owner=args.project_owner,
+        impact=args.impact,
+        fuente=args.fuente,
+        sprint=args.sprint,
+        status=args.status,
+        owner=args.owner,
+        dqc_status=args.dqc_status,
+        kpi_objetivo=args.kpi_objetivo,
+        skip_add=args.skip_add,
+        rate_limit_delay=args.rate_limit_delay,
+    )
 
 
 if __name__ == "__main__":
