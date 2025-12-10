@@ -15,13 +15,18 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List, Callable
 
 # Añadir el directorio raíz al path para imports
 REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.github_graphql import GitHubGraphQL
+
+try:
+    from tqdm import tqdm  # type: ignore
+except ImportError:  # pragma: no cover
+    tqdm = None
 
 # Configuración
 ORG_NAME = "prototyp33"
@@ -30,6 +35,22 @@ PROJECT_NUMBER = int(os.environ.get("PROJECT_NUMBER", "1"))  # Ajustar según tu
 PROJECT_OWNER = os.environ.get("PROJECT_OWNER", ORG_NAME)  # Owner del Project V2 (user u org)
 
 logger = logging.getLogger(__name__)
+
+def run_with_retry(fn: Callable[[], Any], retries: int = 3, delay: float = 0.5) -> Any:
+    """
+    Ejecuta una función con reintentos simples.
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as exc:  # pragma: no cover - comportamiento de red
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("run_with_retry failed without exception")
 
 
 class ProjectCache:
@@ -117,7 +138,8 @@ def get_project_info(
     
     # Mapear campos para fácil acceso
     fields = {}
-    for field in project.get("fields", {}).get("nodes", []):
+    raw_nodes = project.get("fields", {}).get("nodes", [])
+    for field in raw_nodes:
         field_name = field.get("name")
         if not field_name:
             continue
@@ -145,7 +167,8 @@ def get_project_info(
     result_info = {
         "project_id": project["id"],
         "title": project.get("title", "Unknown"),
-        "fields": fields
+        "fields": fields,
+        "raw_fields": raw_nodes
     }
     if not cached_fields:
         ProjectCache.set_project_info(cache_key, result_info)
@@ -177,10 +200,10 @@ def add_issue_to_project(gh: GitHubGraphQL, project_id: str, issue_id: str) -> s
     }
     """
     
-    result = gh.execute_query(mutation, {
+    result = run_with_retry(lambda: gh.execute_query(mutation, {
         "projectId": project_id,
         "contentId": issue_id
-    })
+    }))
     
     if "errors" in result:
         # Si el issue ya está en el proyecto, obtener su item_id
@@ -239,7 +262,7 @@ def update_field(gh: GitHubGraphQL, project_id: str, item_id: str,
     }}
     """
     
-    result = gh.execute_query(mutation)
+    result = run_with_retry(lambda: gh.execute_query(mutation))
     if "errors" in result:
         logger.error(f"Error actualizando campo: {result['errors']}")
         raise ValueError(f"No se pudo actualizar el campo: {result['errors']}")
@@ -344,7 +367,8 @@ def sync_issue_with_project(
     project_owner: Optional[str] = None,
     auto_detect: bool = False,
     skip_add: bool = False,
-    items_map: Optional[Dict[int, str]] = None
+    items_map: Optional[Dict[int, str]] = None,
+    dry_run: bool = False
 ):
     """
     Sincroniza un issue con el proyecto y configura sus campos.
@@ -400,7 +424,7 @@ def sync_issue_with_project(
     if cached_items:
         item_id = cached_items.get(issue_number)
 
-    if item_id is None and not skip_add:
+    if item_id is None and not skip_add and not dry_run:
         try:
             item_id = add_issue_to_project(gh, project_id, issue_id)
             logger.info(f"✓ Issue añadido al proyecto (item_id: {item_id[:20]}...)")
@@ -430,8 +454,11 @@ def sync_issue_with_project(
             impact_options = impact_field.get("options", {})
             impact_option_id = _resolve_option(impact, impact_options)
             if impact_option_id:
-                update_field(gh, project_id, item_id, impact_field["id"], 
-                            impact_option_id, "single_select")
+                if dry_run:
+                    logger.info(f"[dry-run] Impacto -> {impact}")
+                else:
+                    update_field(gh, project_id, item_id, impact_field["id"], 
+                                impact_option_id, "single_select")
                 updated_fields.append(f"Impacto: {impact}")
             else:
                 logger.warning(f"Opción '{impact}' no encontrada en campo Impacto")
@@ -442,8 +469,11 @@ def sync_issue_with_project(
             fuente_options = fuente_field.get("options", {})
             fuente_option_id = _resolve_option(fuente, fuente_options)
             if fuente_option_id:
-                update_field(gh, project_id, item_id, fuente_field["id"],
-                            fuente_option_id, "single_select")
+                if dry_run:
+                    logger.info(f"[dry-run] Fuente -> {fuente}")
+                else:
+                    update_field(gh, project_id, item_id, fuente_field["id"],
+                                fuente_option_id, "single_select")
                 updated_fields.append(f"Fuente: {fuente}")
             else:
                 logger.warning(f"Opción '{fuente}' no encontrada en campo Fuente de Datos")
@@ -455,16 +485,22 @@ def sync_issue_with_project(
             iter_options = iteration_field.get("iterations", {})
             iter_id = _resolve_option(sprint, iter_options)
             if iter_id:
-                update_field(gh, project_id, item_id, iteration_field["id"],
-                            iter_id, "iteration")
+                if dry_run:
+                    logger.info(f"[dry-run] Iteration -> {sprint}")
+                else:
+                    update_field(gh, project_id, item_id, iteration_field["id"],
+                                iter_id, "iteration")
                 updated_fields.append(f"Iteration: {sprint}")
             else:
                 logger.warning(f"Opción '{sprint}' no encontrada en campo Iteration")
     
     if kpi_objetivo and "KPI objetivo" in fields:
         kpi_field = fields["KPI objetivo"]
-        update_field(gh, project_id, item_id, kpi_field["id"],
-                    kpi_objetivo, "text")
+        if dry_run:
+            logger.info(f"[dry-run] KPI objetivo -> {kpi_objetivo}")
+        else:
+            update_field(gh, project_id, item_id, kpi_field["id"],
+                        kpi_objetivo, "text")
         updated_fields.append("KPI objetivo")
     
     if dqc_status and "Estado DQC" in fields:
@@ -473,8 +509,11 @@ def sync_issue_with_project(
             dqc_options = dqc_field.get("options", {})
             dqc_option_id = _resolve_option(dqc_status, dqc_options)
             if dqc_option_id:
-                update_field(gh, project_id, item_id, dqc_field["id"],
-                            dqc_option_id, "single_select")
+                if dry_run:
+                    logger.info(f"[dry-run] Estado DQC -> {dqc_status}")
+                else:
+                    update_field(gh, project_id, item_id, dqc_field["id"],
+                                dqc_option_id, "single_select")
                 updated_fields.append(f"Estado DQC: {dqc_status}")
             else:
                 logger.warning(f"Opción '{dqc_status}' no encontrada en campo Estado DQC. Opciones disponibles: {list(dqc_options.keys())}")
@@ -485,8 +524,11 @@ def sync_issue_with_project(
             status_options = status_field.get("options", {})
             status_option_id = _resolve_option(status, status_options)
             if status_option_id:
-                update_field(gh, project_id, item_id, status_field["id"],
-                            status_option_id, "single_select")
+                if dry_run:
+                    logger.info(f"[dry-run] Status -> {status}")
+                else:
+                    update_field(gh, project_id, item_id, status_field["id"],
+                                status_option_id, "single_select")
                 updated_fields.append(f"Status: {status}")
             else:
                 logger.warning(f"Opción '{status}' no encontrada en campo Status. Opciones: {list(status_options.keys())}")
@@ -497,8 +539,11 @@ def sync_issue_with_project(
             owner_options = owner_field.get("options", {})
             owner_option_id = _resolve_option(owner, owner_options)
             if owner_option_id:
-                update_field(gh, project_id, item_id, owner_field["id"],
-                            owner_option_id, "single_select")
+                if dry_run:
+                    logger.info(f"[dry-run] Owner -> {owner}")
+                else:
+                    update_field(gh, project_id, item_id, owner_field["id"],
+                                owner_option_id, "single_select")
                 updated_fields.append(f"Owner: {owner}")
             else:
                 logger.warning(f"Opción '{owner}' no encontrada en campo Owner. Opciones: {list(owner_options.keys())}")
@@ -537,6 +582,7 @@ def main():
     parser.add_argument("--use-cached-fields", help="Ruta a JSON con campos cacheados")
     parser.add_argument("--auto-detect", action="store_true", help="Detectar campos desde el issue (desactivado por defecto)")
     parser.add_argument("--verbose", action="store_true", help="Log DEBUG")
+    parser.add_argument("--dry-run", action="store_true", help="No aplicar cambios, solo simular")
     
     args = parser.parse_args()
 
@@ -594,7 +640,11 @@ def main():
 
     items_cache = ProjectCache.get_items(project_id)
 
-    for idx, issue_num in enumerate(issues_to_process, start=1):
+    iterator = issues_to_process
+    if tqdm and not args.quiet and len(issues_to_process) > 1:
+        iterator = tqdm(issues_to_process, desc="Procesando issues")
+
+    for idx, issue_num in enumerate(iterator, start=1):
         try:
             sync_issue_with_project(
                 gh=gh,
@@ -610,7 +660,8 @@ def main():
                 project_owner=project_owner,
                 auto_detect=args.auto_detect,
                 skip_add=args.skip_add,
-                items_map=items_cache
+                items_map=items_cache,
+                dry_run=args.dry_run
             )
         except Exception as e:
             logger.error(f"Error sincronizando issue {issue_num}: {e}", exc_info=args.verbose)
