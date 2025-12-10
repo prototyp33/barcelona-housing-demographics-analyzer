@@ -118,8 +118,19 @@ class GitHubGraphQL:
             
             data = response.json()
             
-            # Verificar errores de GraphQL
+            # Verificar errores de GraphQL y loggear respuesta completa
             if "errors" in data:
+                # Manejo especial: org no encontrada es un caso esperado para fallback a usuario
+                org_not_found = all(
+                    err.get("type") == "NOT_FOUND"
+                    and err.get("path", [None])[0] == "organization"
+                    for err in data.get("errors", [])
+                )
+                if org_not_found:
+                    logger.info("Organization no encontrada; se continuará con fallback.")
+                    return data.get("data", {})
+
+                logger.error("Errores GraphQL: %s", json.dumps(data, indent=2))
                 error_messages = [e.get("message", "Unknown error") for e in data["errors"]]
                 raise RuntimeError(f"GraphQL errors: {', '.join(error_messages)}")
             
