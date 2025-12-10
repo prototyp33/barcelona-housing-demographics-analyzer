@@ -4,7 +4,7 @@ on:
   # Se ejecuta en cada Pull Request
   pull_request:
     types: [opened, synchronize, reopened, closed]
-  
+
   # Se ejecuta cuando se completa un workflow de tests de datos
   workflow_run:
     workflows: ["Data Quality Checks", "ETL Smoke Tests"]
@@ -25,38 +25,30 @@ jobs:
       issues: write
       pull-requests: write
       contents: read
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install dependencies
         run: |
           pip install requests
-      
+
       - name: Extract linked issues from PR
         id: extract_issues
         if: github.event_name == 'pull_request'
         run: |
           PR_BODY="${{ github.event.pull_request.body }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
-          
+
           # Buscar patrones: Closes #123, Fixes #45, Resolves #67
-          ISSUES=$(echo "$PR_BODY" | grep -oE '(Closes|Fixes|Resolves) #[0-9]+' | grep -oE '#[0-9]+' | sed 's/#//' | tr '\n' ',' | sed 's/,$//')
-          
-          if [ -z "$ISSUES" ]; then
-            echo "ISSUES=" >> $GITHUB_OUTPUT
-            echo "No issues found in PR body"
-          else
-            echo "ISSUES=$ISSUES" >> $GITHUB_OUTPUT
-            echo "Found issues: $ISSUES"
-          fi
-      
+          python -c "import os, re; body = os.environ.get('PR_BODY', ''); matches = re.findall(r'(?:Closes|Fixes|Resolves)\s+#(\d+)', body, re.IGNORECASE); issues = ','.join(matches) if matches else ''; print(f'Found issues: {matches}' if matches else 'No issues found'); with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write(f'ISSUES={issues}\n')"
+
       - name: Move issues to In Progress
         if: github.event_name == 'pull_request' && github.event.action == 'opened' && steps.extract_issues.outputs.ISSUES != ''
         env:
@@ -69,7 +61,7 @@ jobs:
               --issue "$issue_num" \
               --auto-detect || echo "⚠️ Could not sync issue #$issue_num"
           done
-      
+
       - name: Move to In Review on PR update
         if: github.event_name == 'pull_request' && (github.event.action == 'synchronize' || github.event.action == 'reopened')
         env:
@@ -78,7 +70,7 @@ jobs:
           echo "PR updated. Issues should be in 'In Review' status."
           # El movimiento de columnas se puede hacer manualmente o con más automatización
           # Por ahora, el workflow built-in de GitHub Projects maneja esto
-      
+
       - name: Move to Done on PR merge
         if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
         env:
@@ -94,25 +86,25 @@ jobs:
       repository-projects: write
       issues: write
       contents: read
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install dependencies
         run: |
           pip install requests
-      
+
       - name: Determine DQC Status
         id: dqc_status
         run: |
           WORKFLOW_CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-          
+
           if [ "$WORKFLOW_CONCLUSION" == "success" ]; then
             echo "STATUS=Passed" >> $GITHUB_OUTPUT
             echo "✅ Data Quality Checks passed"
@@ -123,7 +115,7 @@ jobs:
             echo "STATUS=Pending" >> $GITHUB_OUTPUT
             echo "⏳ Data Quality Checks pending"
           fi
-      
+
       - name: Extract issues from triggering workflow
         id: extract_workflow_issues
         run: |
@@ -132,7 +124,7 @@ jobs:
           # Por ahora, intentamos obtenerlo del PR asociado si existe
           echo "ISSUES=" >> $GITHUB_OUTPUT
           echo "Note: Issue extraction from workflow_run requires workflow outputs"
-      
+
       - name: Get PR number from workflow
         id: get_pr
         run: |
@@ -142,18 +134,18 @@ jobs:
           echo "Workflow run ID: $WORKFLOW_RUN_ID"
           # Por ahora, intentamos obtener issues desde el PR asociado
           echo "PR_NUMBER=" >> $GITHUB_OUTPUT
-      
+
       - name: Update DQC field via GraphQL
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DQC_STATUS="${{ steps.dqc_status.outputs.STATUS }}"
-          
+
           if [ -z "$DQC_STATUS" ] || [ "$DQC_STATUS" == "Pending" ]; then
             echo "⏭️ Skipping DQC update (status: $DQC_STATUS)"
             exit 0
           fi
-          
+
           echo "🔄 Updating DQC field to: $DQC_STATUS"
           echo "ℹ️  Note: Direct DQC field update requires extending project_automation.py"
           echo "   For now, update manually in Project UI or use:"
@@ -166,7 +158,7 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    
+
     steps:
       - name: Comment on related issues
         uses: actions/github-script@v7
@@ -174,7 +166,7 @@ jobs:
           script: |
             const conclusion = context.payload.workflow_run.conclusion;
             const workflowName = context.payload.workflow_run.name;
-            
+
             let message = '';
             if (conclusion === 'success') {
               message = `✅ **Data Quality Checks Passed**\n\n` +
@@ -186,7 +178,7 @@ jobs:
                         `Estado DQC has been updated to **Failed**.\n\n` +
                         `Please review the workflow logs and fix the issues.`;
             }
-            
+
             if (message) {
               // Buscar issues relacionadas (simplificado)
               // En producción, esto debería extraer issues del workflow o PR
@@ -198,4 +190,3 @@ jobs:
               //   body: message
               // });
             }
-
