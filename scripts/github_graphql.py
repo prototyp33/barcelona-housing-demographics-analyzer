@@ -119,22 +119,38 @@ class GitHubGraphQL:
             data = response.json()
             
             # Verificar errores de GraphQL
-            if "errors" in data:
-                error_details = []
-                for err in data["errors"]:
-                    msg = err.get("message", "Unknown error")
-                    # Manejar path de forma segura (puede estar vacío o no existir)
-                    path = err.get("path", [])
-                    if path and len(path) > 0:
-                        path_str = " -> ".join(str(p) for p in path)
-                        error_details.append(f"{msg} (path: {path_str})")
-                    else:
-                        error_details.append(msg)
-                
-                error_messages_str = ", ".join(error_details)
-                logger.error(f"Errores GraphQL: {error_messages_str}")
-                raise RuntimeError(f"GraphQL errors: {error_messages_str}")
+        if "errors" in data:
+            # --- PARTE 1: Manejo especial para fallback (Viene de tu rama v2) ---
+            # Manejo especial: org no encontrada es un caso esperado para fallback a usuario
+            # Acceso seguro al path para evitar IndexError si path está vacío
+            org_not_found = all(
+                err.get("type") == "NOT_FOUND"
+                and (path := err.get("path", []))
+                and len(path) > 0
+                and path[0] == "organization"
+                for err in data.get("errors", [])
+            )
+
+            if org_not_found:
+                logger.info("Organization no encontrada; se continuará con fallback.")
+                return data.get("data", {})
+
+            # --- PARTE 2: Manejo de errores estándar (Viene de main) ---
+            # Construir mensajes de error con información detallada del path
+            error_details = []
+            for err in data["errors"]:
+                msg = err.get("message", "Unknown error")
+                # Manejar path de forma segura (puede estar vacío o no existir)
+                path = err.get("path", [])
+                if path and len(path) > 0:
+                    path_str = " -> ".join(str(p) for p in path)
+                    error_details.append(f"{msg} (path: {path_str})")
+                else:
+                    error_details.append(msg)
             
+            error_messages_str = ", ".join(error_details)
+            logger.error(f"Errores GraphQL: {error_messages_str}")
+            raise RuntimeError(f"GraphQL errors: {error_messages_str}")
             # Verificar rate limiting
             if "rateLimit" in data.get("data", {}):
                 rate_limit = data["data"]["rateLimit"]
