@@ -45,16 +45,7 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          # Buscar patrones: Closes #123, Fixes #45, Resolves #67
-          ISSUES=$(echo "$PR_BODY" | grep -oE '(Closes|Fixes|Resolves) #[0-9]+' | grep -oE '#[0-9]+' | sed 's/#//' | tr '\n' ',' | sed 's/,$//')
-
-          if [ -z "$ISSUES" ]; then
-            echo "ISSUES=" >> $GITHUB_OUTPUT
-            echo "No issues found in PR body"
-          else
-            echo "ISSUES=$ISSUES" >> $GITHUB_OUTPUT
-            echo "Found issues: $ISSUES"
-          fi
+          python -c "import os, re; body = os.environ.get('PR_BODY', ''); matches = re.findall(r'(?:Closes|Fixes|Resolves)\s+#(\d+)', body, re.IGNORECASE); print(f'ISSUES={','.join(matches)}' if matches else 'ISSUES=') ; print(f'Found issues: {matches}' if matches else 'No issues found')" >> $GITHUB_OUTPUT
 
       - name: Move issues to In Progress
         if: github.event_name == 'pull_request' && github.event.action == 'opened' && steps.extract_issues.outputs.ISSUES != ''
