@@ -25,17 +25,17 @@
 
 ### Data Quality
 
-| Metric | Status | Target |
-|--------|--------|--------|
-| Data Completeness | 96.2% ✅ | ≥95% |
-| Data Validity | 98.5% ✅ | ≥98% |
-| Test Coverage | 78% ⚠️ | ≥80% |
-| Docs Coverage | 65% ⚠️ | ≥70% |
+| Metric            | Status   | Target |
+| ----------------- | -------- | ------ |
+| Data Completeness | 96.2% ✅ | ≥95%   |
+| Data Validity     | 98.5% ✅ | ≥98%   |
+| Test Coverage     | 78% ⚠️   | ≥80%   |
+| Docs Coverage     | 65% ⚠️   | ≥70%   |
 
 ### Quick Links
 
 - 📋 [Project Board](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/projects)
-- 📊 [Live Dashboard](https://barcelona-housing-analyzer.streamlit.app) *(si está desplegado)*
+- 📊 [Live Dashboard](https://barcelona-housing-analyzer.streamlit.app) _(si está desplegado)_
 - 📖 [Documentation](./docs)
 - 🐛 [Report Bug](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=bug_report.yml)
 - ✨ [Request Feature](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=feature_request.yml)
@@ -47,6 +47,7 @@ Open-source dashboard to analyze the relationship between demographic evolution 
 This project aims to consolidate demographic data and housing prices from multiple public sources (INE, Open Data BCN, Idealista) into a unified, clean, and normalized database that enables integrated analysis, statistical correlations, and interactive visualizations.
 
 **Key Objectives**:
+
 - Integrate 3+ public data sources
 - Ensure data quality: ≥95% completeness, ≥98% validity
 - Maintain historical data from 2015-2025 (10 years)
@@ -56,6 +57,7 @@ This project aims to consolidate demographic data and housing prices from multip
 For detailed vision and objectives, see [docs/01_VISION_AND_OBJECTIVES.md](docs/01_VISION_AND_OBJECTIVES.md).
 
 Additional context:
+
 - [Project Charter & Developer Profile](docs/PROJECT_CHARTER.md)
 - [Project Management Playbook](docs/PROJECT_MANAGEMENT.md)
 
@@ -92,12 +94,14 @@ barcelona-housing-demographics-analyzer/
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/yourusername/barcelona-housing-demographics-analyzer.git
 cd barcelona-housing-demographics-analyzer
 ```
 
 2. Create (or reuse) the project virtual environment and install dependencies:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
@@ -107,6 +111,7 @@ pip install -r requirements.txt
 > 💡 Tip: in VS Code/Cursor run `Python: Select Interpreter` and pick `.venv` so notebooks, tests, and the run button always use the same interpreter.
 
 3. (Optional) Set up environment variables for Idealista API:
+
 ```bash
 # Register at https://developers.idealista.com/ to get API credentials
 # Then set environment variables:
@@ -141,6 +146,7 @@ docker run -p 8501:8501 barcelona-housing-analytics
 Access the dashboard at `http://localhost:8501`.
 
 **Key Features:**
+
 - **Market Cockpit:** Real-time KPIs, Gross Yield Analysis, and YoY Price Variation.
 - **Interactive Maps:** Price distribution and Affordability heatmaps (Choropleth).
 - **Demographic Deep-dive:** Age structure, migration, and household composition.
@@ -206,6 +212,7 @@ data = extract_all_sources(
 Extracted data is automatically saved in `data/raw/` directory (organized by source in subdirectories).
 
 **Example with custom output directory:**
+
 ```bash
 python scripts/extract_data.py \
     --year-start 2015 \
@@ -247,6 +254,7 @@ python scripts/process_and_load.py \
 ```
 
 This creates `data/processed/database.db` with:
+
 - **dim_barrios**: Neighborhood dimension table (73 barrios with GeoJSON geometries)
 - **fact_demografia**: Standard demographic facts (population by year and barrio)
 - **fact_demografia_ampliada**: Extended demographics (age groups and nationality by barrio, year, sex)
@@ -255,6 +263,7 @@ This creates `data/processed/database.db` with:
 - **etl_runs**: ETL execution audit log
 
 **Query the database**:
+
 ```python
 import sqlite3
 import pandas as pd
@@ -271,7 +280,7 @@ df = pd.read_sql_query("""
 
 # Get extended demographics (age groups and nationality)
 df_ampliada = pd.read_sql_query("""
-    SELECT 
+    SELECT
         b.barrio_nombre,
         d.anio,
         d.sexo,
@@ -287,7 +296,7 @@ df_ampliada = pd.read_sql_query("""
 
 # Get rent data by barrio
 df_renta = pd.read_sql_query("""
-    SELECT 
+    SELECT
         b.barrio_nombre,
         b.distrito_nombre,
         r.anio,
@@ -302,7 +311,7 @@ df_renta = pd.read_sql_query("""
 
 # Get barrios with geometry (for mapping)
 df_geometrias = pd.read_sql_query("""
-    SELECT 
+    SELECT
         barrio_id,
         barrio_nombre,
         distrito_nombre,
@@ -345,6 +354,7 @@ make sync-issues
 ### Create a New Issue
 
 1. **Create draft** from template:
+
    ```bash
    cp docs/issues/ejemplo-issue-draft.md docs/issues/mi-nueva-issue.md
    ```
@@ -352,6 +362,7 @@ make sync-issues
 2. **Edit the draft** with your requirements
 
 3. **Validate locally**:
+
    ```bash
    make validate-issues
    # Or for a specific file:
@@ -368,6 +379,7 @@ make sync-issues
 See complete guide: [docs/BEST_PRACTICES_GITHUB_ISSUES.md](docs/BEST_PRACTICES_GITHUB_ISSUES.md)
 
 **Quick checklist:**
+
 - ✅ Descriptive title with type prefix `[FEATURE]`, `[BUG]`, `[DATA]`
 - ✅ Clear "Objetivo/Descripción" section
 - ✅ Acceptance criteria with checkboxes `- [ ]`
@@ -380,9 +392,92 @@ See complete guide: [docs/BEST_PRACTICES_GITHUB_ISSUES.md](docs/BEST_PRACTICES_G
 View current metrics: [docs/PROJECT_METRICS.md](docs/PROJECT_METRICS.md)
 
 Update metrics from GitHub:
+
 ```bash
 make sync-issues
 ```
+
+---
+
+## 🎯 Project Management Automation
+
+This project uses automated sprint planning and date assignment for efficient project management.
+
+### Sprint Organization (2025 Roadmap)
+
+The project is organized into **8 sprints** spanning January to October 2025, optimized to avoid Spanish holidays:
+
+| Sprint       | Dates           | Duration | Focus Area                  |
+| ------------ | --------------- | -------- | --------------------------- |
+| **Sprint 1** | Jan 7 - Jan 26  | 3 weeks  | Quick Wins Foundation       |
+| **Sprint 2** | Jan 27 - Mar 2  | 5 weeks  | Core ML Engine              |
+| **Sprint 3** | Mar 3 - Apr 13  | 6 weeks  | Data Expansion (pre-Easter) |
+| **Sprint 4** | Apr 21 - Jun 1  | 6 weeks  | Differentiation Showcase    |
+| **Sprint 5** | Jun 2 - Jun 29  | 4 weeks  | Dashboard Polish            |
+| **Sprint 6** | Jun 30 - Jul 27 | 4 weeks  | Testing & QA                |
+| **Sprint 7** | Sep 1 - Sep 28  | 4 weeks  | Advanced Features           |
+| **Sprint 8** | Sep 29 - Oct 26 | 4 weeks  | Documentation & Launch      |
+
+> **Note:** August is intentionally left free for summer holidays. Easter week (Apr 13-20) is also avoided.
+
+### Bulk Sprint Date Assignment
+
+Automate the assignment of sprint dates to GitHub issues:
+
+```bash
+# Show sprint calendar with all dates
+python scripts/bulk_add_sprint_dates.py --show-calendar
+
+# Preview changes (critical issues only) - RECOMMENDED FIRST
+python scripts/bulk_add_sprint_dates.py --dry-run --critical-only
+
+# Preview all changes
+python scripts/bulk_add_sprint_dates.py --dry-run
+
+# Apply to critical issues (7 epic issues)
+python scripts/bulk_add_sprint_dates.py --apply --critical-only
+
+# Apply to all issues with sprint labels
+python scripts/bulk_add_sprint_dates.py --apply
+
+# Process a specific sprint
+python scripts/bulk_add_sprint_dates.py --dry-run --sprint sprint-1
+```
+
+**How it works:**
+
+1. Script reads issue labels (`sprint-1`, `sprint-2`, etc.)
+2. Automatically assigns start/end dates based on the roadmap calendar
+3. Updates GitHub Projects v2 custom fields (Start Date, End Date)
+4. Generates detailed reports and logs
+
+**Requirements:**
+
+- Issues must be tagged with sprint labels (`sprint-1` through `sprint-8`)
+- Issues must be added to [GitHub Project #7](https://github.com/users/prototyp33/projects/7)
+- GitHub token with `repo` and `project` scopes
+
+**Setup GitHub Token:**
+
+```bash
+# Option 1: Using gh CLI
+gh auth login
+export GITHUB_TOKEN=$(gh auth token)
+
+# Option 2: Manual token creation
+# 1. Go to https://github.com/settings/tokens/new
+# 2. Select scopes: repo, project
+# 3. Generate and export
+export GITHUB_TOKEN="ghp_your_token_here"
+```
+
+### Critical Epic Issues
+
+The following issues are flagged as critical epics for priority focus:
+
+- #91, #87, #89, #123, #92, #93, #95
+
+These align with Sprint 1-2 milestones and are essential for the Quick Wins Foundation.
 
 ---
 
