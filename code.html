@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Barcelona Housing Analysis Dashboard</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#E85002", // Branding orange from reference
+                        "primary-hover": "#C14302",
+                        "background-light": "#F3F4F6", // Light gray for light mode
+                        "background-dark": "#0A0A0A", // Near black for dark mode
+                        "surface-light": "#FFFFFF",
+                        "surface-dark": "#18181B", // Dark gray for card backgrounds
+                        "text-light-primary": "#1F2937",
+                        "text-dark-primary": "#F9F9F9",
+                        "text-light-secondary": "#6B7280",
+                        "text-dark-secondary": "#9CA3AF",
+                    },
+                    fontFamily: {
+                        display: ["Inter", "sans-serif"],
+                        sans: ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "1rem", // rounded-2xl feel from reference
+                        "xl": "1rem",
+                        "2xl": "1.5rem",
+                    },
+                },
+            },
+        };
+    </script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4B5563;
+        }
+        .glass-effect {
+            background: rgba(24, 24, 27, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-sans transition-colors duration-300 antialiased min-h-screen">
+<div class="flex h-screen overflow-hidden">
+<aside class="w-64 flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-surface-light dark:bg-surface-dark hidden md:flex flex-col justify-between">
+<div>
+<div class="h-20 flex items-center px-8 border-b border-gray-100 dark:border-gray-800">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-orange-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-orange-500/30">B</div>
+<span class="text-xl font-bold tracking-tight text-text-light-primary dark:text-text-dark-primary">Bcn<span class="text-primary">Data</span></span>
+</div>
+</div>
+<nav class="mt-6 px-4 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 bg-primary/10 text-primary rounded-xl transition-all duration-200 group" href="#">
+<span class="material-icons-round text-xl">dashboard</span>
+<span class="font-medium">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-text-light-secondary dark:text-text-dark-secondary hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all duration-200 group" href="#">
+<span class="material-icons-round text-xl group-hover:text-primary transition-colors">map</span>
+<span class="font-medium">Districts</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-text-light-secondary dark:text-text-dark-secondary hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all duration-200 group" href="#">
+<span class="material-icons-round text-xl group-hover:text-primary transition-colors">trending_up</span>
+<span class="font-medium">Market Trends</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-text-light-secondary dark:text-text-dark-secondary hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all duration-200 group" href="#">
+<span class="material-icons-round text-xl group-hover:text-primary transition-colors">analytics</span>
+<span class="font-medium">Analytics</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-text-light-secondary dark:text-text-dark-secondary hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all duration-200 group" href="#">
+<span class="material-icons-round text-xl group-hover:text-primary transition-colors">settings</span>
+<span class="font-medium">Settings</span>
+</a>
+</nav>
+</div>
+<div class="p-4 border-t border-gray-100 dark:border-gray-800">
+<div class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors">
+<img alt="User avatar" class="w-10 h-10 rounded-full border-2 border-white dark:border-gray-700" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtNiJUfCDhVWN_qF2yZ5ixlEEJe-nj6Ky6YzZdcu2EBNPHmr1uPogjlCQqdOcShQX5cvmUCLj9DzqeJv0lfRYu-k4algswrDqxDzZ9z7Y02PFgeNDYy6oI4ZrCm0zd_MpEUl9qjKhJgHuk1CZy-ZBUrjxSvfiQxI3rGZxhxBgkD-sFzRkcXnbuM0v3oNgXXzRa7fgpKo1_zmn-j578qX7MBoz6lm2Cb9G-2ejrh09yfBesUj9BSj-eBDwX4X8jJ0tuA7dAhFSP9X7p"/>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold text-text-light-primary dark:text-text-dark-primary truncate">Alex Morgan</p>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary truncate">Data Analyst</p>
+</div>
+<span class="material-icons-round text-gray-400">more_vert</span>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col h-screen overflow-hidden relative">
+<header class="h-20 flex items-center justify-between px-8 bg-surface-light/80 dark:bg-surface-dark/80 backdrop-blur-md sticky top-0 z-20 border-b border-gray-200 dark:border-gray-800">
+<div class="flex items-center gap-4">
+<button class="md:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+<span class="material-icons-round">menu</span>
+</button>
+<div>
+<h1 class="text-2xl font-bold text-text-light-primary dark:text-text-dark-primary">Housing Overview</h1>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Updated: March 17th, 2024</p>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden md:flex items-center bg-gray-100 dark:bg-black/40 rounded-xl px-4 py-2.5 border border-transparent focus-within:border-primary transition-all w-64">
+<span class="material-icons-round text-gray-400 text-sm mr-2">search</span>
+<input class="bg-transparent border-none outline-none text-sm text-text-light-primary dark:text-text-dark-primary w-full placeholder-gray-500 focus:ring-0" placeholder="Search district or street..." type="text"/>
+</div>
+<button class="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary transition-colors" id="theme-toggle">
+<span class="material-icons-round text-xl dark:hidden">dark_mode</span>
+<span class="material-icons-round text-xl hidden dark:block">light_mode</span>
+</button>
+<button class="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-primary dark:text-gray-400 dark:hover:text-primary transition-colors relative">
+<span class="material-icons-round text-xl">notifications</span>
+<span class="absolute top-2 right-2.5 w-2 h-2 bg-primary rounded-full"></span>
+</button>
+</div>
+</header>
+<div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 hover:border-primary/50 transition-all duration-300 group">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-sm font-medium text-text-light-secondary dark:text-text-dark-secondary">Average Rent Price</p>
+<h3 class="text-3xl font-bold text-text-light-primary dark:text-text-dark-primary mt-1">€1,450<span class="text-lg text-gray-400 font-normal">/mo</span></h3>
+</div>
+<div class="p-3 rounded-xl bg-orange-100 dark:bg-primary/10 text-primary group-hover:scale-110 transition-transform">
+<span class="material-icons-round">euro</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="flex items-center text-xs font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded-md">
+<span class="material-icons-round text-sm mr-0.5">trending_up</span> +5.2%
+                            </span>
+<span class="text-xs text-text-light-secondary dark:text-text-dark-secondary">vs last month</span>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 hover:border-primary/50 transition-all duration-300 group">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-sm font-medium text-text-light-secondary dark:text-text-dark-secondary">Avg. Sale Price</p>
+<h3 class="text-3xl font-bold text-text-light-primary dark:text-text-dark-primary mt-1">€4,120<span class="text-lg text-gray-400 font-normal">/m²</span></h3>
+</div>
+<div class="p-3 rounded-xl bg-orange-100 dark:bg-primary/10 text-primary group-hover:scale-110 transition-transform">
+<span class="material-icons-round">home</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="flex items-center text-xs font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded-md">
+<span class="material-icons-round text-sm mr-0.5">trending_up</span> +2.4%
+                            </span>
+<span class="text-xs text-text-light-secondary dark:text-text-dark-secondary">vs last year</span>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 hover:border-primary/50 transition-all duration-300 group">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-sm font-medium text-text-light-secondary dark:text-text-dark-secondary">Available Listings</p>
+<h3 class="text-3xl font-bold text-text-light-primary dark:text-text-dark-primary mt-1">8,642</h3>
+</div>
+<div class="p-3 rounded-xl bg-orange-100 dark:bg-primary/10 text-primary group-hover:scale-110 transition-transform">
+<span class="material-icons-round">inventory_2</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="flex items-center text-xs font-bold text-red-500 bg-red-500/10 px-2 py-1 rounded-md">
+<span class="material-icons-round text-sm mr-0.5">trending_down</span> -1.2%
+                            </span>
+<span class="text-xs text-text-light-secondary dark:text-text-dark-secondary">inventory drop</span>
+</div>
+</div>
+<div class="bg-gradient-to-br from-gray-800 to-black p-6 rounded-2xl shadow-lg border border-gray-700 relative overflow-hidden group">
+<div class="absolute -right-6 -top-6 w-32 h-32 bg-primary blur-[60px] opacity-40 group-hover:opacity-60 transition-opacity"></div>
+<div class="relative z-10">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-sm font-medium text-gray-300">ROI Potential</p>
+<h3 class="text-3xl font-bold text-white mt-1">6.8%</h3>
+</div>
+<div class="p-3 rounded-xl bg-white/10 text-white backdrop-blur-sm">
+<span class="material-icons-round">pie_chart</span>
+</div>
+</div>
+<div class="w-full bg-gray-700 rounded-full h-1.5 mb-2 mt-4">
+<div class="bg-primary h-1.5 rounded-full" style="width: 75%"></div>
+</div>
+<p class="text-xs text-gray-400">High yield in <span class="text-primary font-semibold">Sant Martí</span></p>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 bg-surface-light dark:bg-surface-dark p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+<div class="flex justify-between items-center mb-6">
+<div>
+<h3 class="text-lg font-bold text-text-light-primary dark:text-text-dark-primary">Price Evolution</h3>
+<p class="text-sm text-text-light-secondary dark:text-text-dark-secondary">Average price per m² over last 12 months</p>
+</div>
+<select class="bg-gray-100 dark:bg-black/30 border-none text-sm rounded-lg px-3 py-2 text-text-light-primary dark:text-text-dark-primary focus:ring-1 focus:ring-primary outline-none">
+<option>All Districts</option>
+<option>Eixample</option>
+<option>Gràcia</option>
+<option>Ciutat Vella</option>
+</select>
+</div>
+<div class="h-72 w-full relative">
+<canvas id="priceChart"></canvas>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-lg font-bold text-text-light-primary dark:text-text-dark-primary">Top Districts</h3>
+<button class="text-primary text-sm font-medium hover:underline">View All</button>
+</div>
+<div class="flex-1 space-y-4 overflow-y-auto pr-1">
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg font-bold text-text-light-primary dark:text-text-dark-primary">1</div>
+<div>
+<h4 class="font-semibold text-text-light-primary dark:text-text-dark-primary">Sarrià-Sant Gervasi</h4>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Premium Zone</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-bold text-text-light-primary dark:text-text-dark-primary">€5,450</p>
+<p class="text-xs text-green-500">+1.2%</p>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg font-bold text-text-light-primary dark:text-text-dark-primary">2</div>
+<div>
+<h4 class="font-semibold text-text-light-primary dark:text-text-dark-primary">Eixample</h4>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">City Center</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-bold text-text-light-primary dark:text-text-dark-primary">€4,890</p>
+<p class="text-xs text-green-500">+3.5%</p>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg font-bold text-text-light-primary dark:text-text-dark-primary">3</div>
+<div>
+<h4 class="font-semibold text-text-light-primary dark:text-text-dark-primary">Les Corts</h4>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Business Hub</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-bold text-text-light-primary dark:text-text-dark-primary">€4,210</p>
+<p class="text-xs text-red-500">-0.4%</p>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg font-bold text-text-light-primary dark:text-text-dark-primary">4</div>
+<div>
+<h4 class="font-semibold text-text-light-primary dark:text-text-dark-primary">Gràcia</h4>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Bohemian</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-bold text-text-light-primary dark:text-text-dark-primary">€3,950</p>
+<p class="text-xs text-green-500">+8.1%</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-6">
+<div class="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col h-80 relative overflow-hidden group">
+<div class="absolute inset-0 bg-gray-200 dark:bg-gray-800">
+<div class="w-full h-full opacity-30 dark:opacity-20 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-500 via-gray-900 to-black"></div>
+<div class="absolute top-1/3 left-1/4 w-3 h-3 bg-primary rounded-full animate-pulse shadow-[0_0_15px_rgba(232,80,2,0.8)]"></div>
+<div class="absolute top-1/2 left-1/2 w-4 h-4 bg-white rounded-full border-4 border-primary shadow-lg"></div>
+<div class="absolute bottom-1/3 right-1/4 w-3 h-3 bg-primary rounded-full animate-pulse shadow-[0_0_15px_rgba(232,80,2,0.8)]"></div>
+</div>
+<div class="relative z-10 flex justify-between items-start pointer-events-none">
+<h3 class="text-lg font-bold text-text-light-primary dark:text-text-dark-primary bg-surface-light/80 dark:bg-surface-dark/80 backdrop-blur-sm px-3 py-1 rounded-lg">Geographic Heatmap</h3>
+<button class="bg-surface-light dark:bg-surface-dark hover:bg-gray-100 dark:hover:bg-gray-700 text-text-light-primary dark:text-text-dark-primary p-2 rounded-lg shadow-sm pointer-events-auto transition-colors">
+<span class="material-icons-round">open_in_full</span>
+</button>
+</div>
+<div class="mt-auto relative z-10 pointer-events-none">
+<div class="bg-surface-light/90 dark:bg-surface-dark/90 backdrop-blur-md p-3 rounded-xl border border-gray-200 dark:border-gray-700 inline-block">
+<p class="text-xs font-semibold text-text-light-primary dark:text-text-dark-primary">Highest Demand</p>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Carrer d'Enric Granados</p>
+</div>
+</div>
+</div>
+<div class="lg:col-span-2 bg-surface-light dark:bg-surface-dark p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+<div class="flex flex-col md:flex-row gap-8 items-center h-full">
+<div class="w-full md:w-1/3 flex justify-center relative">
+<div class="w-48 h-48">
+<canvas id="typeChart"></canvas>
+</div>
+<div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+<span class="text-2xl font-bold text-text-light-primary dark:text-text-dark-primary">12k</span>
+<span class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Total Units</span>
+</div>
+</div>
+<div class="w-full md:w-2/3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+<div class="flex items-center gap-2 mb-2">
+<span class="w-3 h-3 rounded-full bg-primary"></span>
+<span class="text-sm font-semibold text-text-light-primary dark:text-text-dark-primary">Apartments</span>
+</div>
+<p class="text-2xl font-bold text-text-light-primary dark:text-text-dark-primary">65%</p>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Avg. 85m² • 2.5 Beds</p>
+</div>
+<div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+<div class="flex items-center gap-2 mb-2">
+<span class="w-3 h-3 rounded-full bg-orange-400"></span>
+<span class="text-sm font-semibold text-text-light-primary dark:text-text-dark-primary">Penthouses</span>
+</div>
+<p class="text-2xl font-bold text-text-light-primary dark:text-text-dark-primary">15%</p>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Avg. 120m² • Terrace</p>
+</div>
+<div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+<div class="flex items-center gap-2 mb-2">
+<span class="w-3 h-3 rounded-full bg-gray-500"></span>
+<span class="text-sm font-semibold text-text-light-primary dark:text-text-dark-primary">Studios</span>
+</div>
+<p class="text-2xl font-bold text-text-light-primary dark:text-text-dark-primary">12%</p>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Avg. 35m² • 1 Bed</p>
+</div>
+<div class="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+<div class="flex items-center gap-2 mb-2">
+<span class="w-3 h-3 rounded-full bg-gray-700"></span>
+<span class="text-sm font-semibold text-text-light-primary dark:text-text-dark-primary">Houses</span>
+</div>
+<p class="text-2xl font-bold text-text-light-primary dark:text-text-dark-primary">8%</p>
+<p class="text-xs text-text-light-secondary dark:text-text-dark-secondary">Avg. 150m² • Garden</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<script>
+        // Toggle Dark Mode
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        // Check for saved theme or default to dark (as requested by context)
+        if (localStorage.theme === 'light' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+            document.documentElement.classList.remove('dark')
+        } else {
+            document.documentElement.classList.add('dark')
+        }
+        themeToggleBtn.addEventListener('click', () => {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+            updateCharts(); // Refresh chart colors on theme change
+        });
+        // Chart Configuration
+        const chartColorPrimary = '#E85002';
+        const getChartColors = () => {
+            const isDark = document.documentElement.classList.contains('dark');
+            return {
+                grid: isDark ? '#333333' : '#e5e7eb',
+                text: isDark ? '#9CA3AF' : '#6B7280',
+                tooltipBg: isDark ? '#18181B' : '#FFFFFF',
+                tooltipText: isDark ? '#FFFFFF' : '#000000',
+            };
+        };
+        // Initialize Charts
+        let priceChartInstance = null;
+        let typeChartInstance = null;
+        function initCharts() {
+            const colors = getChartColors();
+            // Line Chart
+            const ctx1 = document.getElementById('priceChart').getContext('2d');
+            // Gradient fill
+            let gradient = ctx1.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(232, 80, 2, 0.4)');
+            gradient.addColorStop(1, 'rgba(232, 80, 2, 0)');
+            priceChartInstance = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                    datasets: [{
+                        label: 'Price per m²',
+                        data: [3800, 3850, 3900, 3880, 3950, 4050, 4100, 4080, 4120, 4150, 4200, 4250],
+                        borderColor: chartColorPrimary,
+                        backgroundColor: gradient,
+                        borderWidth: 3,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: chartColorPrimary,
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: colors.tooltipBg,
+                            titleColor: colors.tooltipText,
+                            bodyColor: colors.tooltipText,
+                            borderColor: colors.grid,
+                            borderWidth: 1,
+                            padding: 10,
+                            displayColors: false,
+                            titleFont: { family: 'Inter', size: 13 },
+                            bodyFont: { family: 'Inter', size: 13, weight: 'bold' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: colors.grid, borderDash: [5, 5] },
+                            ticks: { color: colors.text, font: { family: 'Inter' } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: colors.text, font: { family: 'Inter' } }
+                        }
+                    }
+                }
+            });
+            // Doughnut Chart
+            const ctx2 = document.getElementById('typeChart').getContext('2d');
+            typeChartInstance = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Apartments', 'Penthouses', 'Studios', 'Houses'],
+                    datasets: [{
+                        data: [65, 15, 12, 8],
+                        backgroundColor: [
+                            chartColorPrimary,
+                            '#FB923C', // lighter orange
+                            '#6B7280', // gray
+                            '#374151'  // dark gray
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: colors.tooltipBg,
+                            titleColor: colors.tooltipText,
+                            bodyColor: colors.tooltipText,
+                            borderColor: colors.grid,
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function(context) {
+                                    return ' ' + context.label + ': ' + context.raw + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        function updateCharts() {
+            if (priceChartInstance) priceChartInstance.destroy();
+            if (typeChartInstance) typeChartInstance.destroy();
+            initCharts();
+        }
+        // Init on load
+        window.addEventListener('load', initCharts);
+    </script>
+
+</body></html>
