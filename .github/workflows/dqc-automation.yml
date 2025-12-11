@@ -43,11 +43,20 @@ jobs:
         id: extract_issues
         if: github.event_name == 'pull_request'
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
+          python - <<'PY'
+          import os
+          import re
 
-          # Buscar patrones: Closes #123, Fixes #45, Resolves #67
-          python -c "import os, re; body = os.environ.get('PR_BODY', ''); matches = re.findall(r'(?:Closes|Fixes|Resolves)\s+#(\d+)', body, re.IGNORECASE); issues = ','.join(matches) if matches else ''; print(f'Found issues: {matches}' if matches else 'No issues found'); with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write(f'ISSUES={issues}\n')"
+          body = """${{ github.event.pull_request.body }}"""
+          matches = re.findall(r"(?:Closes|Fixes|Resolves)\s+#(\d+)", body, re.IGNORECASE)
+          issues = ",".join(matches) if matches else ""
+          if matches:
+              print(f"Found issues: {matches}")
+          else:
+              print("No issues found")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"ISSUES={issues}\n")
+          PY
 
       - name: Move issues to In Progress
         if: github.event_name == 'pull_request' && github.event.action == 'opened' && steps.extract_issues.outputs.ISSUES != ''
