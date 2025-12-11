@@ -120,13 +120,12 @@ class GitHubGraphQL:
             
             # Verificar errores de GraphQL
             if "errors" in data:
-                # --- PARTE 1: Manejo especial para fallback (Viene de tu rama v2) ---
-                # Manejo especial: org no encontrada es un caso esperado para fallback a usuario
-                # Acceso seguro al path para evitar IndexError si path está vacío
+                # --- PARTE 1: Manejo especial para fallback (rama v2) ---
+                # Manejo especial: org no encontrada es un caso esperado para fallback a usuario.
+                # Acceso seguro al path para evitar IndexError si path está vacío.
                 org_not_found = all(
                     err.get("type") == "NOT_FOUND"
-                    and (path := err.get("path", []))
-                    and len(path) > 0
+                    and (path := (err.get("path") or []))
                     and path[0] == "organization"
                     for err in data.get("errors", [])
                 )
