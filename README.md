@@ -121,9 +121,47 @@ export IDEALISTA_API_SECRET=your_api_secret_here
 
 ### 🏠 Interactive Dashboard (The Cockpit)
 
-The project features a modern, modular Streamlit dashboard for visual analysis.
+The project features **two frontend options** for visual analysis:
 
-#### Run Locally
+#### Option 1: React Dashboard (Modern SPA) ⭐ **New**
+
+Modern, production-ready single-page application built with React + TypeScript + Vite.
+
+**Features**:
+
+- 🎯 Fast development with hot module replacement
+- 📊 Advanced charts with Recharts
+- 🗺️ Interactive maps with React Leaflet
+- 🔄 Smart data caching with React Query
+- 🎨 Responsive design and dark mode support
+
+**Quick Start**:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+
+# Access at http://localhost:5173
+```
+
+**Production Build**:
+
+```bash
+cd dashboard
+npm run build
+npm run preview
+```
+
+For detailed setup, architecture, and API integration, see [dashboard/README.md](dashboard/README.md).
+
+---
+
+#### Option 2: Streamlit Dashboard (Rapid Prototyping)
+
+Modular Streamlit dashboard for quick data exploration and prototyping.
+
+**Run Locally**:
 
 ```bash
 # Opción 1: Usando Makefile (recomendado)
