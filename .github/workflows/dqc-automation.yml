@@ -13,7 +13,7 @@ on:
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  PROJECT_NUMBER: 7
+  PROJECT_NUMBER: 1
   ORG_NAME: prototyp33
 
 jobs:
@@ -42,23 +42,24 @@ jobs:
       - name: Extract linked issues from PR
         id: extract_issues
         if: github.event_name == 'pull_request'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          # Buscar patrones: Closes #123, Fixes #45, Resolves #67
           python -c "import os, re; body = os.environ.get('PR_BODY', ''); matches = re.findall(r'(?:Closes|Fixes|Resolves)\s+#(\d+)', body, re.IGNORECASE); issues = ','.join(matches) if matches else ''; print(f'Found issues: {matches}' if matches else 'No issues found'); with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write(f'ISSUES={issues}\n')"
 
       - name: Move issues to In Progress
         if: github.event_name == 'pull_request' && github.event.action == 'opened' && steps.extract_issues.outputs.ISSUES != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IFS=',' read -ra ISSUE_ARRAY <<< "${{ steps.extract_issues.outputs.ISSUES }}"
           for issue_num in "${ISSUE_ARRAY[@]}"; do
             echo "Moving issue #$issue_num to In Progress..."
             python .github/scripts/project_automation.py \
-              --issues "$issue_num" \
-              --status "In Progress" \
-              --project-number ${{ env.PROJECT_NUMBER }} || echo "⚠️ Could not sync issue #$issue_num"
+              --issue "$issue_num" \
+              --auto-detect || echo "⚠️ Could not sync issue #$issue_num"
           done
 
       - name: Move to In Review on PR update
