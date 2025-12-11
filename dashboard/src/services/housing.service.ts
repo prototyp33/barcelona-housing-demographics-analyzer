@@ -2,8 +2,8 @@
  * Housing Prices & Rent API Service
  */
 import apiClient from './api';
-import { HousingPrice, Rent } from '@/types/api.types';
-import { Filter } from '@/types/common.types';
+import type { HousingPrice, Rent } from '@/types/api.types';
+import type { Filter } from '@/types/common.types';
 
 export const housingService = {
   /**

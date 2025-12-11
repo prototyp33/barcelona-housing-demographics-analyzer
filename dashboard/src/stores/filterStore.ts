@@ -3,7 +3,7 @@
  * Manages application-wide filter state
  */
 import { create } from 'zustand';
-import { Filter, YearRange } from '@/types/common.types';
+import type { Filter, YearRange } from '@/types/common.types';
 
 interface FilterState {
   filters: Filter;
