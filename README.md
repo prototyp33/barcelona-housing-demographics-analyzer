@@ -40,6 +40,53 @@
 - 🐛 [Report Bug](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=bug_report.yml)
 - ✨ [Request Feature](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=feature_request.yml)
 
+## 🗺️ Roadmap 2026
+
+```mermaid
+gantt
+    title Barcelona Housing Platform - Roadmap Q1-Q2 2026
+    dateFormat YYYY-MM-DD
+    
+    section SPIKE
+    Data Validation           :spike, 2025-12-16, 5d
+    
+    section v2.0 Foundation
+    PostgreSQL Setup          :data1, 2026-01-06, 1w
+    Schema v2.0               :data2, after data1, 1w
+    ETL Extractors            :etl1, after data1, 2w
+    Hedonic Model             :an1, after etl1, 2w
+    Dashboard MVP             :viz1, after an1, 1w
+    Deployment                :infra1, after viz1, 3d
+    v2.0 Release              :milestone, 2026-01-27, 0d
+    
+    section v2.1 Analytics
+    Diff-in-Diff Analysis     :an2, 2026-01-27, 2w
+    Regulatory Impact Page    :viz2, after an2, 1w
+    INCASÒL Integration       :etl2, 2026-02-03, 1w
+    Expand to 40 Barrios      :data3, 2026-02-10, 1w
+    v2.1 Release              :milestone, 2026-02-24, 0d
+    
+    section v2.2 Polish
+    UX Redesign               :ux1, 2026-02-24, 2w
+    Performance Optimization  :perf1, after ux1, 1w
+    Testing Suite             :test1, after ux1, 1w
+    v2.2 Release              :milestone, 2026-03-24, 0d
+    
+    section v2.3 Coverage
+    Complete 73 Barrios       :data4, 2026-03-24, 2w
+    Data Quality Monitoring   :dq1, after data4, 1w
+    Automated Refresh         :etl3, after dq1, 1w
+    v2.3 Release              :milestone, 2026-04-21, 0d
+    
+    section v3.0 API
+    FastAPI Implementation    :api1, 2026-04-21, 2w
+    Investment Scoring        :an3, after api1, 2w
+    API Documentation         :docs2, after api1, 1w
+    v3.0 Release              :milestone, 2026-05-26, 0d
+```
+
+For detailed roadmap, see [ROADMAP.md](./ROADMAP.md).
+
 Open-source dashboard to analyze the relationship between demographic evolution and housing prices in Barcelona.
 
 ## 📋 Vision and Objectives
