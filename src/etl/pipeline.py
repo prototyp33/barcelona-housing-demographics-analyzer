@@ -191,6 +191,18 @@ def run_etl(
         if renta_path is None:
             renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
         
+        # Descubrir archivos de IDESCAT renta (fuente alternativa/complementaria)
+        idescat_dir = raw_base_dir / "idescat"
+        idescat_renta_path = None
+        if use_manifest:
+            idescat_renta_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "renta", source="idescat"
+            )
+        if idescat_renta_path is None and idescat_dir.exists():
+            # Buscar archivos más completos (2015-2023) primero
+            idescat_renta_path = _find_latest_file(idescat_dir, "idescat_renta_2015_20*.csv")
+
+        
         venta_path = None
         alquiler_path = None
         
@@ -380,12 +392,15 @@ def run_etl(
             portaldades_alquiler=portaldades_alquiler_df,
         )
         
-        # Procesar renta si está disponible
+        # Procesar renta si está disponible (OpenDataBCN y/o IDESCAT)
         fact_renta = None
+        fact_renta_frames = []
+        
+        # Procesar renta de OpenDataBCN si está disponible
         if renta_df is not None and not renta_df.empty:
-            logger.info("Procesando datos de renta...")
+            logger.info("Procesando datos de renta de OpenDataBCN...")
             try:
-                fact_renta = data_processing.prepare_renta_barrio(
+                fact_renta_opendatabcn = data_processing.prepare_renta_barrio(
                     renta_df,
                     dim_barrios,
                     dataset_id=dataset_renta_id,
@@ -393,10 +408,59 @@ def run_etl(
                     source="opendatabcn",
                     metric="mean",
                 )
-                logger.info("✓ Renta procesada: %s registros", len(fact_renta))
+                if not fact_renta_opendatabcn.empty:
+                    fact_renta_frames.append(fact_renta_opendatabcn)
+                    logger.info("✓ Renta OpenDataBCN procesada: %s registros", len(fact_renta_opendatabcn))
             except Exception as e:
-                handle_source_error("renta", e, context="procesamiento")
-                fact_renta = None
+                handle_source_error("renta_opendatabcn", e, context="procesamiento")
+        
+        # Procesar renta de IDESCAT si está disponible
+        if idescat_renta_path and idescat_renta_path.exists():
+            logger.info("Procesando datos de renta de IDESCAT...")
+            try:
+                idescat_renta_df = _safe_read_csv(idescat_renta_path)
+                if not idescat_renta_df.empty:
+                    fact_renta_idescat = data_processing.load_idescat_income(
+                        idescat_renta_df,
+                        dim_barrios,
+                        dataset_id="idescat_renta_bruta_barrio",
+                        reference_time=reference_time,
+                        source="idescat",
+                    )
+                    if not fact_renta_idescat.empty:
+                        fact_renta_frames.append(fact_renta_idescat)
+                        logger.info("✓ Renta IDESCAT procesada: %s registros", len(fact_renta_idescat))
+            except Exception as e:
+                handle_source_error("renta_idescat", e, context="procesamiento")
+        
+        # Combinar fuentes de renta si hay múltiples
+        if fact_renta_frames:
+            if len(fact_renta_frames) == 1:
+                fact_renta = fact_renta_frames[0]
+            else:
+                # Combinar y priorizar IDESCAT (más completo y reciente)
+                fact_renta = pd.concat(fact_renta_frames, ignore_index=True, sort=False)
+                # Deduplicar: preferir IDESCAT sobre OpenDataBCN  
+                fact_renta = (
+                    fact_renta.sort_values(["barrio_id", "anio", "source"], 
+                                          ascending=[True, True, False])  # 'idescat' < 'opendatabcn' alfabéticamente
+                    .drop_duplicates(subset=["barrio_id", "anio"], keep="first")
+                    .reset_index(drop=True)
+                )
+                logger.info(
+                    "✓ Renta combinada de múltiples fuentes: %s registros totales",
+                    len(fact_renta)
+                )
+        
+        if fact_renta is not None:
+            logger.info(
+                "Renta final: %s registros (%s barrios, años %s-%s)",
+                len(fact_renta),
+                fact_renta["barrio_id"].nunique(),
+                fact_renta["anio"].min(),
+                fact_renta["anio"].max(),
+            )
+
         
         # Procesar datos de Idealista si están disponibles
         fact_oferta_idealista = None
@@ -479,6 +543,8 @@ def run_etl(
                 "venta_file": venta_path.name if venta_path else None,
                 "alquiler_file": alquiler_path.name if alquiler_path else None,
                 "renta_file": renta_path.name if renta_path else None,
+                "idescat_renta_file": idescat_renta_path.name if idescat_renta_path and idescat_renta_path.exists() else None,
+
                 "geojson_file": geojson_path.name if geojson_path else None,
                 "idealista_venta_file": idealista_venta_path.name if idealista_venta_path and idealista_venta_path.exists() else None,
                 "idealista_rent_file": idealista_rent_path.name if idealista_rent_path and idealista_rent_path.exists() else None,

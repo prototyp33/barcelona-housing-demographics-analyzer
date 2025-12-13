@@ -6,7 +6,7 @@
 
 ## Quick Links
 
-- [Master Tracker Issue](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/139)
+- [Master Tracker Issue](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/198)
 - [Viability Report](outputs/reports/VIABILITY_REPORT.pdf) (pending)
 - [Decision Record](outputs/reports/DECISION_RECORD.md) (pending)
 - [Main Notebook](notebooks/01-gracia-hedonic-model.ipynb)

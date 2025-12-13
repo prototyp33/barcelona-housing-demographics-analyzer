@@ -588,3 +588,14 @@ Para mantener la calidad y el orden en el proyecto, consulta nuestras guías ofi
 - [Project Milestones](docs/PROJECT_MILESTONES.md) - Development roadmap
 - [Next Steps](docs/NEXT_STEPS.md) - Immediate action plan and recommendations
 - [Debugging Datasets](docs/DEBUGGING_DATASETS.md) - Guide for investigating CKAN datasets
+
+### 🏗️ Arquitectura de Datos
+
+- **[Architecture v2.0 Expansion](docs/architecture/ARCHITECTURE_V2_EXPANSION.md)** ⭐ - Propuesta de expansión con 33 variables adicionales
+- **[Database Schema v2.0](docs/architecture/DATABASE_SCHEMA_V2.md)** - Schema PostgreSQL + PostGIS
+- **[Data Flow Architecture](docs/architecture/DATA_FLOW.md)** - Flujo completo de datos
+- **[ETL Pipeline Architecture](docs/architecture/ETL_PIPELINE.md)** - Arquitectura del pipeline ETL
+- **[Hedonic Variables Catalog](docs/modeling/HEDONIC_VARIABLES.md)** - Catálogo completo de variables del modelo
+- **[Model Specification v2.0](docs/modeling/MODEL_SPECIFICATION_V2.md)** - Especificación técnica del modelo hedónico
+- **[Arquitectura Completa](docs/architecture/ARQUITECTURA_DATOS_VARIABLES.md)** - Documento técnico completo (40+ páginas)
+- **[Resumen Ejecutivo Arquitectura](docs/RESUMEN_EJECUTIVO_ARQUITECTURA.md)** - Resumen ejecutivo para stakeholders

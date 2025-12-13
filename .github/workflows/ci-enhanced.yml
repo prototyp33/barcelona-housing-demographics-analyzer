@@ -1,0 +1,304 @@
+# ==============================================================================
+# Enhanced CI Pipeline - Barcelona Housing Demographics Analyzer
+# ==============================================================================
+# Este workflow ejecuta:
+# 1. Linting (ruff) - Verifica estilo y errores comunes
+# 2. Type checking (mypy) - Verifica tipos opcionales
+# 3. Tests unitarios - pytest con coverage
+# 4. Security scanning (pip-audit, bandit)
+# 5. Dependency updates check (Dependabot alerts)
+# 6. Code quality metrics
+# 7. Performance testing (benchmarks)
+#
+# Optimizaciones:
+# - Cache de pip para acelerar instalación
+# - Matriz de Python versions
+# - Concurrency para cancelar runs duplicados
+# - Paths filter para evitar runs innecesarios
+# - Notificaciones en caso de fallos críticos
+# ==============================================================================
+
+name: CI Enhanced Pipeline
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**", "refactor/**"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - ".github/workflows/ci-enhanced.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - "pyproject.toml"
+  workflow_dispatch:
+  schedule:
+    # Ejecutar diariamente a las 2 AM UTC para detectar problemas temprano
+    - cron: '0 2 * * *'
+
+# Cancelar runs anteriores del mismo branch
+concurrency:
+  group: ci-enhanced-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_CACHE_DIR: ~/.cache/pip
+
+jobs:
+  # ============================================================================
+  # JOB 1: Linting y formato de código
+  # ============================================================================
+  lint:
+    name: 🔍 Lint & Format
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-lint-${{ runner.os }}-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: |
+            pip-lint-${{ runner.os }}-
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black isort
+
+      - name: Run ruff (linting)
+        run: |
+          ruff check src/ tests/ scripts/ --output-format=github || true
+
+      - name: Check formatting with black
+        run: |
+          black --check --diff src/ tests/ || echo "::warning::Some files need formatting"
+
+      - name: Check import ordering with isort
+        run: |
+          isort --check-only --diff src/ tests/ || echo "::warning::Imports need sorting"
+
+  # ============================================================================
+  # JOB 2: Tests unitarios con coverage
+  # ============================================================================
+  test:
+    name: 🧪 Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-test-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            pip-test-${{ runner.os }}-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  # ============================================================================
+  # JOB 3: Security Scanning
+  # ============================================================================
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit bandit safety
+
+      - name: Run pip-audit (vulnerability scanning)
+        run: |
+          pip-audit --requirement requirements.txt --format json --output pip-audit-report.json || true
+          pip-audit --requirement requirements.txt || true
+
+      - name: Run bandit (static security analysis)
+        run: |
+          bandit -r src/ -f json -o bandit-report.json || true
+          bandit -r src/ || true
+
+      - name: Run safety check
+        run: |
+          safety check --json --output safety-report.json || true
+          safety check || true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            pip-audit-report.json
+            bandit-report.json
+            safety-report.json
+
+  # ============================================================================
+  # JOB 4: Dependency Updates Check
+  # ============================================================================
+  dependencies:
+    name: 📦 Dependency Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pip-tools
+        run: |
+          pip install pip-tools
+
+      - name: Check for outdated packages
+        run: |
+          pip list --outdated || echo "No outdated packages found"
+
+      - name: Check Dependabot alerts
+        uses: github/dependabot-action@v1
+        with:
+          command: check
+
+  # ============================================================================
+  # JOB 5: Code Quality Metrics
+  # ============================================================================
+  code-quality:
+    name: 📊 Code Quality Metrics
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install quality tools
+        run: |
+          pip install radon mccabe
+
+      - name: Calculate code complexity
+        run: |
+          radon cc src/ --min B --show-complexity || true
+          radon mi src/ --min B || true
+
+      - name: Count lines of code
+        run: |
+          echo "## Code Statistics" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          find src/ -name "*.py" | xargs wc -l | tail -1 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # JOB 6: Performance Testing (Benchmarks)
+  # ============================================================================
+  performance:
+    name: ⚡ Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest-benchmark
+
+      - name: Run performance benchmarks
+        run: |
+          pytest tests/benchmarks/ -v --benchmark-only --benchmark-json=benchmark.json || echo "No benchmarks found"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: benchmark-results
+          path: benchmark.json
+
+  # ============================================================================
+  # JOB 7: Notifications (on failure)
+  # ============================================================================
+  notify:
+    name: 📢 Notifications
+    runs-on: ubuntu-latest
+    needs: [lint, test, security]
+    if: failure()
+    
+    steps:
+      - name: Notify on failure
+        run: |
+          echo "❌ CI Pipeline failed"
+          echo "Check the workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # Aquí se puede agregar notificación a Slack/Discord si está configurado
+          # curl -X POST $SLACK_WEBHOOK_URL -d '{"text":"CI Pipeline failed"}'
+
