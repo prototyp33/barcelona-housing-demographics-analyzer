@@ -20,7 +20,12 @@ from src.etl.transformations.enrichment import (
     prepare_idealista_oferta,
     prepare_portaldades_precios,
 )
-from src.etl.transformations.market import prepare_fact_precios, prepare_renta_barrio
+from src.etl.transformations.market import (
+    load_idescat_income,
+    prepare_fact_precios,
+    prepare_renta_barrio,
+)
+
 
 __all__ = [
     # Dimensiones
@@ -32,6 +37,8 @@ __all__ = [
     # Mercado
     "prepare_fact_precios",
     "prepare_renta_barrio",
+    "load_idescat_income",
+
     # Enriquecimientos de mercado
     "prepare_portaldades_precios",
     "prepare_idealista_oferta",

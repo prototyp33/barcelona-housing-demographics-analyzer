@@ -1,0 +1,63 @@
+# ==============================================================================
+# Roadmap Sync - GitHub Projects Integration
+# ==============================================================================
+# Este workflow sincroniza fechas de issues con GitHub Projects Roadmap View
+# Ejecuta diariamente para mantener el roadmap actualizado
+# ==============================================================================
+
+name: Roadmap Sync
+
+on:
+  schedule:
+    # Ejecutar diariamente a las 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+  issues:
+    types: [opened, edited]
+
+env:
+  PYTHON_VERSION: "3.11"
+  PROJECT_NUMBER: 8  # Actualizar con número real del proyecto
+
+jobs:
+  sync-roadmap-dates:
+    name: 🔄 Sync Roadmap Dates
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install pygithub python-dateutil
+
+      - name: Sync dates from issues to project
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/roadmap/update_project_dates.py \
+            --project-number ${{ env.PROJECT_NUMBER }} \
+            --owner prototyp33 \
+            --repo barcelona-housing-demographics-analyzer
+
+      - name: Generate roadmap progress report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/roadmap_progress.sh > reports/roadmap-progress-$(date +%Y%m%d).md
+
+      - name: Upload progress report
+        uses: actions/upload-artifact@v3
+        with:
+          name: roadmap-progress-report
+          path: reports/roadmap-progress-*.md
+

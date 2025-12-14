@@ -40,6 +40,53 @@
 - 🐛 [Report Bug](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=bug_report.yml)
 - ✨ [Request Feature](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=feature_request.yml)
 
+## 🗺️ Roadmap 2026
+
+```mermaid
+gantt
+    title Barcelona Housing Platform - Roadmap Q1-Q2 2026
+    dateFormat YYYY-MM-DD
+    
+    section SPIKE
+    Data Validation           :spike, 2025-12-16, 5d
+    
+    section v2.0 Foundation
+    PostgreSQL Setup          :data1, 2026-01-06, 1w
+    Schema v2.0               :data2, after data1, 1w
+    ETL Extractors            :etl1, after data1, 2w
+    Hedonic Model             :an1, after etl1, 2w
+    Dashboard MVP             :viz1, after an1, 1w
+    Deployment                :infra1, after viz1, 3d
+    v2.0 Release              :milestone, 2026-01-27, 0d
+    
+    section v2.1 Analytics
+    Diff-in-Diff Analysis     :an2, 2026-01-27, 2w
+    Regulatory Impact Page    :viz2, after an2, 1w
+    INCASÒL Integration       :etl2, 2026-02-03, 1w
+    Expand to 40 Barrios      :data3, 2026-02-10, 1w
+    v2.1 Release              :milestone, 2026-02-24, 0d
+    
+    section v2.2 Polish
+    UX Redesign               :ux1, 2026-02-24, 2w
+    Performance Optimization  :perf1, after ux1, 1w
+    Testing Suite             :test1, after ux1, 1w
+    v2.2 Release              :milestone, 2026-03-24, 0d
+    
+    section v2.3 Coverage
+    Complete 73 Barrios       :data4, 2026-03-24, 2w
+    Data Quality Monitoring   :dq1, after data4, 1w
+    Automated Refresh         :etl3, after dq1, 1w
+    v2.3 Release              :milestone, 2026-04-21, 0d
+    
+    section v3.0 API
+    FastAPI Implementation    :api1, 2026-04-21, 2w
+    Investment Scoring        :an3, after api1, 2w
+    API Documentation         :docs2, after api1, 1w
+    v3.0 Release              :milestone, 2026-05-26, 0d
+```
+
+For detailed roadmap, see [ROADMAP.md](./ROADMAP.md).
+
 Open-source dashboard to analyze the relationship between demographic evolution and housing prices in Barcelona.
 
 ## 📋 Vision and Objectives
@@ -121,9 +168,47 @@ export IDEALISTA_API_SECRET=your_api_secret_here
 
 ### 🏠 Interactive Dashboard (The Cockpit)
 
-The project features a modern, modular Streamlit dashboard for visual analysis.
+The project features **two frontend options** for visual analysis:
 
-#### Run Locally
+#### Option 1: React Dashboard (Modern SPA) ⭐ **New**
+
+Modern, production-ready single-page application built with React + TypeScript + Vite.
+
+**Features**:
+
+- 🎯 Fast development with hot module replacement
+- 📊 Advanced charts with Recharts
+- 🗺️ Interactive maps with React Leaflet
+- 🔄 Smart data caching with React Query
+- 🎨 Responsive design and dark mode support
+
+**Quick Start**:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+
+# Access at http://localhost:5173
+```
+
+**Production Build**:
+
+```bash
+cd dashboard
+npm run build
+npm run preview
+```
+
+For detailed setup, architecture, and API integration, see [dashboard/README.md](dashboard/README.md).
+
+---
+
+#### Option 2: Streamlit Dashboard (Rapid Prototyping)
+
+Modular Streamlit dashboard for quick data exploration and prototyping.
+
+**Run Locally**:
 
 ```bash
 # Opción 1: Usando Makefile (recomendado)
@@ -503,3 +588,14 @@ Para mantener la calidad y el orden en el proyecto, consulta nuestras guías ofi
 - [Project Milestones](docs/PROJECT_MILESTONES.md) - Development roadmap
 - [Next Steps](docs/NEXT_STEPS.md) - Immediate action plan and recommendations
 - [Debugging Datasets](docs/DEBUGGING_DATASETS.md) - Guide for investigating CKAN datasets
+
+### 🏗️ Arquitectura de Datos
+
+- **[Architecture v2.0 Expansion](docs/architecture/ARCHITECTURE_V2_EXPANSION.md)** ⭐ - Propuesta de expansión con 33 variables adicionales
+- **[Database Schema v2.0](docs/architecture/DATABASE_SCHEMA_V2.md)** - Schema PostgreSQL + PostGIS
+- **[Data Flow Architecture](docs/architecture/DATA_FLOW.md)** - Flujo completo de datos
+- **[ETL Pipeline Architecture](docs/architecture/ETL_PIPELINE.md)** - Arquitectura del pipeline ETL
+- **[Hedonic Variables Catalog](docs/modeling/HEDONIC_VARIABLES.md)** - Catálogo completo de variables del modelo
+- **[Model Specification v2.0](docs/modeling/MODEL_SPECIFICATION_V2.md)** - Especificación técnica del modelo hedónico
+- **[Arquitectura Completa](docs/architecture/ARQUITECTURA_DATOS_VARIABLES.md)** - Documento técnico completo (40+ páginas)
+- **[Resumen Ejecutivo Arquitectura](docs/RESUMEN_EJECUTIVO_ARQUITECTURA.md)** - Resumen ejecutivo para stakeholders

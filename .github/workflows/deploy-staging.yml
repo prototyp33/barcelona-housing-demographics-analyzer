@@ -1,0 +1,80 @@
+# ==============================================================================
+# Deploy to Staging Environment
+# ==============================================================================
+# Este workflow despliega automáticamente a staging cuando se hace merge a 'develop'
+# Incluye smoke tests post-deploy y rollback automático si fallan
+# ==============================================================================
+
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+  STAGING_URL: "https://staging.barcelona-housing.app"  # Configurar según tu hosting
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    # environment: staging  # Descomentar cuando se configure el environment en GitHub
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run tests before deploy
+        run: |
+          pytest tests/ -v --tb=short
+
+      - name: Deploy to Render/Railway
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          # O RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🚀 Deploying to staging..."
+          # Comando específico según tu plataforma de hosting
+          # Ejemplo para Render:
+          # render deploy --service barcelona-housing-staging
+          # Ejemplo para Railway:
+          # railway up --environment staging
+          echo "✅ Deployment initiated"
+
+      - name: Wait for deployment
+        run: |
+          echo "⏳ Waiting for deployment to complete..."
+          sleep 30
+
+      - name: Run smoke tests
+        run: |
+          echo "🧪 Running smoke tests..."
+          python scripts/monitoring/check_api_availability.py --url ${{ env.STAGING_URL }}
+          # Agregar más smoke tests según necesidad
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "❌ Smoke tests failed, rolling back..."
+          # Comando de rollback según tu plataforma
+          # render rollback --service barcelona-housing-staging
+          exit 1
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+          # Notificar a Slack/Discord si está configurado
+

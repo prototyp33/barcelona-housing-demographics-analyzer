@@ -69,3 +69,29 @@ docs/labels.md  # Auto-generado por update_labels_extended.py
 coverage.xml
 htmlcov/
 PR_DESCRIPTION.md
+
+# Spike-specific ignores
+# Virtual Environment
+.venv-spike/
+venv/
+
+# Jupyter
+*.ipynb_checkpoints
+
+# Data (no versionar datos crudos grandes)
+spike-data-validation/data/raw/*.csv
+spike-data-validation/data/raw/*.xlsx
+spike-data-validation/data/raw/*.json
+!spike-data-validation/data/raw/.gitkeep
+
+# Mantener estructura de carpetas
+!spike-data-validation/data/processed/.gitkeep
+!spike-data-validation/data/logs/.gitkeep
+!spike-data-validation/outputs/reports/.gitkeep
+!spike-data-validation/outputs/visualizations/.gitkeep
+
+# Outputs (no versionar reportes intermedios)
+spike-data-validation/outputs/visualizations/*.png
+
+# Logs
+spike-data-validation/data/logs/*.log

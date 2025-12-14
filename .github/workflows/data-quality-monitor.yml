@@ -1,0 +1,75 @@
+# ==============================================================================
+# Data Quality Monitoring
+# ==============================================================================
+# Este workflow monitorea la calidad de datos diariamente
+# Verifica frescura de datos, completitud, y validez
+# ==============================================================================
+
+name: Data Quality Monitor
+
+on:
+  schedule:
+    # Ejecutar diariamente a las 8 AM UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+jobs:
+  data-quality-check:
+    name: 📊 Data Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install psycopg2-binary pandas
+
+      - name: Check data freshness
+        run: |
+          python scripts/monitoring/check_data_freshness.py \
+            --database-url "${{ env.DATABASE_URL }}" \
+            --threshold-days 7
+
+      - name: Check data completeness
+        run: |
+          python scripts/monitoring/check_data_completeness.py \
+            --database-url "${{ env.DATABASE_URL }}" \
+            --threshold 0.95
+
+      - name: Generate quality report
+        run: |
+          python scripts/monitoring/generate_quality_report.py \
+            --database-url "${{ env.DATABASE_URL }}" \
+            --output reports/data-quality-$(date +%Y%m%d).json
+
+      - name: Upload quality report
+        uses: actions/upload-artifact@v3
+        with:
+          name: data-quality-report
+          path: reports/data-quality-*.json
+
+      - name: Create issue if quality below threshold
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '⚠️ Data Quality Below Threshold',
+              body: 'Data quality check failed. Please review the quality report.',
+              labels: ['data-quality', 'monitoring']
+            })
+

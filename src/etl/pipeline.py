@@ -18,6 +18,8 @@ from ..database_setup import (
     register_etl_run,
     truncate_tables,
 )
+from .load_master_table import load_master_table_if_exists
+from .migrations import migrate_dim_barrios_if_needed
 from .validators import (
     FKValidationStrategy,
     handle_source_error,
@@ -191,6 +193,18 @@ def run_etl(
         if renta_path is None:
             renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
         
+        # Descubrir archivos de IDESCAT renta (fuente alternativa/complementaria)
+        idescat_dir = raw_base_dir / "idescat"
+        idescat_renta_path = None
+        if use_manifest:
+            idescat_renta_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "renta", source="idescat"
+            )
+        if idescat_renta_path is None and idescat_dir.exists():
+            # Buscar archivos más completos (2015-2023) primero
+            idescat_renta_path = _find_latest_file(idescat_dir, "idescat_renta_2015_20*.csv")
+
+        
         venta_path = None
         alquiler_path = None
         
@@ -351,8 +365,8 @@ def run_etl(
                         metadata_file=metadata_file if metadata_file.exists() else None,
                     )
                 )
-                params["portaldades_venta_rows"] = len(portaldades_venta_df)
-                params["portaldades_alquiler_rows"] = len(portaldades_alquiler_df)
+                params["portaldades_venta_rows"] = int(len(portaldades_venta_df))
+                params["portaldades_alquiler_rows"] = int(len(portaldades_alquiler_df))
                 
                 if not portaldades_venta_df.empty:
                     logger.info(
@@ -380,12 +394,15 @@ def run_etl(
             portaldades_alquiler=portaldades_alquiler_df,
         )
         
-        # Procesar renta si está disponible
+        # Procesar renta si está disponible (OpenDataBCN y/o IDESCAT)
         fact_renta = None
+        fact_renta_frames = []
+        
+        # Procesar renta de OpenDataBCN si está disponible
         if renta_df is not None and not renta_df.empty:
-            logger.info("Procesando datos de renta...")
+            logger.info("Procesando datos de renta de OpenDataBCN...")
             try:
-                fact_renta = data_processing.prepare_renta_barrio(
+                fact_renta_opendatabcn = data_processing.prepare_renta_barrio(
                     renta_df,
                     dim_barrios,
                     dataset_id=dataset_renta_id,
@@ -393,10 +410,59 @@ def run_etl(
                     source="opendatabcn",
                     metric="mean",
                 )
-                logger.info("✓ Renta procesada: %s registros", len(fact_renta))
+                if not fact_renta_opendatabcn.empty:
+                    fact_renta_frames.append(fact_renta_opendatabcn)
+                    logger.info("✓ Renta OpenDataBCN procesada: %s registros", len(fact_renta_opendatabcn))
             except Exception as e:
-                handle_source_error("renta", e, context="procesamiento")
-                fact_renta = None
+                handle_source_error("renta_opendatabcn", e, context="procesamiento")
+        
+        # Procesar renta de IDESCAT si está disponible
+        if idescat_renta_path and idescat_renta_path.exists():
+            logger.info("Procesando datos de renta de IDESCAT...")
+            try:
+                idescat_renta_df = _safe_read_csv(idescat_renta_path)
+                if not idescat_renta_df.empty:
+                    fact_renta_idescat = data_processing.load_idescat_income(
+                        idescat_renta_df,
+                        dim_barrios,
+                        dataset_id="idescat_renta_bruta_barrio",
+                        reference_time=reference_time,
+                        source="idescat",
+                    )
+                    if not fact_renta_idescat.empty:
+                        fact_renta_frames.append(fact_renta_idescat)
+                        logger.info("✓ Renta IDESCAT procesada: %s registros", len(fact_renta_idescat))
+            except Exception as e:
+                handle_source_error("renta_idescat", e, context="procesamiento")
+        
+        # Combinar fuentes de renta si hay múltiples
+        if fact_renta_frames:
+            if len(fact_renta_frames) == 1:
+                fact_renta = fact_renta_frames[0]
+            else:
+                # Combinar y priorizar IDESCAT (más completo y reciente)
+                fact_renta = pd.concat(fact_renta_frames, ignore_index=True, sort=False)
+                # Deduplicar: preferir IDESCAT sobre OpenDataBCN  
+                fact_renta = (
+                    fact_renta.sort_values(["barrio_id", "anio", "source"], 
+                                          ascending=[True, True, False])  # 'idescat' < 'opendatabcn' alfabéticamente
+                    .drop_duplicates(subset=["barrio_id", "anio"], keep="first")
+                    .reset_index(drop=True)
+                )
+                logger.info(
+                    "✓ Renta combinada de múltiples fuentes: %s registros totales",
+                    len(fact_renta)
+                )
+        
+        if fact_renta is not None:
+            logger.info(
+                "Renta final: %s registros (%s barrios, años %s-%s)",
+                len(fact_renta),
+                fact_renta["barrio_id"].nunique(),
+                fact_renta["anio"].min(),
+                fact_renta["anio"].max(),
+            )
+
         
         # Procesar datos de Idealista si están disponibles
         fact_oferta_idealista = None
@@ -464,10 +530,10 @@ def run_etl(
         # Registrar estadísticas de validación
         fk_stats = {
             result.table_name: {
-                "total": result.total_records,
-                "valid": result.valid_records,
-                "invalid": result.invalid_records,
-                "pct_invalid": round(result.pct_invalid, 2),
+                "total": int(result.total_records),
+                "valid": int(result.valid_records),
+                "invalid": int(result.invalid_records),
+                "pct_invalid": float(round(result.pct_invalid, 2)),
             }
             for result in fk_validation_results
         }
@@ -479,22 +545,38 @@ def run_etl(
                 "venta_file": venta_path.name if venta_path else None,
                 "alquiler_file": alquiler_path.name if alquiler_path else None,
                 "renta_file": renta_path.name if renta_path else None,
+                "idescat_renta_file": idescat_renta_path.name if idescat_renta_path and idescat_renta_path.exists() else None,
+
                 "geojson_file": geojson_path.name if geojson_path else None,
                 "idealista_venta_file": idealista_venta_path.name if idealista_venta_path and idealista_venta_path.exists() else None,
                 "idealista_rent_file": idealista_rent_path.name if idealista_rent_path and idealista_rent_path.exists() else None,
-                "dim_barrios_rows": len(dim_barrios),
-                "fact_demografia_rows": len(fact_demografia) if fact_demografia is not None else 0,
-                "fact_demografia_ampliada_rows": len(fact_demografia_ampliada) if fact_demografia_ampliada is not None else 0,
-                "fact_precios_rows": len(fact_precios),
-                "fact_renta_rows": len(fact_renta) if fact_renta is not None else 0,
-                "fact_oferta_idealista_rows": len(fact_oferta_idealista) if fact_oferta_idealista is not None else 0,
+                "dim_barrios_rows": int(len(dim_barrios)),
+                "fact_demografia_rows": int(len(fact_demografia)) if fact_demografia is not None else 0,
+                "fact_demografia_ampliada_rows": int(len(fact_demografia_ampliada)) if fact_demografia_ampliada is not None else 0,
+                "fact_precios_rows": int(len(fact_precios)),
+                "fact_renta_rows": int(len(fact_renta)) if fact_renta is not None else 0,
+                "fact_oferta_idealista_rows": int(len(fact_oferta_idealista)) if fact_oferta_idealista is not None else 0,
             }
         )
 
         database_path = ensure_database_path(db_path, processed_dir)
         params["database_path"] = str(database_path.resolve())
 
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_pipeline_db_path", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:561", "message": "Database path determined", "data": {"database_path": str(database_path), "exists": database_path.exists()}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
         conn = create_connection(database_path)
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_pipeline_conn_created", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:564", "message": "Connection created in pipeline", "data": {"conn_is_none": conn is None}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
         
         # Truncate tables BEFORE creating schema to avoid unique constraint errors
         # on existing duplicate data
@@ -517,30 +599,142 @@ def run_etl(
         create_database_schema(conn)
 
         logger.info("Cargando dimensión de barrios en SQLite")
-        dim_barrios.to_sql("dim_barrios", conn, if_exists="append", index=False)
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_dim_barrios_before", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:587", "message": "Before loading dim_barrios", "data": {"rows": len(dim_barrios), "columns": list(dim_barrios.columns), "dtypes": {col: str(dtype) for col, dtype in dim_barrios.dtypes.items()}}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        try:
+            dim_barrios.to_sql("dim_barrios", conn, if_exists="append", index=False)
+            # #region agent log
+            try:
+                with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    row_count = conn.execute("SELECT COUNT(*) FROM dim_barrios;").fetchone()[0]
+                    f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_dim_barrios_after", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:587", "message": "After loading dim_barrios", "data": {"rows_inserted": len(dim_barrios), "rows_in_db": row_count}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + '\n')
+            except Exception:
+                pass
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            try:
+                with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_dim_barrios_error", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:587", "message": "Error loading dim_barrios", "data": {"error": str(e), "error_type": type(e).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + '\n')
+            except Exception:
+                pass
+            # #endregion
+            raise
 
         # Cargar demografía (estándar o ampliada)
         if fact_demografia_ampliada is not None:
             logger.info("Cargando tabla de hechos demográficos ampliados")
-            fact_demografia_ampliada.to_sql(
-                "fact_demografia_ampliada", conn, if_exists="append", index=False
-            )
+            # #region agent log
+            try:
+                with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    valid_barrios = set(conn.execute("SELECT barrio_id FROM dim_barrios;").fetchall())
+                    valid_barrios_set = {row[0] for row in valid_barrios}
+                    fact_barrios = set(fact_demografia_ampliada['barrio_id'].unique()) if 'barrio_id' in fact_demografia_ampliada.columns else set()
+                    invalid_fks = fact_barrios - valid_barrios_set
+                    f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_dem_ampliada_before", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:590", "message": "Before loading fact_demografia_ampliada", "data": {"rows": len(fact_demografia_ampliada), "invalid_fk_count": len(invalid_fks)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + '\n')
+            except Exception:
+                pass
+            # #endregion
+            try:
+                fact_demografia_ampliada.to_sql(
+                    "fact_demografia_ampliada", conn, if_exists="append", index=False
+                )
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        row_count = conn.execute("SELECT COUNT(*) FROM fact_demografia_ampliada;").fetchone()[0]
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_dem_ampliada_after", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:592", "message": "After loading fact_demografia_ampliada", "data": {"rows_inserted": len(fact_demografia_ampliada), "rows_in_db": row_count}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_dem_ampliada_error", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:592", "message": "Error loading fact_demografia_ampliada", "data": {"error": str(e), "error_type": type(e).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                raise
         elif fact_demografia is not None:
             logger.info("Cargando tabla de hechos demográficos")
-            fact_demografia.to_sql(
-                "fact_demografia", conn, if_exists="append", index=False
-            )
+            # #region agent log
+            try:
+                with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    valid_barrios = set(conn.execute("SELECT barrio_id FROM dim_barrios;").fetchall())
+                    valid_barrios_set = {row[0] for row in valid_barrios}
+                    fact_barrios = set(fact_demografia['barrio_id'].unique()) if 'barrio_id' in fact_demografia.columns else set()
+                    invalid_fks = fact_barrios - valid_barrios_set
+                    f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_demografia_before", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:597", "message": "Before loading fact_demografia", "data": {"rows": len(fact_demografia), "invalid_fk_count": len(invalid_fks)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + '\n')
+            except Exception:
+                pass
+            # #endregion
+            try:
+                fact_demografia.to_sql(
+                    "fact_demografia", conn, if_exists="append", index=False
+                )
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        row_count = conn.execute("SELECT COUNT(*) FROM fact_demografia;").fetchone()[0]
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_demografia_after", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:598", "message": "After loading fact_demografia", "data": {"rows_inserted": len(fact_demografia), "rows_in_db": row_count}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_demografia_error", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:598", "message": "Error loading fact_demografia", "data": {"error": str(e), "error_type": type(e).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                raise
         else:
             logger.warning("No se cargaron datos demográficos")
 
         if not fact_precios.empty:
             logger.info("Cargando tabla de hechos de precios")
-            fact_precios.to_sql(
-                "fact_precios",
-                conn,
-                if_exists="append",
-                index=False,
-            )
+            # #region agent log
+            try:
+                with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    valid_barrios = set(conn.execute("SELECT barrio_id FROM dim_barrios;").fetchall())
+                    valid_barrios_set = {row[0] for row in valid_barrios}
+                    fact_barrios = set(fact_precios['barrio_id'].unique()) if 'barrio_id' in fact_precios.columns else set()
+                    invalid_fks = fact_barrios - valid_barrios_set
+                    f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_precios_before", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:603", "message": "Before loading fact_precios", "data": {"rows": len(fact_precios), "valid_barrios_count": len(valid_barrios_set), "fact_barrios_count": len(fact_barrios), "invalid_fk_count": len(invalid_fks), "invalid_fks": list(invalid_fks)[:10]}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + '\n')
+            except Exception:
+                pass
+            # #endregion
+            try:
+                fact_precios.to_sql(
+                    "fact_precios",
+                    conn,
+                    if_exists="append",
+                    index=False,
+                )
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        row_count = conn.execute("SELECT COUNT(*) FROM fact_precios;").fetchone()[0]
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_precios_after", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:605", "message": "After loading fact_precios", "data": {"rows_inserted": len(fact_precios), "rows_in_db": row_count}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_to_sql_fact_precios_error", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:605", "message": "Error loading fact_precios", "data": {"error": str(e), "error_type": type(e).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                raise
         else:
             logger.warning(
                 "No se cargaron datos en fact_precios (dataframe vacío)"
@@ -567,6 +761,58 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
+        
+        # Migrar dim_barrios si es necesario (añadir campos adicionales)
+        logger.info("Aplicando migraciones a dim_barrios si es necesario")
+        try:
+            migration_stats = migrate_dim_barrios_if_needed(conn)
+            if migration_stats["barrios_updated"] > 0:
+                logger.info(
+                    f"✓ dim_barrios actualizada: {migration_stats['barrios_updated']} barrios "
+                    f"({migration_stats['barrios_with_centroid']} con centroide, "
+                    f"{migration_stats['barrios_with_area']} con área, "
+                    f"{migration_stats.get('barrios_with_ine', 0)} con código INE)"
+                )
+        except Exception as e:
+            logger.warning(f"Error en migración de dim_barrios: {e}", exc_info=True)
+            # No fallar el pipeline por migraciones
+        
+        # Cargar Master Table si existe (opcional)
+        logger.info("Verificando si existe Master Table para cargar")
+        master_loaded, master_count = load_master_table_if_exists(
+            conn, processed_dir
+        )
+        if master_loaded:
+            logger.info(
+                f"✓ Master Table cargado: {master_count:,} registros en fact_housing_master"
+            )
+            params["fact_housing_master_rows"] = int(master_count)
+        else:
+            logger.debug(
+                "Master Table CSV no encontrado. "
+                "Ejecute scripts/merge_datasets.py para generarlo."
+            )
+            params["fact_housing_master_rows"] = 0
+        
+        # Crear vistas analíticas después de cargar datos
+        logger.info("Creando vistas analíticas")
+        try:
+            from ..database_views import create_analytical_views
+            
+            view_results = create_analytical_views(conn)
+            created_count = sum(1 for v in view_results.values() if v)
+            total_views = len(view_results)
+            
+            if created_count == total_views:
+                logger.info(f"✓ {created_count} vistas analíticas creadas exitosamente")
+            else:
+                logger.warning(
+                    f"⚠ Solo {created_count}/{total_views} vistas creadas. "
+                    "Algunas vistas pueden requerir datos adicionales."
+                )
+        except Exception as e:
+            logger.warning(f"Error creando vistas analíticas: {e}", exc_info=True)
+            # No fallar el pipeline por vistas
 
     except Exception as exc:  # noqa: BLE001
         status = "FAILED"
@@ -579,9 +825,23 @@ def run_etl(
         if error_message:
             params["error"] = error_message
         if conn is None:
+            # #region agent log
+            try:
+                with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_finally_conn_none", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:665", "message": "Connection was None in finally block", "data": {}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+            except Exception:
+                pass
+            # #endregion
             database_path = ensure_database_path(db_path, processed_dir)
             conn = create_connection(database_path)
             create_database_schema(conn)
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_register_etl_before", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:669", "message": "Before registering ETL run", "data": {"run_id": run_id, "status": status, "conn_is_none": conn is None}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
         register_etl_run(
             conn,
             run_id=run_id,
@@ -590,7 +850,21 @@ def run_etl(
             status=status,
             parameters=params,
         )
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_register_etl_after", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:677", "message": "After registering ETL run", "data": {}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
         conn.close()
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_conn_closed", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "pipeline.py:677", "message": "Connection closed", "data": {}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
 
     logger.info("ETL completado correctamente. Base de datos disponible en %s", database_path)
     return database_path
