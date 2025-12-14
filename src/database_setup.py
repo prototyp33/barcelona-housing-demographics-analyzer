@@ -21,6 +21,7 @@ VALID_TABLES: FrozenSet[str] = frozenset({
     "fact_demografia_ampliada",
     "fact_renta",
     "fact_oferta_idealista",
+    "fact_housing_master",
     "etl_runs",
 })
 

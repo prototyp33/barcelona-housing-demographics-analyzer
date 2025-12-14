@@ -18,6 +18,7 @@ from ..database_setup import (
     register_etl_run,
     truncate_tables,
 )
+from .load_master_table import load_master_table_if_exists
 from .validators import (
     FKValidationStrategy,
     handle_source_error,
@@ -363,8 +364,8 @@ def run_etl(
                         metadata_file=metadata_file if metadata_file.exists() else None,
                     )
                 )
-                params["portaldades_venta_rows"] = len(portaldades_venta_df)
-                params["portaldades_alquiler_rows"] = len(portaldades_alquiler_df)
+                params["portaldades_venta_rows"] = int(len(portaldades_venta_df))
+                params["portaldades_alquiler_rows"] = int(len(portaldades_alquiler_df))
                 
                 if not portaldades_venta_df.empty:
                     logger.info(
@@ -528,10 +529,10 @@ def run_etl(
         # Registrar estadísticas de validación
         fk_stats = {
             result.table_name: {
-                "total": result.total_records,
-                "valid": result.valid_records,
-                "invalid": result.invalid_records,
-                "pct_invalid": round(result.pct_invalid, 2),
+                "total": int(result.total_records),
+                "valid": int(result.valid_records),
+                "invalid": int(result.invalid_records),
+                "pct_invalid": float(round(result.pct_invalid, 2)),
             }
             for result in fk_validation_results
         }
@@ -548,12 +549,12 @@ def run_etl(
                 "geojson_file": geojson_path.name if geojson_path else None,
                 "idealista_venta_file": idealista_venta_path.name if idealista_venta_path and idealista_venta_path.exists() else None,
                 "idealista_rent_file": idealista_rent_path.name if idealista_rent_path and idealista_rent_path.exists() else None,
-                "dim_barrios_rows": len(dim_barrios),
-                "fact_demografia_rows": len(fact_demografia) if fact_demografia is not None else 0,
-                "fact_demografia_ampliada_rows": len(fact_demografia_ampliada) if fact_demografia_ampliada is not None else 0,
-                "fact_precios_rows": len(fact_precios),
-                "fact_renta_rows": len(fact_renta) if fact_renta is not None else 0,
-                "fact_oferta_idealista_rows": len(fact_oferta_idealista) if fact_oferta_idealista is not None else 0,
+                "dim_barrios_rows": int(len(dim_barrios)),
+                "fact_demografia_rows": int(len(fact_demografia)) if fact_demografia is not None else 0,
+                "fact_demografia_ampliada_rows": int(len(fact_demografia_ampliada)) if fact_demografia_ampliada is not None else 0,
+                "fact_precios_rows": int(len(fact_precios)),
+                "fact_renta_rows": int(len(fact_renta)) if fact_renta is not None else 0,
+                "fact_oferta_idealista_rows": int(len(fact_oferta_idealista)) if fact_oferta_idealista is not None else 0,
             }
         )
 
@@ -633,6 +634,23 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
+        
+        # Cargar Master Table si existe (opcional)
+        logger.info("Verificando si existe Master Table para cargar")
+        master_loaded, master_count = load_master_table_if_exists(
+            conn, processed_dir
+        )
+        if master_loaded:
+            logger.info(
+                f"✓ Master Table cargado: {master_count:,} registros en fact_housing_master"
+            )
+            params["fact_housing_master_rows"] = int(master_count)
+        else:
+            logger.debug(
+                "Master Table CSV no encontrado. "
+                "Ejecute scripts/merge_datasets.py para generarlo."
+            )
+            params["fact_housing_master_rows"] = 0
 
     except Exception as exc:  # noqa: BLE001
         status = "FAILED"
