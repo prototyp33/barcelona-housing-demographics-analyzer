@@ -130,6 +130,35 @@ def _calculate_polygon_area(coords: list) -> float | None:
     return area_km2
 
 
+def get_ine_codes() -> dict[int, str]:
+    """
+    Retorna mapeo de barrio_id a código INE.
+    
+    Nota: El INE no tiene códigos oficiales para barrios (solo municipios).
+    Usamos formato compuesto: código municipio (08019) + codi_barri del Ajuntament.
+    
+    Returns:
+        Diccionario con mapeo barrio_id -> codigo_ine
+    """
+    from pathlib import Path
+    import json
+    
+    mapping_file = Path(__file__).parent.parent.parent / "data" / "reference" / "barrio_ine_mapping.json"
+    
+    if not mapping_file.exists():
+        logger.warning(f"Archivo de mapeo INE no encontrado: {mapping_file}")
+        return {}
+    
+    try:
+        with open(mapping_file, 'r', encoding='utf-8') as f:
+            mapping_str = json.load(f)
+            # Convertir keys de string a int
+            return {int(k): v for k, v in mapping_str.items() if v is not None}
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.error(f"Error leyendo mapeo INE: {e}")
+        return {}
+
+
 def migrate_dim_barrios_if_needed(conn: sqlite3.Connection) -> dict[str, int]:
     """
     Migra dim_barrios añadiendo campos adicionales si no existen.
@@ -168,8 +197,8 @@ def migrate_dim_barrios_if_needed(conn: sqlite3.Connection) -> dict[str, int]:
     # Verificar si hay datos que poblar
     cursor = conn.execute("""
         SELECT COUNT(*) FROM dim_barrios
-        WHERE geometry_json IS NOT NULL
-          AND (centroide_lat IS NULL OR area_km2 IS NULL)
+        WHERE (geometry_json IS NOT NULL AND (centroide_lat IS NULL OR area_km2 IS NULL))
+           OR codigo_ine IS NULL
     """)
     needs_population = cursor.fetchone()[0] > 0
     
@@ -188,8 +217,8 @@ def migrate_dim_barrios_if_needed(conn: sqlite3.Connection) -> dict[str, int]:
     cursor = conn.execute("""
         SELECT barrio_id, geometry_json, barrio_nombre
         FROM dim_barrios
-        WHERE geometry_json IS NOT NULL
-          AND (centroide_lat IS NULL OR area_km2 IS NULL)
+        WHERE (geometry_json IS NOT NULL AND (centroide_lat IS NULL OR area_km2 IS NULL))
+           OR codigo_ine IS NULL
     """)
     
     barrios = cursor.fetchall()
@@ -198,6 +227,10 @@ def migrate_dim_barrios_if_needed(conn: sqlite3.Connection) -> dict[str, int]:
     updated = 0
     with_centroid = 0
     with_area = 0
+    with_ine = 0
+    
+    # Obtener mapeo INE una sola vez
+    ine_codes = get_ine_codes()
     
     for barrio_id, geometry_json, barrio_nombre in barrios:
         # Calcular centroide
@@ -213,11 +246,14 @@ def migrate_dim_barrios_if_needed(conn: sqlite3.Connection) -> dict[str, int]:
         if area_km2:
             with_area += 1
         
-        # Obtener código INE (pendiente de implementación)
-        codigo_ine = None  # TODO: Implementar mapeo INE
+        # Obtener código INE
+        codigo_ine = ine_codes.get(barrio_id)
+        if codigo_ine:
+            with_ine += 1
         
-        # Actualizar registro solo si hay cambios
-        if centroid or area_km2:
+        # Actualizar registro si hay cambios
+        needs_update = centroid or area_km2 or codigo_ine
+        if needs_update:
             conn.execute("""
                 UPDATE dim_barrios
                 SET centroide_lat = COALESCE(?, centroide_lat),
@@ -238,5 +274,6 @@ def migrate_dim_barrios_if_needed(conn: sqlite3.Connection) -> dict[str, int]:
         "barrios_updated": updated,
         "barrios_with_centroid": with_centroid,
         "barrios_with_area": with_area,
+        "barrios_with_ine": with_ine,
     }
 

@@ -770,7 +770,8 @@ def run_etl(
                 logger.info(
                     f"✓ dim_barrios actualizada: {migration_stats['barrios_updated']} barrios "
                     f"({migration_stats['barrios_with_centroid']} con centroide, "
-                    f"{migration_stats['barrios_with_area']} con área)"
+                    f"{migration_stats['barrios_with_area']} con área, "
+                    f"{migration_stats.get('barrios_with_ine', 0)} con código INE)"
                 )
         except Exception as e:
             logger.warning(f"Error en migración de dim_barrios: {e}", exc_info=True)
