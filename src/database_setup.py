@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DB_NAME = "database.db"
 
-# Whitelist de tablas válidas para operaciones dinámicas (seguridad contra SQL injection)
+# Whitelist de tablas v?lidas para operaciones din?micas (seguridad contra SQL injection)
 VALID_TABLES: FrozenSet[str] = frozenset({
     "dim_barrios",
+    "dim_tiempo",
     "fact_precios",
     "fact_demografia",
     "fact_demografia_ampliada",
@@ -27,29 +28,29 @@ VALID_TABLES: FrozenSet[str] = frozenset({
 
 
 class InvalidTableNameError(ValueError):
-    """Excepción lanzada cuando se intenta usar un nombre de tabla no válido."""
+    """Excepci?n lanzada cuando se intenta usar un nombre de tabla no v?lido."""
 
     def __init__(self, table_name: str, valid_tables: FrozenSet[str]) -> None:
         """
-        Inicializa la excepción.
+        Inicializa la excepci?n.
 
         Args:
-            table_name: Nombre de tabla inválido.
-            valid_tables: Conjunto de tablas válidas.
+            table_name: Nombre de tabla inv?lido.
+            valid_tables: Conjunto de tablas v?lidas.
         """
         self.table_name = table_name
         self.valid_tables = valid_tables
         super().__init__(
-            f"Nombre de tabla no válido: '{table_name}'. "
+            f"Nombre de tabla no v?lido: '{table_name}'. "
             f"Tablas permitidas: {sorted(valid_tables)}"
         )
 
 
 def validate_table_name(table_name: str) -> str:
     """
-    Valida que un nombre de tabla esté en la whitelist.
+    Valida que un nombre de tabla est? en la whitelist.
 
-    Esta función previene SQL injection validando que el nombre de tabla
+    Esta funci?n previene SQL injection validando que el nombre de tabla
     sea uno de los conocidos en el esquema.
 
     Args:
@@ -59,17 +60,17 @@ def validate_table_name(table_name: str) -> str:
         El nombre de tabla validado (sin modificar).
 
     Raises:
-        InvalidTableNameError: Si el nombre no está en la whitelist.
+        InvalidTableNameError: Si el nombre no est? en la whitelist.
 
     Example:
         >>> validate_table_name("dim_barrios")
         'dim_barrios'
         >>> validate_table_name("malicious_table; DROP TABLE users;--")
-        InvalidTableNameError: Nombre de tabla no válido...
+        InvalidTableNameError: Nombre de tabla no v?lido...
     """
     if table_name not in VALID_TABLES:
         logger.error(
-            "Intento de usar tabla no válida: '%s'. Posible SQL injection.",
+            "Intento de usar tabla no v?lida: '%s'. Posible SQL injection.",
             table_name,
         )
         raise InvalidTableNameError(table_name, VALID_TABLES)
@@ -89,6 +90,10 @@ CREATE_TABLE_STATEMENTS = (
         codi_districte TEXT,
         codi_barri TEXT,
         geometry_json TEXT,
+        codigo_ine TEXT,
+        centroide_lat REAL,
+        centroide_lon REAL,
+        area_km2 REAL,
         source_dataset TEXT,
         etl_created_at TEXT,
         etl_updated_at TEXT
@@ -252,8 +257,31 @@ def ensure_database_path(db_path: Optional[Path], processed_dir: Path) -> Path:
 def create_connection(db_path: Path) -> sqlite3.Connection:
     """Create an SQLite connection with foreign keys enabled."""
 
+    # #region agent log
+    try:
+        with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_conn_start", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:252", "message": "Creating database connection", "data": {"db_path": str(db_path), "exists": db_path.exists(), "is_file": db_path.is_file() if db_path.exists() else False}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+    except Exception:
+        pass
+    # #endregion
     conn = sqlite3.connect(db_path)
+    # #region agent log
+    try:
+        with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            fk_check = conn.execute("PRAGMA foreign_keys;").fetchone()[0]
+            f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_conn_before_fk", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:256", "message": "Foreign keys status before enabling", "data": {"foreign_keys_enabled": bool(fk_check)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+    except Exception:
+        pass
+    # #endregion
     conn.execute("PRAGMA foreign_keys = ON;")
+    # #region agent log
+    try:
+        with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            fk_check = conn.execute("PRAGMA foreign_keys;").fetchone()[0]
+            f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_conn_after_fk", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:257", "message": "Foreign keys status after enabling", "data": {"foreign_keys_enabled": bool(fk_check)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+    except Exception:
+        pass
+    # #endregion
     return conn
 
 
@@ -265,8 +293,11 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
         for statement in CREATE_TABLE_STATEMENTS:
             conn.executescript(statement)
     
-    # Migraciones: añadir columnas que puedan faltar en bases de datos existentes
+    # Migraciones: a?adir columnas que puedan faltar en bases de datos existentes
     migrate_database_schema(conn)
+    
+    # Crear dim_tiempo si no existe
+    ensure_dim_tiempo(conn)
 
 
 def migrate_database_schema(conn: sqlite3.Connection) -> None:
@@ -274,7 +305,7 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
     Aplica migraciones de esquema a bases de datos existentes.
     
     Args:
-        conn: Conexión SQLite activa.
+        conn: Conexi?n SQLite activa.
     """
     logger.debug("Aplicando migraciones de esquema si es necesario")
     
@@ -286,36 +317,174 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
         columns = [row[1] for row in cursor.fetchall()]
         
         if "is_mock" not in columns:
-            logger.info("Añadiendo columna is_mock a fact_oferta_idealista")
+            logger.info("A?adiendo columna is_mock a fact_oferta_idealista")
             conn.execute(
                 "ALTER TABLE fact_oferta_idealista ADD COLUMN is_mock INTEGER DEFAULT 0"
             )
             conn.commit()
-            logger.info("✓ Columna is_mock añadida exitosamente")
+            logger.info("? Columna is_mock a?adida exitosamente")
             
             # Actualizar registros existentes: si source = 'mock_generator', is_mock = 1
             conn.execute(
                 "UPDATE fact_oferta_idealista SET is_mock = 1 WHERE source = 'mock_generator'"
             )
             conn.commit()
-            logger.info("✓ Registros mock actualizados con is_mock = 1")
+            logger.info("? Registros mock actualizados con is_mock = 1")
     except sqlite3.Error as e:
-        logger.warning("Error al aplicar migración de esquema: %s", e)
-        # No lanzar excepción para no romper el flujo si la tabla no existe aún
+        logger.warning("Error al aplicar migraci?n de esquema: %s", e)
+        # No lanzar excepci?n para no romper el flujo si la tabla no existe a?n
+
+
+def ensure_dim_tiempo(conn: sqlite3.Connection, start_year: int = 2015, end_year: int = 2024) -> None:
+    """
+    Crea y pobla la tabla dim_tiempo si no existe.
+    
+    Args:
+        conn: Conexión SQLite activa
+        start_year: Año inicial (default: 2015)
+        end_year: Año final inclusive (default: 2024)
+    """
+    logger.debug("Verificando creación de dim_tiempo")
+    
+    # Verificar si la tabla existe
+    cursor = conn.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='dim_tiempo'
+    """)
+    
+    table_exists = cursor.fetchone() is not None
+    
+    if not table_exists:
+        logger.info("Creando tabla dim_tiempo")
+        _create_dim_tiempo_table(conn, start_year, end_year)
+    else:
+        # Verificar si tiene datos
+        cursor = conn.execute("SELECT COUNT(*) FROM dim_tiempo")
+        count = cursor.fetchone()[0]
+        if count == 0:
+            logger.info("dim_tiempo existe pero está vacía, poblando...")
+            _populate_dim_tiempo(conn, start_year, end_year)
+        else:
+            logger.debug(f"dim_tiempo ya existe con {count} registros")
+
+
+def _create_dim_tiempo_table(conn: sqlite3.Connection, start_year: int, end_year: int) -> None:
+    """Crea la tabla dim_tiempo y la pobla."""
+    CREATE_DIM_TIEMPO = """
+    CREATE TABLE IF NOT EXISTS dim_tiempo (
+        time_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        anio INTEGER NOT NULL,
+        trimestre INTEGER,
+        mes INTEGER,
+        periodo TEXT,
+        year_quarter TEXT,
+        year_month TEXT,
+        es_fin_de_semana INTEGER DEFAULT 0,
+        es_verano INTEGER DEFAULT 0,
+        estacion TEXT,
+        dia_semana TEXT,
+        fecha_inicio TEXT,
+        fecha_fin TEXT
+    );
+    """
+    
+    CREATE_INDEXES = [
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_dim_tiempo_periodo ON dim_tiempo(periodo);",
+        "CREATE INDEX IF NOT EXISTS idx_dim_tiempo_anio_trimestre ON dim_tiempo(anio, trimestre);",
+        "CREATE INDEX IF NOT EXISTS idx_dim_tiempo_anio ON dim_tiempo(anio);",
+    ]
+    
+    with conn:
+        conn.executescript(CREATE_DIM_TIEMPO)
+        for index_sql in CREATE_INDEXES:
+            conn.executescript(index_sql)
+    
+    _populate_dim_tiempo(conn, start_year, end_year)
+
+
+def _populate_dim_tiempo(conn: sqlite3.Connection, start_year: int, end_year: int) -> None:
+    """Pobla la tabla dim_tiempo con períodos."""
+    
+    def get_estacion(mes: int) -> str:
+        """Determina la estación del año según el mes."""
+        if mes in [12, 1, 2]:
+            return "invierno"
+        elif mes in [3, 4, 5]:
+            return "primavera"
+        elif mes in [6, 7, 8]:
+            return "verano"
+        else:
+            return "otoño"
+    
+    # Generar registros
+    records = []
+    time_id = 1
+    
+    for year in range(start_year, end_year + 1):
+        # Registro anual
+        records.append((
+            time_id, year, None, None, str(year), None, None,
+            0, 0, None, None,
+            f"{year}-01-01", f"{year}-12-31"
+        ))
+        time_id += 1
+        
+        # Registros quarterly
+        quarters = [
+            (1, "Q1", f"{year}-01-01", f"{year}-03-31"),
+            (2, "Q2", f"{year}-04-01", f"{year}-06-30"),
+            (3, "Q3", f"{year}-07-01", f"{year}-09-30"),
+            (4, "Q4", f"{year}-10-01", f"{year}-12-31"),
+        ]
+        
+        for quarter_num, quarter_str, fecha_inicio, fecha_fin in quarters:
+            # Determinar estación (usar mes medio del trimestre)
+            mes_medio = (quarter_num - 1) * 3 + 2
+            estacion = get_estacion(mes_medio)
+            es_verano = 1 if estacion == "verano" else 0
+            
+            year_quarter = f"{year}-{quarter_str}"
+            periodo = f"{year}{quarter_str}"
+            
+            records.append((
+                time_id, year, quarter_num, None, periodo, year_quarter, None,
+                0, es_verano, estacion, None,
+                fecha_inicio, fecha_fin
+            ))
+            time_id += 1
+    
+    # Insertar registros
+    conn.executemany("""
+        INSERT OR IGNORE INTO dim_tiempo (
+            time_id, anio, trimestre, mes, periodo, year_quarter, year_month,
+            es_fin_de_semana, es_verano, estacion, dia_semana,
+            fecha_inicio, fecha_fin
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, records)
+    
+    conn.commit()
+    logger.info(f"✓ dim_tiempo poblada con {len(records)} registros")
 
 
 def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
     """
-    Elimina todas las filas de las tablas especificadas dentro de una transacción.
+    Elimina todas las filas de las tablas especificadas dentro de una transacci?n.
 
     Args:
-        conn: Conexión SQLite activa.
+        conn: Conexi?n SQLite activa.
         tables: Iterable de nombres de tabla a truncar.
 
     Raises:
-        InvalidTableNameError: Si alguna tabla no está en la whitelist VALID_TABLES.
+        InvalidTableNameError: Si alguna tabla no est? en la whitelist VALID_TABLES.
     """
-    # Validar todas las tablas antes de ejecutar cualquier operación
+    # #region agent log
+    try:
+        with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_truncate_start", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:307", "message": "Starting table truncation", "data": {"tables": list(tables)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
+    except Exception:
+        pass
+    # #endregion
+    # Validar todas las tablas antes de ejecutar cualquier operaci?n
     validated_tables = [validate_table_name(table) for table in tables]
 
     # Desactivar temporalmente foreign keys para permitir truncado en cualquier orden
@@ -323,12 +492,36 @@ def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
     try:
         with conn:
             for table in validated_tables:
-                # Seguro: table ya está validado contra whitelist
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        row_count_before = conn.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0]
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_truncate_before", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:327", "message": "Before truncating table", "data": {"table": table, "row_count": row_count_before}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                # Seguro: table ya est? validado contra whitelist
                 conn.execute(f"DELETE FROM {table};")
+                # #region agent log
+                try:
+                    with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                        row_count_after = conn.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0]
+                        f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_truncate_after", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:328", "message": "After truncating table", "data": {"table": table, "row_count": row_count_after}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
+                except Exception:
+                    pass
+                # #endregion
                 logger.debug("Tabla %s truncada", table)
     finally:
         # Reactivar foreign keys
         conn.execute("PRAGMA foreign_keys = ON;")
+        # #region agent log
+        try:
+            with open('/Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer/.cursor/debug.log', 'a', encoding='utf-8') as f:
+                fk_check = conn.execute("PRAGMA foreign_keys;").fetchone()[0]
+                f.write(json.dumps({"id": f"log_{int(datetime.utcnow().timestamp() * 1000)}_truncate_fk_restored", "timestamp": int(datetime.utcnow().timestamp() * 1000), "location": "database_setup.py:331", "message": "Foreign keys restored after truncation", "data": {"foreign_keys_enabled": bool(fk_check)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
+        except Exception:
+            pass
+        # #endregion
 
 
 def register_etl_run(
@@ -343,7 +536,7 @@ def register_etl_run(
 
     params_json = json.dumps(parameters or {}, ensure_ascii=False)
     logger.info(
-        "Registrando ejecución ETL %s con estado %s", run_id, status
+        "Registrando ejecuci?n ETL %s con estado %s", run_id, status
     )
     with conn:
         conn.execute(
