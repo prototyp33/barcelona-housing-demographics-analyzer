@@ -402,6 +402,165 @@ def prepare_renta_barrio(
     return aggregated
 
 
-__all__ = ["prepare_fact_precios", "prepare_renta_barrio"]
+def load_idescat_income(
+    idescat_df: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    dataset_id: str,
+    reference_time: datetime,
+    source: str = "idescat",
+) -> pd.DataFrame:
+    """
+    Procesa datos de renta de IDESCAT y los mapea a nivel de barrio.
 
+    Los datos de IDESCAT vienen con columnas:
+    - ``Codi_Barri``: Código de barrio como string (ej: "01", "02")
+    - ``Nom_Barri``: Nombre del barrio
+    - ``anio``: Año
+    - ``Import_Renda_Bruta_€``: Renta bruta en euros
+
+    Args:
+        idescat_df: DataFrame con datos de IDESCAT.
+        dim_barrios: DataFrame con dimensión de barrios.
+        dataset_id: ID del dataset.
+        reference_time: Timestamp de referencia.
+        source: Fuente de datos (default: "idescat").
+
+    Returns:
+        DataFrame con renta por barrio y año compatible con fact_renta.
+    """
+    df = idescat_df.copy()
+
+    # Find the renta column (handles encoding variations)
+    renta_col: Optional[str] = None
+    possible_renta_cols = [
+        "Import_Renda_Bruta_€",
+        "Import_Renda_Bruta_â¬",  # Encoding issue
+        "Import_Renda_Bruta",
+        "Import_Euros",
+    ]
+    for col in possible_renta_cols:
+        if col in df.columns:
+            renta_col = col
+            break
+    
+    # Verificar columnas requeridas
+    required_cols = ["Codi_Barri", "anio"]
+    missing = set(required_cols) - set(df.columns)
+    if missing:
+        raise ValueError(f"DataFrame faltan columnas requeridas: {missing}")
+    
+    if renta_col is None:
+        available_cols = ", ".join(df.columns)
+        raise ValueError(
+            f"No se encontró columna de renta. Columnas disponibles: {available_cols}"
+        )
+
+    logger.info(f"Usando columna de renta: '{renta_col}'")
+
+    # Limpiar y convertir tipos
+    df["anio"] = pd.to_numeric(df["anio"], errors="coerce").astype("Int64")
+    df[renta_col] = pd.to_numeric(
+        df[renta_col], errors="coerce"
+    )
+
+    # Normalizar Codi_Barri: asegurar formato "01", "02" etc. (zero-padded)
+    df["Codi_Barri"] = df["Codi_Barri"].astype(str).str.strip().str.zfill(2)
+
+    
+    # Eliminar filas con valores nulos
+    df = df.dropna(subset=["Codi_Barri", "anio", renta_col])
+
+    if df.empty:
+        logger.warning("No hay datos válidos de IDESCAT después de la limpieza")
+        return pd.DataFrame()
+
+    # Mapear Codi_Barri a barrio_id usando dim_barrios
+    # dim_barrios.codi_barri contiene valores como "01", "02" que coinciden con IDESCAT
+    dim_mapping = dim_barrios[["barrio_id", "codi_barri", "barrio_nombre_normalizado"]].copy()
+    
+    # Asegurar que codi_barri es string para el merge
+    dim_mapping["codi_barri"] = dim_mapping["codi_barri"].astype(str).str.strip()
+    
+    # Merge con dim_barrios
+    merged = df.merge(
+        dim_mapping,
+        left_on="Codi_Barri",
+        right_on="codi_barri",
+        how="left"
+    )
+
+    # Verificar registros sin mapeo
+    unmatched = merged[merged["barrio_id"].isna()]
+    if not unmatched.empty:
+        codis_unicos = sorted(unmatched["Codi_Barri"].unique())
+        logger.warning(
+            "%s registros de IDESCAT no pudieron asociarse a un barrio. Códigos: %s",
+            len(unmatched),
+            codis_unicos,
+        )
+        # Eliminar registros sin mapeo
+        merged = merged[merged["barrio_id"].notna()]
+
+    if merged.empty:
+        logger.error("No se pudo mapear ningún registro de IDESCAT a dim_barrios")
+        return pd.DataFrame()
+
+    # Agregar por barrio y año (por si hay duplicados)
+    aggregated = (
+        merged.groupby(["barrio_id", "anio"], as_index=False)
+        .agg(
+            renta_promedio=(renta_col, "mean"),
+            renta_mediana=(renta_col, "median"),
+            renta_min=(renta_col, "min"),
+            renta_max=(renta_col, "max"),
+            num_secciones=(renta_col, "count"),
+            barrio_nombre_normalizado=("barrio_nombre_normalizado", "first"),
+        )
+        .reset_index(drop=True)
+    )
+
+    # La columna principal renta_euros es el promedio
+    aggregated["renta_euros"] = aggregated["renta_promedio"]
+
+    # Agregar metadatos
+    aggregated["dataset_id"] = dataset_id
+    aggregated["source"] = source
+    aggregated["etl_loaded_at"] = reference_time.isoformat()
+
+    # Asegurar tipos correctos
+    aggregated["barrio_id"] = aggregated["barrio_id"].astype(int)
+    aggregated["anio"] = aggregated["anio"].astype(int)
+
+    # Ordenar columnas según schema de fact_renta
+    column_order = [
+        "barrio_id",
+        "anio",
+        "renta_euros",
+        "renta_promedio",
+        "renta_mediana",
+        "renta_min",
+        "renta_max",
+        "num_secciones",
+        "barrio_nombre_normalizado",
+        "dataset_id",
+        "source",
+        "etl_loaded_at",
+    ]
+    available_columns = [col for col in column_order if col in aggregated.columns]
+    aggregated = aggregated[available_columns]
+
+    # Ordenar por año y barrio
+    aggregated = aggregated.sort_values(["anio", "barrio_id"]).reset_index(drop=True)
+
+    logger.info(
+        "Datos de IDESCAT preparados: %s registros (%s barrios, %s años)",
+        len(aggregated),
+        aggregated["barrio_id"].nunique(),
+        aggregated["anio"].nunique(),
+    )
+
+    return aggregated
+
+
+__all__ = ["prepare_fact_precios", "prepare_renta_barrio", "load_idescat_income"]
 

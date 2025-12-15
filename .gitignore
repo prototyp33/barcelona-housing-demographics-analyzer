@@ -35,6 +35,8 @@ env/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+notebooks/**/*.ipynb_checkpoints/
+notebooks/**/.ipynb_checkpoints/
 
 # Data files
 data/
@@ -50,6 +52,11 @@ data/
 *.log
 *.tmp
 outputs/
+!outputs/models/
+!outputs/models/.gitkeep
+!outputs/visualizations/
+outputs/visualizations/*.html
+outputs/models/*.pkl
 temp/
 logs/
 
@@ -60,6 +67,10 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Experimental databases
+data/processed/database_experimental.db
+data/processed/database_test*.db
 
 # Auto-generated documentation
 docs/labels.md  # Auto-generado por update_labels_extended.py
