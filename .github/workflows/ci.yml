@@ -63,7 +63,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.PIP_CACHE_DIR }}
           key: pip-lint-${{ runner.os }}-${{ hashFiles('requirements-dev.txt') }}
@@ -111,7 +111,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.PIP_CACHE_DIR }}
           key: pip-test-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}
@@ -161,7 +161,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache pip dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.PIP_CACHE_DIR }}
           key: pip-etl-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
@@ -245,7 +245,7 @@ jobs:
           ls -la dist/
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist/
