@@ -18,6 +18,8 @@ from ..database_setup import (
     register_etl_run,
     truncate_tables,
 )
+from ..database_views import create_analytical_views
+from .migrations import migrate_dim_barrios_if_needed
 from .validators import (
     FKValidationStrategy,
     handle_source_error,
@@ -519,6 +521,15 @@ def run_etl(
         logger.info("Cargando dimensión de barrios en SQLite")
         dim_barrios.to_sql("dim_barrios", conn, if_exists="append", index=False)
 
+        # Migración de dim_barrios (centroides, áreas, códigos INE) una vez cargados los datos
+        try:
+            migrate_dim_barrios_if_needed(conn)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Error durante migración de dim_barrios (se continúa con el ETL): %s",
+                exc,
+            )
+
         # Cargar demografía (estándar o ampliada)
         if fact_demografia_ampliada is not None:
             logger.info("Cargando tabla de hechos demográficos ampliados")
@@ -567,6 +578,16 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
+
+        # Crear vistas analíticas después de cargar los datos
+        try:
+            create_analytical_views(conn)
+            logger.info("Vistas analíticas creadas/actualizadas tras la carga de datos")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Error creando vistas analíticas (no bloqueante para el ETL): %s",
+                exc,
+            )
 
     except Exception as exc:  # noqa: BLE001
         status = "FAILED"

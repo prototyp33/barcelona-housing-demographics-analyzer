@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import FrozenSet, Iterable, Mapping, Optional
+from typing import FrozenSet, Iterable, Mapping, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,9 @@ CREATE_TABLE_STATEMENTS = (
         edad_media REAL,
         porc_inmigracion REAL,
         densidad_hab_km2 REAL,
+        pct_mayores_65 REAL,
+        pct_menores_15 REAL,
+        indice_envejecimiento REAL,
         dataset_id TEXT,
         source TEXT,
         etl_loaded_at TEXT,
@@ -263,9 +266,10 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     with conn:
         for statement in CREATE_TABLE_STATEMENTS:
             conn.executescript(statement)
-    
-    # Migraciones: añadir columnas que puedan faltar en bases de datos existentes
+
+    # Migraciones de esquema y tablas auxiliares
     migrate_database_schema(conn)
+    ensure_dim_tiempo(conn)
 
 
 def migrate_database_schema(conn: sqlite3.Connection) -> None:
@@ -276,14 +280,12 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
         conn: Conexión SQLite activa.
     """
     logger.debug("Aplicando migraciones de esquema si es necesario")
-    
+
     try:
         # Verificar si la columna is_mock existe en fact_oferta_idealista
-        cursor = conn.execute(
-            "PRAGMA table_info(fact_oferta_idealista)"
-        )
+        cursor = conn.execute("PRAGMA table_info(fact_oferta_idealista)")
         columns = [row[1] for row in cursor.fetchall()]
-        
+
         if "is_mock" not in columns:
             logger.info("Añadiendo columna is_mock a fact_oferta_idealista")
             conn.execute(
@@ -298,9 +300,189 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
             )
             conn.commit()
             logger.info("✓ Registros mock actualizados con is_mock = 1")
+
+        # Añadir columnas demográficas adicionales si faltan
+        cursor = conn.execute("PRAGMA table_info(fact_demografia)")
+        dem_columns = {row[1] for row in cursor.fetchall()}
+        missing_dem_cols = {
+            "pct_mayores_65": "REAL",
+            "pct_menores_15": "REAL",
+            "indice_envejecimiento": "REAL",
+        }
+        for col_name, col_type in missing_dem_cols.items():
+            if col_name not in dem_columns:
+                logger.info("Añadiendo columna %s a fact_demografia", col_name)
+                conn.execute(f"ALTER TABLE fact_demografia ADD COLUMN {col_name} {col_type}")
+        if missing_dem_cols.keys() - dem_columns:
+            conn.commit()
+            logger.info("✓ Columnas adicionales añadidas a fact_demografia")
     except sqlite3.Error as e:
         logger.warning("Error al aplicar migración de esquema: %s", e)
         # No lanzar excepción para no romper el flujo si la tabla no existe aún
+
+
+def _generate_time_dimension_rows(
+    year_start: int = 2015,
+    year_end: int = 2024,
+) -> Iterable[Tuple[int, Optional[int], Optional[int], str, Optional[str], Optional[str]]]:
+    """
+    Genera filas para ``dim_tiempo`` entre los años indicados.
+
+    Se generan:
+    - Un registro anual por año (sin trimestre ni mes)
+    - Cuatro registros trimestrales por año (Q1-Q4)
+
+    Args:
+        year_start: Año inicial (inclusive).
+        year_end: Año final (inclusive).
+
+    Returns:
+        Iterable de tuplas con los campos básicos de tiempo.
+    """
+    for year in range(year_start, year_end + 1):
+        # Fila anual
+        periodo_anual = f"{year}"
+        yield (year, None, None, periodo_anual, None, None)
+
+        # Filas trimestrales
+        for quarter in range(1, 5):
+            periodo_quarter = f"{year}-Q{quarter}"
+            year_quarter = periodo_quarter
+            yield (year, quarter, None, periodo_quarter, year_quarter, None)
+
+
+def ensure_dim_tiempo(conn: sqlite3.Connection) -> None:
+    """
+    Crea y puebla la tabla ``dim_tiempo`` de forma idempotente.
+
+    La tabla se rellena con períodos anuales y trimestrales entre 2015 y 2024.
+
+    Args:
+        conn: Conexión SQLite activa.
+    """
+    logger.debug("Asegurando existencia y población de dim_tiempo")
+
+    with conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS dim_tiempo (
+                time_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                anio INTEGER NOT NULL,
+                trimestre INTEGER,
+                mes INTEGER,
+                periodo TEXT NOT NULL,
+                year_quarter TEXT,
+                year_month TEXT,
+                es_fin_de_semana INTEGER,
+                es_verano INTEGER,
+                estacion TEXT,
+                dia_semana TEXT,
+                fecha_inicio TEXT,
+                fecha_fin TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_dim_tiempo_periodo
+                ON dim_tiempo (periodo);
+            CREATE INDEX IF NOT EXISTS idx_dim_tiempo_anio_trimestre
+                ON dim_tiempo (anio, trimestre);
+            """
+        )
+
+    cursor = conn.execute(
+        "SELECT MIN(anio), MAX(anio), COUNT(*) FROM dim_tiempo",
+    )
+    row = cursor.fetchone()
+    min_year, max_year, total_rows = row if row else (None, None, 0)
+
+    # Si ya está poblada para el rango deseado, no hacemos nada
+    if (
+        total_rows > 0
+        and min_year is not None
+        and max_year is not None
+        and min_year <= 2015
+        and max_year >= 2024
+    ):
+        logger.info(
+            "dim_tiempo ya está poblada (%s filas, años %s-%s), no se realizan cambios",
+            total_rows,
+            min_year,
+            max_year,
+        )
+        return
+
+    logger.info("Poblando dim_tiempo para el rango 2015-2024")
+
+    rows = list(_generate_time_dimension_rows(2015, 2024))
+    records: List[Tuple[int, Optional[int], Optional[int], str, Optional[str], Optional[str], int, int, str, str, str, str]] = []
+
+    for anio, trimestre, mes, periodo, year_quarter, year_month in rows:
+        # Para simplificar, usamos fechas de inicio y fin aproximadas por año y trimestre.
+        if trimestre is None:
+            fecha_inicio = date(anio, 1, 1)
+            fecha_fin = date(anio, 12, 31)
+        else:
+            month_start = (trimestre - 1) * 3 + 1
+            month_end = month_start + 2
+            fecha_inicio = date(anio, month_start, 1)
+            # Fecha fin aproximada al último día del mes final (no crítico para análisis)
+            if month_end in (1, 3, 5, 7, 8, 10, 12):
+                day_end = 31
+            elif month_end == 2:
+                day_end = 28
+            else:
+                day_end = 30
+            fecha_fin = date(anio, month_end, day_end)
+
+        es_verano = 1 if 6 <= fecha_inicio.month <= 9 else 0
+        estacion = (
+            "primavera"
+            if 3 <= fecha_inicio.month <= 5
+            else "verano"
+            if 6 <= fecha_inicio.month <= 9
+            else "otoño"
+            if 9 < fecha_inicio.month <= 11
+            else "invierno"
+        )
+
+        records.append(
+            (
+                anio,
+                trimestre,
+                mes,
+                periodo,
+                year_quarter,
+                year_month,
+                0,  # es_fin_de_semana (no aplica a períodos agregados)
+                es_verano,
+                estacion,
+                "",  # dia_semana (no aplica a períodos agregados)
+                fecha_inicio.isoformat(),
+                fecha_fin.isoformat(),
+            )
+        )
+
+    with conn:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO dim_tiempo (
+                anio,
+                trimestre,
+                mes,
+                periodo,
+                year_quarter,
+                year_month,
+                es_fin_de_semana,
+                es_verano,
+                estacion,
+                dia_semana,
+                fecha_inicio,
+                fecha_fin
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            records,
+        )
+
+    logger.info("dim_tiempo poblada con %s registros", len(records))
 
 
 def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
