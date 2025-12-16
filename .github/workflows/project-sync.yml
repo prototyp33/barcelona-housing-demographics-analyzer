@@ -34,3 +34,4 @@ jobs:
               repo: context.repo.repo,
               body: '✅ PR merged. Si esta issue está vinculada a un proyecto, verifica que la tarjeta se movió a "Done" automáticamente.'
             })
+              
