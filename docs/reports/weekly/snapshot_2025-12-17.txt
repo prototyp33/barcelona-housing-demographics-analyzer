@@ -1,0 +1,61 @@
+📊 BARCELONA HOUSING ANALYZER - QUICK METRICS
+==============================================
+
+📅 Date: 2025-12-17 12:10 CET
+
+🎯 SPIKE ISSUES (Dec 16-20)
+  #209 [OPEN] [SPIKE-EQUIPO-B] Evaluar viabilidad Difference-in-Differences
+  #208 [OPEN] [SPIKE-EQUIPO-B] Implementar hedonic pricing model (Gràcia)
+  #206 [OPEN] [SPIKE] Write Viability Report (PDF)
+  #205 [OPEN] [SPIKE] Alternative Model Specifications
+  #204 [OPEN] [SPIKE] OLS Model Diagnostics & Validation
+  #203 [OPEN] [SPIKE] Build OLS Hedonic Pricing Model
+  #202 [OPEN] [SPIKE] EDA - Exploratory Data Analysis
+  #201 [OPEN] [SPIKE] Data Linking & Cleaning
+  #200 [OPEN] [SPIKE] Extract Catastro/Open Data Attributes - Gràcia
+  #199 [CLOSED] [SPIKE] Extract INE Price Data - Gràcia 2020-2025
+  #198 [OPEN] 🎯 SPIKE Master Tracker - Data Validation (Dec 16-20)
+  #197 [OPEN] 🎯 SPIKE Master Tracker - Data Validation (Dec 16-20)
+  #172 [OPEN] [SPIKE] #147.6 - Write Decision Record (0.5 pág)
+  #171 [OPEN] [SPIKE] #147.5 - List PRD Changes Required (1 pág)
+  #170 [OPEN] [SPIKE] #147.4 - Document Lessons Learned (0.5 pág)
+  #169 [OPEN] [SPIKE] #147.3 - Document Model Results (1 pág)
+  #168 [OPEN] [SPIKE] #147.2 - Document Methodology (1 pág)
+  #167 [OPEN] [SPIKE] #147.1 - Write Executive Summary (0.5 pág)
+  #166 [OPEN] [SPIKE] #145.5 - Identify Outliers & Influential Points
+  #165 [OPEN] [SPIKE] #145.4 - Test Autocorrelation (Durbin-Watson)
+  #164 [OPEN] [SPIKE] #145.3 - Test Multicollinearity (VIF)
+  #163 [OPEN] [SPIKE] #145.2 - Test Homoscedasticity (Breusch-Pagan)
+  #162 [OPEN] [SPIKE] #145.1 - Test Normality of Residuals (Shapiro-Wilk)
+  #161 [OPEN] [SPIKE] #142.5 - Save Final Merged Dataset & Document
+  #160 [OPEN] [SPIKE] #142.4 - Clean Merged Dataset
+  #159 [OPEN] [SPIKE] #142.3 - Aggregate Data to Barrio-Mes Level
+  #158 [OPEN] [SPIKE] #142.2 - Try Fuzzy Address Matching
+  #157 [OPEN] [SPIKE] #142.1 - Try Linking by Referencia Catastral
+  #156 [OPEN] [SPIKE] #141.3 - Validate Attributes Data Quality
+  #155 [OPEN] [SPIKE] #141.2 - Extract Building Attributes Data
+
+🔥 CRITICAL OPEN ISSUES
+  #209 [SPIKE-EQUIPO-B] Evaluar viabilidad Difference-in-Differences [Owner: prototyp33]
+  #208 [SPIKE-EQUIPO-B] Implementar hedonic pricing model (Gràcia) [Owner: prototyp33]
+  #206 [SPIKE] Write Viability Report (PDF) [Owner: prototyp33]
+  #204 [SPIKE] OLS Model Diagnostics & Validation [Owner: prototyp33]
+  #203 [SPIKE] Build OLS Hedonic Pricing Model [Owner: prototyp33]
+  #201 [SPIKE] Data Linking & Cleaning [Owner: prototyp33]
+  #200 [SPIKE] Extract Catastro/Open Data Attributes - Gràcia [Owner: prototyp33]
+  #198 🎯 SPIKE Master Tracker - Data Validation (Dec 16-20) [Owner: prototyp33]
+  #197 🎯 SPIKE Master Tracker - Data Validation (Dec 16-20) [Owner: prototyp33]
+  #185 [VIZ-002.1] Build Market Cockpit Page [Owner: prototyp33]
+
+📊 ISSUE BREAKDOWN BY STATUS
+  Backlog: 0
+0
+  In Progress: 0
+0
+  In Review: 0
+0
+
+⚠️ NEEDS ATTENTION
+  Needs Refinement:       30
+  Blocked:        0
+  No Labels: 0
