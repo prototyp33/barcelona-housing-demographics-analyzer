@@ -120,3 +120,9 @@ jmespath==1.0.1
 
 # XML processing
 defusedxml==0.7.1
+
+# =============================================================================
+# Catastro SOAP Official API (Issue #200)
+# =============================================================================
+# Cliente SOAP para API oficial del Catastro (100% gratuita, sin API key)
+zeep==4.2.1  # Cliente SOAP para consultas oficiales del Catastro
