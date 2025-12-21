@@ -1,6 +1,6 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 5 de diciembre de 2025
+**Última actualización**: 21 de diciembre de 2025
 
 ---
 
@@ -90,6 +90,43 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 - ✅ **IdealistaRapidAPIExtractor** (RapidAPI) añadido con autenticación OAuth y guardado automático en `data/raw/idealistarapidapi/`.
 - ✅ **Script de discovery** `scripts/build_idealista_location_ids.py` para mapear `locationId` ↔ barrio evitando 73 llamadas manuales.
 - ✅ **Tablas nuevas** en SQLite: `fact_demografia_ampliada`, `fact_renta`, `fact_oferta_idealista`.
+
+### 7. **Modelos de Predicción** ✅
+
+#### MACRO v0.2 Optimizado ✅ (LISTO PARA PRODUCCIÓN)
+
+**Performance**:
+- R² = 0.7944
+- RMSE = 272.34 €/m²
+- Features = 11 (colinealidad eliminada)
+
+**Features clave**:
+- `renta_promedio_barrio` (mayor peso)
+- `plantas_barrio_mean` (validado estadísticamente)
+- `ano_construccion_barrio_mean`
+- `latitud`, `longitud` (efectos espaciales)
+
+**Validaciones completadas**:
+- ✅ VIF < 5 (sin colinealidad)
+- ✅ Residuos normales (p = 0.08)
+- ✅ Coeficientes interpretables
+- ✅ `plantas_barrio_mean` investigado y validado (Fases 1-4 completadas)
+
+**Investigación de coeficientes**:
+- ✅ Correlación simple: r = -0.48 (significativa)
+- ✅ Correlación parcial (controlando año): r = -0.23 (significativa)
+- ✅ Interacción con ascensor: r = 0.77 (alta correlación)
+- ✅ Densidad como mediador: NO media el efecto (r = 0.08, baja correlación)
+
+**Status**: Listo para dashboard/producción
+
+**Documentación**: `spike-data-validation/docs/INVESTIGACION_PLANTAS_RESULTADOS.md`
+
+#### MICRO v0.1 ❌ (NO VIABLE)
+
+**Status**: Cerrado (Issue #202)  
+**Razón**: Curva de demanda no-lineal requiere modelo no-lineal  
+**Documentación**: `spike-data-validation/docs/INVESTIGACION_RESUMEN_FINAL.md`
 
 ---
 
