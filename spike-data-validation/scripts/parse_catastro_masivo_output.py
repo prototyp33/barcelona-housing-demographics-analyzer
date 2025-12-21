@@ -74,41 +74,63 @@ def _try_client_parser(xml_path: Path) -> List[Dict[str, Any]]:
 
 def _heuristic_iterparse(xml_path: Path, limit: int) -> List[Dict[str, Any]]:
     """
-    Parser heurístico: busca fin de elementos que parezcan inmuebles.
+    Parser heurístico: busca elementos BIE (bienes/inmuebles) en el XML de salida.
+    
+    Estructura esperada:
+    DS -> LDS -> DSA -> LBI -> BIE -> IBI (datos), DTR (dirección), FIN (finca), etc.
     """
     if not xml_path.exists():
         raise FileNotFoundError(f"XML no encontrado: {xml_path}")
 
     results: List[Dict[str, Any]] = []
-    # Candidatos de tag contenedor
-    inmueble_like = {"INMUEBLE", "inmueble", "urbana", "URBANA"}
+    # Buscar BIE (bienes/inmuebles) en el XML
+    inmueble_like = {"BIE", "INMUEBLE", "inmueble"}
 
     for event, elem in ET.iterparse(xml_path, events=("end",)):
         tag = _strip_ns(elem.tag)
         if tag not in inmueble_like:
             continue
 
-        # Extraer datos por tags hijos conocidos (heurística)
+        # Extraer datos por tags hijos conocidos
+        # Usar iter() para buscar recursivamente en todos los descendientes
         text_by_tag: Dict[str, str] = {}
-        for child in list(elem.iter()):
-            ctag = _strip_ns(child.tag)
-            if child.text and child.text.strip():
-                if ctag in {"RC", "RefCat", "ref_catastral", "SUP", "sfc", "ANYO", "ant", "PLANTAS", "planta", "DIRECCION", "ldt"}:
-                    text_by_tag.setdefault(ctag, child.text.strip())
+        for descendant in elem.iter():
+            dtag = _strip_ns(descendant.tag)
+            if descendant.text and descendant.text.strip():
+                # Guardar el texto del tag, pero priorizar PCA para referencia catastral
+                if dtag == "PCA":
+                    text_by_tag["PCA"] = descendant.text.strip()
+                elif dtag not in text_by_tag:  # Solo guardar si no existe ya
+                    text_by_tag[dtag] = descendant.text.strip()
 
-        rc = text_by_tag.get("RC") or text_by_tag.get("RefCat") or text_by_tag.get("ref_catastral")
-        direccion = text_by_tag.get("DIRECCION") or text_by_tag.get("ldt")
-        sup = text_by_tag.get("SUP") or text_by_tag.get("sfc")
-        anyo = text_by_tag.get("ANYO") or text_by_tag.get("ant")
-        plantas = text_by_tag.get("PLANTAS") or text_by_tag.get("planta")
+        # Extraer referencia catastral (puede estar en PCA dentro de RCA dentro de IBI)
+        rc = (
+            text_by_tag.get("PCA") or 
+            text_by_tag.get("RC") or 
+            text_by_tag.get("RefCat") or 
+            text_by_tag.get("ref_catastral")
+        )
+        
+        # Extraer dirección (DTR contiene la dirección completa)
+        direccion = text_by_tag.get("DTR") or text_by_tag.get("DIRECCION") or text_by_tag.get("ldt")
+        
+        # Extraer superficie (SUP dentro de IBI)
+        sup = text_by_tag.get("SUP")
+        
+        # Extraer año construcción (ACO dentro de IBI)
+        anyo = text_by_tag.get("ACO")
+        
+        # Extraer plantas (buscar en LEC/ELEMENTOS COMUNES o usar heurística)
+        # El número de plantas puede estar en PLA dentro de ELC
+        plantas = text_by_tag.get("PLA") or text_by_tag.get("PLANTAS") or text_by_tag.get("planta")
 
         if rc:
             row: Dict[str, Any] = {
                 "referencia_catastral": rc,
                 "direccion_normalizada": direccion,
-                "superficie_m2": pd.to_numeric(sup, errors="coerce") if sup is not None else None,
-                "ano_construccion": pd.to_numeric(anyo, errors="coerce") if anyo is not None else None,
-                "plantas": pd.to_numeric(plantas, errors="coerce") if plantas is not None else None,
+                "superficie_m2": pd.to_numeric(sup, errors="coerce") if sup else None,
+                "ano_construccion": pd.to_numeric(anyo, errors="coerce") if anyo else None,
+                "plantas": pd.to_numeric(plantas, errors="coerce") if plantas else None,
             }
             results.append(row)
 

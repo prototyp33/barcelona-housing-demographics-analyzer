@@ -68,35 +68,125 @@ class CatastroOficialClient:
         self,
         referencias_catastrales: List[str],
         output_file: Optional[Path] = None,
+        fecha: Optional[str] = None,
+        finalidad: Optional[str] = None,
     ) -> Path:
         """
         Genera el fichero XML de entrada para consulta masiva.
 
-        Formato según documentación oficial:
-        - Root: <CONSULTA>
-        - Elementos: <RC> con referencia catastral (20 caracteres)
+        Formato según documentación oficial (Anexo 1, versión 1.5/1.6):
+        - Root: <LISTADATOS> (obligatorio)
+        - Etiquetas obligatorias: <FEC> (fecha), <FIN> (finalidad)
+        - Cada referencia en bloque <DAT> con <RC>
 
         Args:
-            referencias_catastrales: Lista de referencias catastrales (20 caracteres).
+            referencias_catastrales: Lista de referencias catastrales (14, 18 o 20 caracteres).
             output_file: Ruta del fichero XML a generar. Si es None, usa nombre por defecto.
+            fecha: Fecha en formato YYYY-MM-DD. Si es None, usa fecha actual.
+            finalidad: Texto descriptivo de la finalidad. Si es None, usa valor por defecto.
 
         Returns:
             Ruta del fichero XML generado.
 
         Nota:
-            La documentación suele referirse a RC de 20 caracteres, pero en el spike
-            también manejamos referencias tipo PC1+PC2 (14 caracteres) obtenidas vía
-            `Consulta_RCCOOR`. Para no bloquear la Fase 2, aceptamos 14 o 20 caracteres
-            y dejamos que la Sede valide el fichero.\n\n+            Si la Sede rechaza RC de 14, el paso previo será obtener RC de 20 (cuando
-            el servicio vuelva a funcionar o mediante otra fuente oficial).
+            Según la documentación oficial:
+            - RC puede tener 14, 18 o 20 posiciones
+            - Si se usa RC de 14 posiciones, el sistema devuelve todos los inmuebles de esa finca
+            - Las etiquetas <FEC> y <FIN> son obligatorias
 
         Raises:
-            ValueError: Si alguna referencia no tiene 14 ni 20 caracteres.
+            ValueError: Si alguna referencia no tiene 14, 18 ni 20 caracteres.
         """
+        from datetime import date
+
         if output_file is None:
             output_file = self.config.output_dir / "consulta_masiva_entrada.xml"
 
-        # Validar formato de referencias (14 o 20) sin asumir que ya tenemos RC completa
+        # Validar formato de referencias (14, 18 o 20 según documentación oficial)
+        for ref in referencias_catastrales:
+            ref_clean = ref.strip()
+            if len(ref_clean) not in (14, 18, 20):
+                raise ValueError(
+                    f"Referencia catastral inválida: '{ref_clean}' (debe tener 14, 18 o 20 caracteres, tiene "
+                    f"{len(ref_clean)})",
+                )
+
+        # Usar fecha actual si no se proporciona
+        if fecha is None:
+            fecha = date.today().isoformat()
+
+        # Usar finalidad por defecto si no se proporciona
+        if finalidad is None:
+            finalidad = "CONSULTA MASIVA DATOS NO PROTEGIDOS"
+
+        # Crear estructura XML según esquema oficial del Catastro (Anexo 1)
+        # Elemento raíz OBLIGATORIO: LISTADATOS
+        root = ET.Element("LISTADATOS")
+
+        # Etiquetas obligatorias según documentación oficial
+        fec_element = ET.SubElement(root, "FEC")
+        fec_element.text = fecha
+
+        fin_element = ET.SubElement(root, "FIN")
+        fin_element.text = finalidad
+
+        # Cada referencia catastral va en un bloque DAT con RC
+        for ref in referencias_catastrales:
+            dat_element = ET.SubElement(root, "DAT")
+            rc_element = ET.SubElement(dat_element, "RC")
+            rc_element.text = ref.strip()
+
+        # Formatear XML con indentación y encoding UTF-8
+        xml_str = ET.tostring(root, encoding="unicode")
+        dom = minidom.parseString(xml_str)
+        # Asegurar que la declaración XML incluye encoding UTF-8
+        pretty_xml = dom.toprettyxml(indent="  ", encoding="utf-8")
+        # minidom.toprettyxml devuelve bytes cuando se especifica encoding
+        if isinstance(pretty_xml, bytes):
+            pretty_xml = pretty_xml.decode("utf-8")
+        # Reemplazar la declaración XML para incluir encoding explícitamente
+        if pretty_xml.startswith('<?xml version="1.0" ?>'):
+            pretty_xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + pretty_xml.split('\n', 1)[1]
+
+        # Guardar fichero
+        output_file.write_text(pretty_xml, encoding="utf-8")
+        logger.info(
+            "Fichero XML de entrada generado (formato LISTADATOS): %s (%s referencias)",
+            output_file,
+            len(referencias_catastrales),
+        )
+
+        return output_file
+
+    def generate_input_xml_variants(
+        self,
+        referencias_catastrales: List[str],
+        output_dir: Optional[Path] = None,
+    ) -> Dict[str, Path]:
+        """
+        Genera múltiples variantes del XML de entrada para probar cuál acepta la Sede.
+
+        El esquema XML exacto no está completamente documentado públicamente, por lo que
+        este método genera varias variantes comunes para que el usuario pueda probar
+        cuál funciona con la validación de la Sede Electrónica.
+
+        Args:
+            referencias_catastrales: Lista de referencias catastrales (14 o 20 caracteres).
+            output_dir: Directorio donde guardar las variantes. Si es None, usa output_dir por defecto.
+
+        Returns:
+            Diccionario con nombres de variantes y rutas de los ficheros generados.
+
+        Variantes generadas:
+            - variant1_basic: CONSULTA con xmlns básico (sin schemaLocation)
+            - variant2_with_schema: CONSULTA con xsi:schemaLocation
+            - variant3_no_namespace: CONSULTA sin namespace (namespace por defecto)
+            - variant4_consulta_municipiero: Formato alternativo con elemento wrapper
+        """
+        if output_dir is None:
+            output_dir = self.config.output_dir
+
+        # Validar referencias
         for ref in referencias_catastrales:
             ref_clean = ref.strip()
             if len(ref_clean) not in (14, 20):
@@ -105,28 +195,59 @@ class CatastroOficialClient:
                     f"{len(ref_clean)})",
                 )
 
-        # Crear estructura XML
-        root = ET.Element("CONSULTA")
-        root.set("xmlns", "http://www.catastro.meh.es/")
+        variants: Dict[str, Path] = {}
 
+        # Variante 1: Básica (sin schemaLocation)
+        root1 = ET.Element("CONSULTA", {"xmlns": "http://www.catastro.meh.es/"})
         for ref in referencias_catastrales:
-            rc_element = ET.SubElement(root, "RC")
-            rc_element.text = ref.strip()
+            rc = ET.SubElement(root1, "RC")
+            rc.text = ref.strip()
+        xml1 = minidom.parseString(ET.tostring(root1, encoding="unicode")).toprettyxml(indent="  ")
+        path1 = output_dir / "consulta_masiva_entrada_variant1_basic.xml"
+        path1.write_text(xml1, encoding="utf-8")
+        variants["variant1_basic"] = path1
 
-        # Formatear XML con indentación
-        xml_str = ET.tostring(root, encoding="unicode")
-        dom = minidom.parseString(xml_str)
-        pretty_xml = dom.toprettyxml(indent="  ")
-
-        # Guardar fichero
-        output_file.write_text(pretty_xml, encoding="utf-8")
-        logger.info(
-            "Fichero XML de entrada generado: %s (%s referencias)",
-            output_file,
-            len(referencias_catastrales),
+        # Variante 2: Con schemaLocation
+        root2 = ET.Element(
+            "CONSULTA",
+            {
+                "xmlns": "http://www.catastro.meh.es/",
+                "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                "xsi:schemaLocation": "http://www.catastro.meh.es/ http://www.catastro.meh.es/ConsultaMasiva.xsd",
+            },
         )
+        for ref in referencias_catastrales:
+            rc = ET.SubElement(root2, "RC")
+            rc.text = ref.strip()
+        xml2 = minidom.parseString(ET.tostring(root2, encoding="unicode")).toprettyxml(indent="  ")
+        path2 = output_dir / "consulta_masiva_entrada_variant2_with_schema.xml"
+        path2.write_text(xml2, encoding="utf-8")
+        variants["variant2_with_schema"] = path2
 
-        return output_file
+        # Variante 3: Sin namespace (namespace por defecto vacío)
+        root3 = ET.Element("CONSULTA")
+        for ref in referencias_catastrales:
+            rc = ET.SubElement(root3, "RC")
+            rc.text = ref.strip()
+        xml3 = minidom.parseString(ET.tostring(root3, encoding="unicode")).toprettyxml(indent="  ")
+        path3 = output_dir / "consulta_masiva_entrada_variant3_no_namespace.xml"
+        path3.write_text(xml3, encoding="utf-8")
+        variants["variant3_no_namespace"] = path3
+
+        # Variante 4: Formato alternativo (basado en error "consulta_municipiero")
+        # Puede que el esquema espere un elemento wrapper diferente
+        root4 = ET.Element("consulta_municipiero", {"xmlns": "http://www.catastro.meh.es/"})
+        consulta = ET.SubElement(root4, "CONSULTA")
+        for ref in referencias_catastrales:
+            rc = ET.SubElement(consulta, "RC")
+            rc.text = ref.strip()
+        xml4 = minidom.parseString(ET.tostring(root4, encoding="unicode")).toprettyxml(indent="  ")
+        path4 = output_dir / "consulta_masiva_entrada_variant4_wrapper.xml"
+        path4.write_text(xml4, encoding="utf-8")
+        variants["variant4_wrapper"] = path4
+
+        logger.info("Generadas %s variantes de XML en %s", len(variants), output_dir)
+        return variants
 
     def parse_output_xml(self, xml_file: Path) -> List[Dict[str, Optional[object]]]:
         """
