@@ -50,6 +50,26 @@ make lint
 make format
 ```
 
+#### Estructura del Proyecto
+
+**Reglas de organización**:
+- `src/` - Código de producción (módulos reutilizables)
+- `scripts/` - Scripts ejecutables (CLI tools)
+- `spikes/` - Investigaciones temporales
+- `notebooks/` - Análisis exploratorio
+- `tests/` - Tests automatizados
+
+**Reglas de dependencias**:
+- `src/` NO puede importar de `scripts/`, `spikes/`, `notebooks/`
+- `scripts/` puede importar de `src/` pero NO de otros scripts
+- `spikes/` puede importar de `src/` pero NO de `scripts/`
+- Evitar dependencias cíclicas entre módulos
+
+Ver documentación completa:
+- [`docs/PROJECT_STRUCTURE_PROPOSAL.md`](../docs/PROJECT_STRUCTURE_PROPOSAL.md) - Estructura propuesta
+- [`docs/architecture/DEPENDENCIES.md`](../docs/architecture/DEPENDENCIES.md) - Reglas de dependencias
+```
+
 ### 5. Commit
 
 Usamos [Conventional Commits](https://www.conventionalcommits.org/):

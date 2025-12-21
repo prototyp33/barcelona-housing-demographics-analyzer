@@ -63,31 +63,72 @@ Additional context:
 
 ## 📁 Project Structure
 
+**Estructura oficial del proyecto** (ver [`docs/PROJECT_STRUCTURE_PROPOSAL.md`](docs/PROJECT_STRUCTURE_PROPOSAL.md) para detalles):
+
 ```
 barcelona-housing-demographics-analyzer/
-├── data/
-│   ├── raw/           # Raw data from sources
-│   └── processed/     # Cleaned and normalized data
-├── docs/              # Documentation (planning assets + visuals/wireframes)
-│   ├── planning/      # Roadmaps, discovery notes, sprint backlogs
-│   └── visuals/       # Wireframes, diagrams, exploratory figures
-├── notebooks/         # Jupyter notebooks for analysis
-├── src/               # Source code
-│   ├── extraction/           # Extractores modulares por fuente de datos
-│   │   ├── base.py           # BaseExtractor, setup_logging
-│   │   ├── opendata.py       # OpenDataBCNExtractor
-│   │   ├── idealista.py      # IdealistaExtractor
-│   │   ├── portaldades.py    # PortalDadesExtractor
-│   │   └── ...               # INE, IDESCAT, Incasol
-│   ├── etl/                  # Pipeline ETL y validadores
-│   │   ├── pipeline.py       # run_etl() principal
-│   │   └── validators.py     # Validación FK, clasificación de fuentes
-│   ├── data_processing.py    # Facade de transformaciones
-│   ├── database_setup.py     # Schema SQLite y helpers
-│   ├── analysis.py           # Funciones analíticas
-│   └── app/                  # Dashboard Streamlit modular
-└── tests/             # Unit tests
+├── src/                    # Código de producción (módulos reutilizables)
+│   ├── extraction/         # Extractores por fuente de datos
+│   │   ├── base.py         # BaseExtractor (público)
+│   │   ├── opendata.py     # OpenDataBCNExtractor
+│   │   ├── idealista.py    # IdealistaExtractor
+│   │   ├── portaldades.py  # PortalDadesExtractor
+│   │   └── ...             # INE, IDESCAT, Incasol
+│   ├── etl/                # Pipeline ETL
+│   │   ├── pipeline.py      # Orquestador principal
+│   │   └── validators.py   # Validaciones (público)
+│   ├── database/           # Acceso a base de datos
+│   │   ├── schema.py       # Definición de schema
+│   │   └── repository.py   # Repositorios tipados (público)
+│   ├── analysis/           # Funciones analíticas
+│   │   └── models.py       # Modelos ML/estadísticos
+│   └── app/                # Dashboard Streamlit
+│       ├── main.py
+│       └── pages/
+│
+├── scripts/                # Scripts ejecutables (CLI tools)
+│   ├── etl/                # Scripts ETL por feature
+│   ├── analysis/           # Scripts de análisis
+│   └── maintenance/        # Scripts de mantenimiento
+│
+├── spikes/                 # Spikes temporales (experimentación)
+│   └── data-validation/    # Spike actual (Issue #198-#204)
+│       ├── scripts/        # Scripts específicos del spike
+│       ├── notebooks/      # Notebooks del spike
+│       ├── data/          # Datos del spike
+│       └── docs/          # Documentación del spike
+│
+├── notebooks/              # Notebooks de análisis (producción)
+│   ├── 01_eda.ipynb
+│   └── 02_analysis.ipynb
+│
+├── tests/                  # Tests organizados por feature
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/
+│
+├── docs/                   # Documentación organizada
+│   ├── architecture/       # Decisiones de arquitectura
+│   ├── guides/            # Guías de uso
+│   ├── planning/          # Planning y roadmaps
+│   └── spikes/            # Documentación de spikes
+│
+└── data/                   # Datos (inmutable)
+    ├── raw/               # Datos brutos de fuentes
+    └── processed/         # Datos transformados + database.db
 ```
+
+### 🔗 Reglas de Dependencias
+
+**Límites explícitos entre módulos** (ver [`docs/architecture/DEPENDENCIES.md`](docs/architecture/DEPENDENCIES.md)):
+
+- `src/` → Puede importar: `stdlib`, `third-party`, otros módulos de `src/` (sin ciclos)
+- `scripts/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`
+- `spikes/*/scripts/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`
+- `notebooks/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`
+- `tests/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`, `tests/fixtures/`
+
+**Regla clave**: Evitar dependencias cíclicas. Si A importa B, B NO puede importar A.
 
 ## 🚀 Getting Started
 
