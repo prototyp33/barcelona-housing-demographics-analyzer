@@ -8,7 +8,14 @@ Este directorio contiene toda la documentación técnica y de referencia para el
 
 ### Reportes Técnicos
 
-1. **[DATA_SOURCES_COMPLETE_REPORT.md](./DATA_SOURCES_COMPLETE_REPORT.md)** ⭐
+1. **[OBJETIVOS_WEB_SCRAPER.md](./OBJETIVOS_WEB_SCRAPER.md)** ⭐ **NUEVO**
+   - **Objetivos detallados del web scraper de Idealista**
+   - Qué datos buscamos y por qué
+   - Cómo se integra en el pipeline MICRO
+   - Resultado esperado y métricas de éxito
+   - **Recomendado para entender el propósito del scraper**
+
+2. **[DATA_SOURCES_COMPLETE_REPORT.md](./DATA_SOURCES_COMPLETE_REPORT.md)** ⭐
    - **Reporte completo de todas las fuentes de datos**
    - Análisis técnico detallado de URLs, métodos de extracción y estructuras de datasets
    - Incluye: Catastro, Portal Dades, Idealista, Idescat, Incasòl, Agencia Tributaria
@@ -26,6 +33,21 @@ Este directorio contiene toda la documentación técnica y de referencia para el
    - Métricas de validación DoD
    - Archivos generados y estadísticas
    - Próximos pasos para Issue #200
+
+4. **[CATASTRO_MASIVO_STATUS.md](./CATASTRO_MASIVO_STATUS.md)** ⭐ **ACTUALIZADO**
+   - Estado actual de la consulta masiva Catastro (Issue #202, Fase 2)
+   - XML enviado a Sede Electrónica (19/12/2025)
+   - Próximos pasos: Parsear XML de salida cuando esté disponible
+
+5. **[GITHUB_UPDATE_SNIPPETS.md](./GITHUB_UPDATE_SNIPPETS.md)** 📋 **NUEVO**
+   - Snippets listos para copiar/pegar en GitHub Issues
+   - 4 opciones: comentario completo, update corto, checklist, etc.
+   - **Usar**: Cada vez que quieras actualizar Issue #202 en GitHub
+
+6. **[GITHUB_DOCUMENTATION_GUIDE.md](./GITHUB_DOCUMENTATION_GUIDE.md)** 📖 **NUEVO**
+   - Guía completa: cómo mantener docs locales sincronizadas con GitHub
+   - Checklist de actualización por escenario
+   - Buenas prácticas y flujo de trabajo recomendado
 
 ---
 
@@ -48,6 +70,10 @@ Este directorio contiene toda la documentación técnica y de referencia para el
 ### Issue #200: Extract Catastro/Open Data Attributes
 
 **Estado**: ✅ Debugging completo + workaround por coordenadas disponible
+
+**Fase 2 - Consulta Masiva**:
+- Estado: ⏳ XML enviado a Sede Electrónica (19/12/2025)
+- Ver: [CATASTRO_MASIVO_STATUS.md](./CATASTRO_MASIVO_STATUS.md) para detalles completos
 
 **Documentación**:
 - Fuentes Catastro: [CATASTRO_DATA_SOURCES.md](./CATASTRO_DATA_SOURCES.md)
@@ -160,28 +186,51 @@ Este directorio contiene toda la documentación técnica y de referencia para el
 
 ### ⏳ Pendiente (Fase 2)
 
-#### Issue #202: Modelo Hedonic Pricing MICRO (No iniciado)
-- Requiere: Catastro real (descarga masiva) + Idealista scraping
-- Target: R² ≥ 0.75, RMSE ≤ 250 €/m²
-- Decisión Go/No-Go producción
+#### Issue #202: Modelo Hedonic Pricing MICRO ✅ **COMPLETADO - NO-GO**
+
+**Estado**: ✅ Investigación completada (21/12/2025)  
+**Decisión**: ❌ **NO-GO para MICRO con modelo lineal**
+
+**Resumen**:
+- ✅ 4 estrategias de matching implementadas (geográfico, edificio, cuadrícula, heurístico)
+- ✅ Investigación exhaustiva de datos (precios, características, correlaciones)
+- ✅ **Causa raíz identificada**: Curva de demanda no-lineal en mercado de Gràcia
+- ❌ Modelo lineal OLS inadecuado para estructura no-lineal
+
+**Resultados**:
+- MACRO baseline: R² = 0.71 ✅ (mantener como modelo operativo)
+- MICRO mejor intento: R² = 0.21 ❌ (no cumple target ≥0.75)
+- Correlaciones negativas persisten incluso con datos limpios
+
+**Documentación**:
+- `INVESTIGACION_RESUMEN_FINAL.md` - Resumen completo
+- `GITHUB_ISSUE_202_CIERRE.md` - Comentario de cierre
+- `ESTRATEGIAS_MATCHING_NIVEL_DIFERENTE.md` - Comparación de estrategias
+- `MATCHING_GEOGRAFICO_RESULTADOS.md` - Resultados matching geográfico
+
+**Recomendación**: Mantener MACRO v0.1 como modelo operativo. MICRO v0.2 requeriría modelos no-lineales (Random Forest, XGBoost) - ver `ISSUE_FUTURO_MICRO_V02.md` para futuras iteraciones.
 
 ### 📊 Métricas Clave
 
-| Métrica      | Baseline MACRO v0.1 | Target MICRO v1.0 |
-|--------------|---------------------|-------------------|
-| **R²**       | 0.710               | ≥0.75             |
-| **RMSE**     | 323.47 €/m²         | ≤250 €/m²         |
-| **Sesgo**    | +203.28 €/m²        | <±100 €/m²        |
-| **Granularidad** | Barrio×Año      | Edificio individual |
+| Métrica      | Baseline MACRO v0.1 ✅ | MICRO v0.1 ❌ | Target MICRO v1.0 |
+|--------------|----------------------|---------------|-------------------|
+| **R²**       | 0.710                | 0.21          | ≥0.75             |
+| **RMSE**     | 323.47 €/m²          | 2,113 €/m²    | ≤250 €/m²         |
+| **Sesgo**    | +203.28 €/m²         | N/A           | <±100 €/m²        |
+| **Granularidad** | Barrio×Año       | Edificio      | Edificio individual |
+| **Estado**   | ✅ Operativo         | ❌ NO-GO      | -                 |
+
+**Decisión**: Mantener MACRO v0.1 como modelo operativo. MICRO requiere modelos no-lineales (futuro).
 
 ### 🚀 Próximos Pasos
 
-1. Descarga masiva Catastro Barcelona (XML ~50–200 MB).
-2. Parser XML + filtrar edificios de Gràcia con datos reales (Catastro real micro).
-3. Scraping Idealista (50–100 anuncios Gràcia).
-4. Matching micro (ref catastral + fuzzy dirección).
-5. Entrenar modelo MICRO v1.0 y comparar contra baseline MACRO v0.1.
-6. Decisión: ¿la mejora en R²/RMSE/sesgo justifica el paso a producción?
+1. ✅ **Descarga masiva Catastro Barcelona**: XML enviado (19/12/2025), pendiente respuesta ≤24h
+2. ⏳ **Parser XML**: Implementar cuando llegue el XML de salida (`ECLTI250200147801.XML`)
+3. ⏳ **Filtrar edificios Gràcia**: Usar `filter_gracia_real.py` con datos reales del Catastro
+4. ⏳ **Scraping Idealista**: 50–100 anuncios Gràcia (pendiente de Catastro real)
+5. ⏳ **Matching micro**: Ref catastral + fuzzy dirección
+6. ⏳ **Entrenar modelo MICRO v1.0**: Comparar contra baseline MACRO v0.1
+7. ⏳ **Decisión Go/No-Go**: ¿La mejora en R²/RMSE/sesgo justifica producción?
 
 ### Ruta Recomendada para Spike
 
