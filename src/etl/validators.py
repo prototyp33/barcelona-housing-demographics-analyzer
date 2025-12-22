@@ -396,8 +396,10 @@ def validate_all_fact_tables(
     fact_demografia_ampliada: Optional[pd.DataFrame] = None,
     fact_renta: Optional[pd.DataFrame] = None,
     fact_oferta_idealista: Optional[pd.DataFrame] = None,
+    fact_regulacion: Optional[pd.DataFrame] = None,
     strategy: Union[str, FKValidationStrategy] = FKValidationStrategy.FILTER,
 ) -> Tuple[
+    Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
@@ -418,15 +420,17 @@ def validate_all_fact_tables(
         fact_demografia_ampliada: DataFrame de demografía ampliada (opcional).
         fact_renta: DataFrame de renta (opcional).
         fact_oferta_idealista: DataFrame de oferta Idealista (opcional).
+        fact_regulacion: DataFrame de regulación (opcional).
         strategy: Estrategia de validación a aplicar.
 
-    Returns:
-        Tupla con:
+        Returns:
+            Tupla con:
             - fact_precios validado (o None si era None)
             - fact_demografia validado (o None si era None)
             - fact_demografia_ampliada validado (o None si era None)
             - fact_renta validado (o None si era None)
             - fact_oferta_idealista validado (o None si era None)
+            - fact_regulacion validado (o None si era None)
             - Lista de FKValidationResult con estadísticas de cada tabla
 
     Example:
@@ -507,6 +511,18 @@ def validate_all_fact_tables(
         )
         results.append(result)
 
+    # Validar fact_regulacion
+    if fact_regulacion is not None and not fact_regulacion.empty:
+        fact_regulacion, result = validate_foreign_keys(
+            df=fact_regulacion,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_regulacion",
+            strategy=strategy,
+        )
+        results.append(result)
+
     # Resumen de validación
     if results:
         total_invalid = sum(r.invalid_records for r in results)
@@ -531,6 +547,7 @@ def validate_all_fact_tables(
         fact_demografia_ampliada,
         fact_renta,
         fact_oferta_idealista,
+        fact_regulacion,
         results,
     )
 

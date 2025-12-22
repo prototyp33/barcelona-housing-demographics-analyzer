@@ -186,21 +186,31 @@ class TestValidateAllFactTables:
             "renta_euros": [35000.0, 42000.0],
         })
 
+        fact_regulacion = pd.DataFrame(
+            {
+                "barrio_id": [1, 2],
+                "anio": [2022, 2022],
+                "indice_referencia_alquiler": [900.0, 950.0],
+            }
+        )
+
         (
             precios_out,
             demo_out,
             demo_amp_out,
             renta_out,
             oferta_out,
+            regulacion_out,
             results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
             fact_precios=fact_precios_valid,
             fact_renta=fact_renta,
+            fact_regulacion=fact_regulacion,
             strategy="filter",
         )
 
-        assert len(results) == 2  # precios + renta
+        assert len(results) == 3  # precios + renta + regulacion
         assert all(r.is_valid for r in results)
 
     def test_handles_none_tables(

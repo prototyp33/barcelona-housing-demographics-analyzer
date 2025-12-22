@@ -11,9 +11,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from .base import DATA_RAW_DIR, EXTRACTION_LOGS_DIR, MIN_RECORDS_WARNING, logger
+from .generalitat_extractor import GeneralitatExtractor
+from .idealista import IdealistaExtractor
 from .ine import INEExtractor
 from .opendata import OpenDataBCNExtractor
-from .idealista import IdealistaExtractor
 from .portaldades import PortalDadesExtractor
 
 
@@ -183,7 +184,7 @@ def extract_all_sources(
         Tupla con (diccionario de DataFrames por fuente, metadata de cobertura)
     """
     if sources is None:
-        sources = ["ine", "opendatabcn", "idealista", "portaldades"]
+        sources = ["ine", "opendatabcn", "idealista", "portaldades", "generalitat"]
     
     # Configurar directorio de salida
     if output_dir is None:
@@ -391,31 +392,37 @@ def extract_all_sources(
         try:
             logger.info("=== Extrayendo datos del Portal de Dades (Habitatge) ===")
             portal_extractor = PortalDadesExtractor(output_dir=output_dir)
-            
+
             # Extraer IDs y descargar indicadores
             try:
                 indicadores, archivos = portal_extractor.extraer_y_descargar_habitatge(
                     descargar=True,
                     formato="CSV",
-                    max_pages=None  # Recorrer todas las páginas
+                    max_pages=None,  # Recorrer todas las páginas
                 )
-                
+
                 # Crear un DataFrame con la lista de indicadores
                 if indicadores:
                     df_indicadores = pd.DataFrame(indicadores)
                     df_indicadores["source"] = "portaldades"
                     df_indicadores["fecha_extraccion"] = datetime.now().isoformat()
                     results["portaldades_indicadores"] = df_indicadores
-                    
+
                     # Metadata
                     coverage_metadata["coverage_by_source"]["portaldades"] = {
                         "success": True,
                         "indicadores_encontrados": len(indicadores),
-                        "archivos_descargados": len([p for p in archivos.values() if p is not None]),
-                        "archivos_fallidos": len([p for p in archivos.values() if p is None])
+                        "archivos_descargados": len(
+                            [p for p in archivos.values() if p is not None]
+                        ),
+                        "archivos_fallidos": len(
+                            [p for p in archivos.values() if p is None]
+                        ),
                     }
-                    
-                    is_valid = validate_data_size(df_indicadores, "PortalDades Indicadores")
+
+                    is_valid = validate_data_size(
+                        df_indicadores, "PortalDades Indicadores"
+                    )
                     if is_valid:
                         coverage_metadata["sources_success"].append("portaldades")
                     else:
@@ -424,20 +431,22 @@ def extract_all_sources(
                     results["portaldades_indicadores"] = pd.DataFrame()
                     coverage_metadata["coverage_by_source"]["portaldades"] = {
                         "success": False,
-                        "error": "No se encontraron indicadores"
+                        "error": "No se encontraron indicadores",
                     }
                     coverage_metadata["sources_failed"].append("portaldades")
-                    
-            except Exception as e:
-                logger.error(f"Error extrayendo datos del Portal de Dades: {e}")
+
+            except Exception as e:  # noqa: BLE001
+                logger.error("Error extrayendo datos del Portal de Dades: %s", e)
                 logger.debug(traceback.format_exc())
                 results["portaldades_indicadores"] = pd.DataFrame()
-                coverage_metadata["coverage_by_source"]["portaldades"] = {"error": str(e)}
+                coverage_metadata["coverage_by_source"]["portaldades"] = {
+                    "error": str(e)
+                }
                 coverage_metadata["sources_failed"].append("portaldades")
                 if not continue_on_error:
                     raise
-                    
-        except Exception as e:
+
+        except Exception as e:  # noqa: BLE001
             error_msg = f"Error en extracción Portal de Dades: {e}"
             logger.error(error_msg)
             logger.debug(traceback.format_exc())
@@ -446,7 +455,38 @@ def extract_all_sources(
             coverage_metadata["coverage_by_source"]["portaldades"] = {"error": str(e)}
             if not continue_on_error:
                 raise
-    
+
+    # Generalitat - índice de referencia de alquileres
+    if "generalitat" in sources:
+        try:
+            logger.info("=== Extrayendo índice de referencia de la Generalitat ===")
+            gen_extractor = GeneralitatExtractor(output_dir=output_dir)
+            gen_df, gen_meta = gen_extractor.extract_indice_referencia(
+                year_start, year_end
+            )
+            results["generalitat_regulacion"] = gen_df
+            coverage_metadata["coverage_by_source"]["generalitat_regulacion"] = gen_meta
+
+            is_valid_generalitat = validate_data_size(
+                gen_df, "Generalitat Índice Referencia"
+            )
+            if gen_meta.get("success") and is_valid_generalitat:
+                coverage_metadata["sources_success"].append("generalitat_regulacion")
+            else:
+                coverage_metadata["sources_failed"].append("generalitat_regulacion")
+        except Exception as e:  # noqa: BLE001
+            error_msg = f"Error en extracción Generalitat (índice referencia): {e}"
+            logger.error(error_msg)
+            logger.debug(traceback.format_exc())
+            results["generalitat_regulacion"] = pd.DataFrame()
+            coverage_metadata["sources_failed"].append("generalitat_regulacion")
+            coverage_metadata["coverage_by_source"]["generalitat_regulacion"] = {
+                "error": str(e),
+                "success": False,
+            }
+            if not continue_on_error:
+                raise
+
     # Validación de cobertura temporal y resumen
     logger.info("=== Resumen de extracción ===")
     for source, df in results.items():

@@ -23,6 +23,8 @@ from .idealista import IdealistaExtractor
 from .portaldades import PortalDadesExtractor
 from .idescat import IDESCATExtractor
 from .incasol import IncasolSocrataExtractor
+from .generalitat_extractor import GeneralitatExtractor
+from .airbnb_extractor import AirbnbExtractor
 from .orchestrator import extract_all_sources, write_extraction_summary
 
 __all__ = [
@@ -41,6 +43,8 @@ __all__ = [
     "PortalDadesExtractor",
     "IDESCATExtractor",
     "IncasolSocrataExtractor",
+    "GeneralitatExtractor",
+    "AirbnbExtractor",
     # Orchestration
     "extract_all_sources",
     "write_extraction_summary",

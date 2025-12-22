@@ -14,15 +14,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_NAME = "database.db"
 
 # Whitelist de tablas válidas para operaciones dinámicas (seguridad contra SQL injection)
-VALID_TABLES: FrozenSet[str] = frozenset({
-    "dim_barrios",
-    "fact_precios",
-    "fact_demografia",
-    "fact_demografia_ampliada",
-    "fact_renta",
-    "fact_oferta_idealista",
-    "etl_runs",
-})
+VALID_TABLES: FrozenSet[str] = frozenset(
+    {
+        "dim_barrios",
+        "fact_precios",
+        "fact_demografia",
+        "fact_demografia_ampliada",
+        "fact_renta",
+        "fact_oferta_idealista",
+        "fact_regulacion",
+        "fact_presion_turistica",
+        "etl_runs",
+    }
+)
 
 
 class InvalidTableNameError(ValueError):
@@ -224,6 +228,54 @@ CREATE_TABLE_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS idx_fact_oferta_idealista_barrio_fecha
     ON fact_oferta_idealista (barrio_id, anio, mes);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_regulacion (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        zona_tensionada INTEGER,
+        nivel_tension TEXT,
+        indice_referencia_alquiler REAL,
+        num_licencias_vut INTEGER,
+        derecho_tanteo INTEGER,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_regulacion_unique
+    ON fact_regulacion (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_presion_turistica (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER NOT NULL,
+        num_listings_airbnb INTEGER,
+        pct_entire_home REAL,
+        precio_noche_promedio REAL,
+        tasa_ocupacion REAL,
+        num_reviews_mes INTEGER,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_presion_turistica_unique
+    ON fact_presion_turistica (
+        barrio_id,
+        anio,
+        mes
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_presion_turistica_barrio_fecha
+    ON fact_presion_turistica (barrio_id, anio, mes);
     """,
     """
     CREATE TABLE IF NOT EXISTS etl_runs (

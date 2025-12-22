@@ -125,12 +125,70 @@ def _safe_read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def _convert_to_json_serializable(obj):
+    """
+    Convierte recursivamente valores numéricos de pandas/numpy a tipos nativos de Python.
+    
+    Args:
+        obj: Objeto a convertir (dict, list, o valor primitivo)
+    
+    Returns:
+        Objeto con valores convertidos a tipos nativos de Python
+    """
+    import numpy as np
+    
+    if isinstance(obj, dict):
+        return {k: _convert_to_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_convert_to_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif pd.isna(obj):
+        return None
+    elif isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    else:
+        # Intentar convertir a int o float si es posible
+        try:
+            if isinstance(obj, (int, float)):
+                return int(obj) if isinstance(obj, (int, np.integer)) else float(obj)
+        except (ValueError, TypeError):
+            pass
+        return obj
+
+
 def run_etl(
     raw_base_dir: Path = Path("data/raw"),
     processed_dir: Path = PROCESSED_DIR,
     db_path: Optional[Path] = None,
 ) -> Path:
     """Execute the transformation (T) and load (L) stages into SQLite."""
+
+    # #region agent log
+    import json
+    import time as time_module
+    from pathlib import Path as PathLib
+    debug_log_path = PathLib(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(debug_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A",
+                "location": "pipeline.py:run_etl",
+                "message": "run_etl function entry",
+                "data": {
+                    "raw_base_dir": str(raw_base_dir),
+                    "processed_dir": str(processed_dir),
+                },
+                "timestamp": int(time_module.time() * 1000)
+            }) + "\n")
+    except Exception as log_err:
+        logger.debug("Debug log write failed: %s", log_err)
+    # #endregion
 
     raw_base_dir = Path(raw_base_dir)
     processed_dir = Path(processed_dir)
@@ -219,7 +277,10 @@ def run_etl(
         
         idealista_venta_path = None
         idealista_rent_path = None
-        
+        regulacion_dir = raw_base_dir / "regulacion"
+        portaldades_dir = raw_base_dir / "portaldades"
+        regulacion_path = None
+
         if use_manifest:
             idealista_venta_path = _get_latest_file_from_manifest(
                 manifest, raw_base_dir, "idealista_sale"
@@ -231,7 +292,25 @@ def run_etl(
         if idealista_venta_path is None:
             idealista_venta_path = _find_latest_file(idealista_dir, "idealista_oferta_sale_*.csv")
         if idealista_rent_path is None:
-            idealista_rent_path = _find_latest_file(idealista_dir, "idealista_oferta_rent_*.csv")
+            idealista_rent_path = _find_latest_file(
+                idealista_dir, "idealista_oferta_rent_*.csv"
+            )
+
+        # Buscar datos de regulación: primero en regulacion/, luego en portaldades/
+        if use_manifest:
+            regulacion_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "regulacion", source="portaldades"
+            )
+        if regulacion_path is None and regulacion_dir.exists():
+            # Buscar CSV del Portal de Dades con ID b37xv8wcjh
+            regulacion_path = _find_latest_file(
+                regulacion_dir, "*b37xv8wcjh*.csv"
+            )
+        if regulacion_path is None and portaldades_dir.exists():
+            # Fallback: buscar en directorio portaldades
+            regulacion_path = _find_latest_file(
+                portaldades_dir, "*b37xv8wcjh*.csv"
+            )
 
         if demographics_path is None:
             raise FileNotFoundError(
@@ -247,7 +326,9 @@ def run_etl(
 
         dem_df = _safe_read_csv(demographics_path)
         venta_df = _safe_read_csv(venta_path) if venta_path else pd.DataFrame()
-        alquiler_df = _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
+        alquiler_df = (
+            _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
+        )
         
         # Cargar datos de renta si están disponibles (fuente opcional)
         renta_df = None
@@ -353,8 +434,8 @@ def run_etl(
                         metadata_file=metadata_file if metadata_file.exists() else None,
                     )
                 )
-                params["portaldades_venta_rows"] = len(portaldades_venta_df)
-                params["portaldades_alquiler_rows"] = len(portaldades_alquiler_df)
+                params["portaldades_venta_rows"] = int(len(portaldades_venta_df))
+                params["portaldades_alquiler_rows"] = int(len(portaldades_alquiler_df))
                 
                 if not portaldades_venta_df.empty:
                     logger.info(
@@ -381,6 +462,186 @@ def run_etl(
             portaldades_venta=portaldades_venta_df,
             portaldades_alquiler=portaldades_alquiler_df,
         )
+
+        # Procesar datos de regulación (Portal de Dades + Open Data BCN)
+        from ..processing.prepare_regulacion import prepare_regulacion  # noqa: WPS433
+        from ..processing.prepare_presion_turistica import prepare_presion_turistica  # noqa: WPS433
+
+        fact_regulacion = None
+        fact_presion_turistica = None
+        # Intentar primero regulacion_dir, luego portaldades_dir, luego raw_base_dir
+        regulacion_data_dir = None
+        
+        # #region agent log
+        import json
+        import time as time_module
+        from pathlib import Path as PathLib
+        debug_log_path = PathLib(__file__).parent.parent.parent / ".cursor" / "debug.log"
+        try:
+            debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(debug_log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A",
+                    "location": "pipeline.py:412",
+                    "message": "Checking regulacion directories",
+                    "data": {
+                        "regulacion_dir": str(regulacion_dir),
+                        "regulacion_dir_exists": regulacion_dir.exists(),
+                        "portaldades_dir": str(portaldades_dir),
+                        "portaldades_dir_exists": portaldades_dir.exists(),
+                        "raw_base_dir": str(raw_base_dir),
+                        "debug_log_path": str(debug_log_path),
+                    },
+                    "timestamp": int(time_module.time() * 1000)
+                }) + "\n")
+        except Exception as log_err:
+            logger.debug("Debug log write failed: %s", log_err)
+        # #endregion
+        
+        if regulacion_dir.exists():
+            regulacion_data_dir = regulacion_dir
+        elif portaldades_dir.exists():
+            regulacion_data_dir = portaldades_dir
+        else:
+            # Fallback: usar raw_base_dir directamente (prepare_regulacion buscará recursivamente)
+            regulacion_data_dir = raw_base_dir
+        
+        # #region agent log
+        try:
+            with open(debug_log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A",
+                    "location": "pipeline.py:420",
+                    "message": "Selected regulacion_data_dir",
+                    "data": {
+                        "regulacion_data_dir": str(regulacion_data_dir),
+                        "regulacion_data_dir_exists": regulacion_data_dir.exists() if regulacion_data_dir else False,
+                    },
+                    "timestamp": int(time_module.time() * 1000)
+                }) + "\n")
+        except Exception as log_err:
+            logger.debug("Debug log write failed: %s", log_err)
+        # #endregion
+        
+        logger.info("Buscando datos de regulación en: %s", regulacion_data_dir)
+        try:
+            # #region agent log
+            try:
+                with open(debug_log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "B",
+                        "location": "pipeline.py:424",
+                        "message": "Calling prepare_regulacion",
+                        "data": {
+                            "raw_data_path": str(regulacion_data_dir),
+                            "barrios_df_rows": len(dim_barrios),
+                        },
+                        "timestamp": int(time_module.time() * 1000)
+                    }) + "\n")
+            except Exception as log_err:
+                logger.debug("Debug log write failed: %s", log_err)
+            # #endregion
+            
+            fact_regulacion = prepare_regulacion(
+                raw_data_path=regulacion_data_dir,
+                barrios_df=dim_barrios,
+            )
+            
+            # #region agent log
+            try:
+                with open(debug_log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "D",
+                        "location": "pipeline.py:428",
+                        "message": "prepare_regulacion returned",
+                        "data": {
+                            "fact_regulacion_is_none": fact_regulacion is None,
+                            "fact_regulacion_empty": fact_regulacion.empty if fact_regulacion is not None else None,
+                            "fact_regulacion_rows": len(fact_regulacion) if fact_regulacion is not None else 0,
+                        },
+                        "timestamp": int(time_module.time() * 1000)
+                    }) + "\n")
+            except Exception as log_err:
+                logger.debug("Debug log write failed: %s", log_err)
+            # #endregion
+            
+            if fact_regulacion is not None and not fact_regulacion.empty:
+                logger.info(
+                    "✓ Regulación procesada: %s registros (años %s-%s)",
+                    len(fact_regulacion),
+                    fact_regulacion["anio"].min() if not fact_regulacion.empty else None,
+                    fact_regulacion["anio"].max() if not fact_regulacion.empty else None,
+                )
+            else:
+                logger.warning(
+                    "No se encontraron datos de regulación procesables en %s. "
+                    "Verifica que existan archivos CSV con 'b37xv8wcjh' en el nombre.",
+                    regulacion_data_dir
+                )
+        except Exception as e:
+            # #region agent log
+            try:
+                with open(debug_log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "C",
+                        "location": "pipeline.py:441",
+                        "message": "Exception in prepare_regulacion",
+                        "data": {
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                        },
+                        "timestamp": int(time_module.time() * 1000)
+                    }) + "\n")
+            except Exception as log_err:
+                logger.debug("Debug log write failed: %s", log_err)
+            # #endregion
+            handle_source_error("regulacion", e, context="procesamiento")
+            fact_regulacion = None
+        
+        # Procesar datos de presión turística (Inside Airbnb)
+        airbnb_data_dir = raw_base_dir / "airbnb"
+        if not airbnb_data_dir.exists():
+            airbnb_data_dir = raw_base_dir / "insideairbnb"
+        
+        if airbnb_data_dir.exists():
+            logger.info("=== Procesando datos de presión turística (Inside Airbnb) ===")
+            try:
+                fact_presion_turistica = prepare_presion_turistica(
+                    raw_data_path=airbnb_data_dir,
+                    barrios_df=dim_barrios,
+                )
+                
+                if fact_presion_turistica is not None and not fact_presion_turistica.empty:
+                    logger.info(
+                        "✓ Presión turística procesada: %s registros (años %s-%s)",
+                        len(fact_presion_turistica),
+                        fact_presion_turistica["anio"].min() if not fact_presion_turistica.empty else None,
+                        fact_presion_turistica["anio"].max() if not fact_presion_turistica.empty else None,
+                    )
+                    params["presion_turistica_rows"] = int(len(fact_presion_turistica))
+                    params["presion_turistica_barrios"] = int(fact_presion_turistica["barrio_id"].nunique())
+                else:
+                    logger.warning(
+                        "No se encontraron datos de presión turística procesables en %s. "
+                        "Verifica que existan archivos CSV de listings, calendar y reviews.",
+                        airbnb_data_dir
+                    )
+            except Exception as e:
+                handle_source_error("presion_turistica", e, context="procesamiento")
+                fact_presion_turistica = None
+        else:
+            logger.info("Directorio de datos de Airbnb no encontrado, omitiendo presión turística")
+            fact_presion_turistica = None
         
         # Procesar renta si está disponible
         fact_renta = None
@@ -452,6 +713,7 @@ def run_etl(
             fact_demografia_ampliada,
             fact_renta,
             fact_oferta_idealista,
+            fact_regulacion,
             fk_validation_results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
@@ -460,16 +722,37 @@ def run_etl(
             fact_demografia_ampliada=fact_demografia_ampliada,
             fact_renta=fact_renta,
             fact_oferta_idealista=fact_oferta_idealista,
+            fact_regulacion=fact_regulacion,
             strategy=FKValidationStrategy.FILTER,  # Filtra registros con FK inválidos
         )
         
         # Registrar estadísticas de validación
+        # Convertir valores numéricos a tipos nativos de Python para serialización JSON
+        def to_native_type(v):
+            """Convierte valores numéricos de pandas/numpy a tipos nativos de Python."""
+            import numpy as np
+            if v is None:
+                return None
+            try:
+                if pd.isna(v):
+                    return None
+            except (TypeError, ValueError):
+                pass
+            # Convertir tipos numpy/pandas a tipos nativos de Python
+            if isinstance(v, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+                return int(v)
+            if isinstance(v, (np.floating, np.float64, np.float32)):
+                return float(v)
+            if isinstance(v, (int, float)):
+                return int(v) if isinstance(v, int) else float(v)
+            return v
+        
         fk_stats = {
             result.table_name: {
-                "total": result.total_records,
-                "valid": result.valid_records,
-                "invalid": result.invalid_records,
-                "pct_invalid": round(result.pct_invalid, 2),
+                "total": to_native_type(result.total_records),
+                "valid": to_native_type(result.valid_records),
+                "invalid": to_native_type(result.invalid_records),
+                "pct_invalid": to_native_type(round(result.pct_invalid, 2)),
             }
             for result in fk_validation_results
         }
@@ -484,12 +767,13 @@ def run_etl(
                 "geojson_file": geojson_path.name if geojson_path else None,
                 "idealista_venta_file": idealista_venta_path.name if idealista_venta_path and idealista_venta_path.exists() else None,
                 "idealista_rent_file": idealista_rent_path.name if idealista_rent_path and idealista_rent_path.exists() else None,
-                "dim_barrios_rows": len(dim_barrios),
-                "fact_demografia_rows": len(fact_demografia) if fact_demografia is not None else 0,
-                "fact_demografia_ampliada_rows": len(fact_demografia_ampliada) if fact_demografia_ampliada is not None else 0,
-                "fact_precios_rows": len(fact_precios),
-                "fact_renta_rows": len(fact_renta) if fact_renta is not None else 0,
-                "fact_oferta_idealista_rows": len(fact_oferta_idealista) if fact_oferta_idealista is not None else 0,
+                "dim_barrios_rows": int(len(dim_barrios)),
+                "fact_demografia_rows": int(len(fact_demografia)) if fact_demografia is not None else 0,
+                "fact_demografia_ampliada_rows": int(len(fact_demografia_ampliada)) if fact_demografia_ampliada is not None else 0,
+                "fact_precios_rows": int(len(fact_precios)),
+                "fact_renta_rows": int(len(fact_renta)) if fact_renta is not None else 0,
+                "fact_oferta_idealista_rows": int(len(fact_oferta_idealista)) if fact_oferta_idealista is not None else 0,
+                "fact_regulacion_rows": int(len(fact_regulacion)) if fact_regulacion is not None else 0,
             }
         )
 
@@ -509,6 +793,8 @@ def run_etl(
             tables_to_truncate.append("fact_renta")
         if fact_oferta_idealista is not None:
             tables_to_truncate.append("fact_oferta_idealista")
+        if fact_regulacion is not None:
+            tables_to_truncate.append("fact_regulacion")
         tables_to_truncate.append("fact_precios")
         # dim_barrios se trunca al final porque otras tablas tienen foreign keys hacia ella
         tables_to_truncate.append("dim_barrios")
@@ -567,7 +853,34 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_renta (no disponible o vacío)")
-        
+
+        if fact_regulacion is not None and not fact_regulacion.empty:
+            logger.info("Cargando tabla de hechos de regulación")
+            # Usar replace para evitar errores de UNIQUE constraint si hay datos previos
+            fact_regulacion.to_sql(
+                "fact_regulacion",
+                conn,
+                if_exists="replace",
+                index=False,
+            )
+        else:
+            logger.debug(
+                "No se cargaron datos en fact_regulacion (no disponible o vacío)"
+            )
+
+        if fact_presion_turistica is not None and not fact_presion_turistica.empty:
+            logger.info("Cargando tabla de hechos de presión turística")
+            fact_presion_turistica.to_sql(
+                "fact_presion_turistica",
+                conn,
+                if_exists="replace",
+                index=False,
+            )
+        else:
+            logger.debug(
+                "No se cargaron datos en fact_presion_turistica (no disponible o vacío)"
+            )
+
         if fact_oferta_idealista is not None and not fact_oferta_idealista.empty:
             logger.info("Cargando tabla de hechos de oferta Idealista")
             fact_oferta_idealista.to_sql(
@@ -603,15 +916,34 @@ def run_etl(
             database_path = ensure_database_path(db_path, processed_dir)
             conn = create_connection(database_path)
             create_database_schema(conn)
+        
+        # Convertir params a tipos serializables antes de registrar
+        params_serializable = _convert_to_json_serializable(params)
+        
         register_etl_run(
             conn,
             run_id=run_id,
             started_at=started_at,
             finished_at=finished_at,
             status=status,
-            parameters=params,
+            parameters=params_serializable,
         )
         conn.close()
 
     logger.info("ETL completado correctamente. Base de datos disponible en %s", database_path)
     return database_path
+
+
+if __name__ == "__main__":
+    """Punto de entrada cuando se ejecuta como módulo: python -m src.etl.pipeline"""
+    import sys
+    
+    # Ejecutar ETL con parámetros por defecto
+    try:
+        db_path = run_etl()
+        print(f"✅ ETL completado. Base de datos: {db_path}")
+        sys.exit(0)
+    except Exception as exc:
+        logger.exception("Error durante ejecución del ETL: %s", exc)
+        print(f"❌ Error durante el ETL: {exc}")
+        sys.exit(1)
