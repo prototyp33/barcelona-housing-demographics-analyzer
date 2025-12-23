@@ -466,9 +466,13 @@ def run_etl(
         # Procesar datos de regulación (Portal de Dades + Open Data BCN)
         from ..processing.prepare_regulacion import prepare_regulacion  # noqa: WPS433
         from ..processing.prepare_presion_turistica import prepare_presion_turistica  # noqa: WPS433
+        from ..processing.prepare_seguridad import prepare_seguridad  # noqa: WPS433
+        from ..processing.prepare_ruido import prepare_ruido  # noqa: WPS433
 
         fact_regulacion = None
         fact_presion_turistica = None
+        fact_seguridad = None
+        fact_ruido = None
         # Intentar primero regulacion_dir, luego portaldades_dir, luego raw_base_dir
         regulacion_data_dir = None
         
@@ -643,6 +647,89 @@ def run_etl(
             logger.info("Directorio de datos de Airbnb no encontrado, omitiendo presión turística")
             fact_presion_turistica = None
         
+        # Procesar datos de seguridad y criminalidad (ICGC)
+        icgc_data_dir = raw_base_dir / "icgc"
+        if not icgc_data_dir.exists():
+            icgc_data_dir = raw_base_dir / "seguridad"
+        
+        if icgc_data_dir.exists():
+            logger.info("=== Procesando datos de seguridad y criminalidad (ICGC) ===")
+            try:
+                # Cargar datos de población para calcular tasas
+                poblacion_df = None
+                if fact_demografia is not None and not fact_demografia.empty:
+                    poblacion_df = fact_demografia[["barrio_id", "anio", "poblacion_total"]].copy()
+                    logger.info("Datos de población cargados para cálculo de tasas: %s registros", len(poblacion_df))
+                
+                fact_seguridad = prepare_seguridad(
+                    raw_data_path=icgc_data_dir,
+                    barrios_df=dim_barrios,
+                    poblacion_df=poblacion_df,
+                )
+                
+                if fact_seguridad is not None and not fact_seguridad.empty:
+                    logger.info(
+                        "✓ Seguridad procesada: %s registros (años %s-%s)",
+                        len(fact_seguridad),
+                        fact_seguridad["anio"].min() if not fact_seguridad.empty else None,
+                        fact_seguridad["anio"].max() if not fact_seguridad.empty else None,
+                    )
+                    params["seguridad_rows"] = int(len(fact_seguridad))
+                    params["seguridad_barrios"] = int(fact_seguridad["barrio_id"].nunique())
+                else:
+                    logger.warning(
+                        "No se encontraron datos de seguridad procesables en %s. "
+                        "Verifica que existan archivos CSV de criminalidad.",
+                        icgc_data_dir
+                    )
+            except Exception as e:
+                handle_source_error("seguridad", e, context="procesamiento")
+                fact_seguridad = None
+        else:
+            logger.info("Directorio de datos de ICGC no encontrado, omitiendo seguridad")
+            fact_seguridad = None
+        
+        # Procesar datos de contaminación acústica (ruido)
+        ruido_data_dir = raw_base_dir / "ruido"
+        if not ruido_data_dir.exists():
+            ruido_data_dir = raw_base_dir / "opendatabcn" / "ruido"
+        
+        if ruido_data_dir.exists() or (raw_base_dir / "ruido").exists():
+            logger.info("=== Procesando datos de contaminación acústica (ruido) ===")
+            try:
+                # Cargar datos de población para calcular porcentaje expuesto
+                poblacion_df = None
+                if fact_demografia is not None and not fact_demografia.empty:
+                    poblacion_df = fact_demografia[["barrio_id", "anio", "poblacion_total"]].copy()
+                    logger.info("Datos de población cargados para cálculo de exposición: %s registros", len(poblacion_df))
+                
+                fact_ruido = prepare_ruido(
+                    raw_data_path=ruido_data_dir if ruido_data_dir.exists() else raw_base_dir,
+                    barrios_df=dim_barrios,
+                    poblacion_df=poblacion_df,
+                )
+                
+                if fact_ruido is not None and not fact_ruido.empty:
+                    logger.info(
+                        "✓ Ruido procesado: %s registros (años %s-%s)",
+                        len(fact_ruido),
+                        fact_ruido["anio"].min() if not fact_ruido.empty else None,
+                        fact_ruido["anio"].max() if not fact_ruido.empty else None,
+                    )
+                    params["ruido_rows"] = int(len(fact_ruido))
+                    params["ruido_barrios"] = int(fact_ruido["barrio_id"].nunique())
+                else:
+                    logger.warning(
+                        "No se encontraron datos de ruido procesables. "
+                        "Verifica que existan archivos CSV de ruido o mapas ráster."
+                    )
+            except Exception as e:
+                handle_source_error("ruido", e, context="procesamiento")
+                fact_ruido = None
+        else:
+            logger.info("Directorio de datos de ruido no encontrado, omitiendo contaminación acústica")
+            fact_ruido = None
+        
         # Procesar renta si está disponible
         fact_renta = None
         if renta_df is not None and not renta_df.empty:
@@ -714,6 +801,9 @@ def run_etl(
             fact_renta,
             fact_oferta_idealista,
             fact_regulacion,
+            fact_presion_turistica,
+            fact_seguridad,
+            fact_ruido,
             fk_validation_results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
@@ -723,6 +813,9 @@ def run_etl(
             fact_renta=fact_renta,
             fact_oferta_idealista=fact_oferta_idealista,
             fact_regulacion=fact_regulacion,
+            fact_presion_turistica=fact_presion_turistica,
+            fact_seguridad=fact_seguridad,
+            fact_ruido=fact_ruido,
             strategy=FKValidationStrategy.FILTER,  # Filtra registros con FK inválidos
         )
         
@@ -879,6 +972,32 @@ def run_etl(
         else:
             logger.debug(
                 "No se cargaron datos en fact_presion_turistica (no disponible o vacío)"
+            )
+
+        if fact_seguridad is not None and not fact_seguridad.empty:
+            logger.info("Cargando tabla de hechos de seguridad")
+            fact_seguridad.to_sql(
+                "fact_seguridad",
+                conn,
+                if_exists="replace",
+                index=False,
+            )
+        else:
+            logger.debug(
+                "No se cargaron datos en fact_seguridad (no disponible o vacío)"
+            )
+
+        if fact_ruido is not None and not fact_ruido.empty:
+            logger.info("Cargando tabla de hechos de ruido")
+            fact_ruido.to_sql(
+                "fact_ruido",
+                conn,
+                if_exists="replace",
+                index=False,
+            )
+        else:
+            logger.debug(
+                "No se cargaron datos en fact_ruido (no disponible o vacío)"
             )
 
         if fact_oferta_idealista is not None and not fact_oferta_idealista.empty:

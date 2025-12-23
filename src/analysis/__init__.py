@@ -1,13 +1,25 @@
-"""Módulos de análisis avanzados (fase 2+).
+"""
+Módulo de análisis avanzado para insights accionables.
 
-Actualmente expone utilidades relacionadas con la segmentación de mercado
-K-Means en barrios de Barcelona.
+Incluye:
+- Análisis descriptivos (tendencias, correlaciones, comparaciones)
+- Modelos predictivos
+- Forecasting de tendencias
+- Clasificación de barrios
 """
 
-from .market_segmentation import (  # noqa: F401
-    SubmarketMetadata,
-    assign_submarket,
-    build_submarket_mapping,
+from .descriptive import (
+    calculate_trends,
+    compare_barrios,
+    identify_outliers,
+    calculate_correlations,
+    generate_scorecard,
 )
 
-
+__all__ = [
+    "calculate_trends",
+    "compare_barrios",
+    "identify_outliers",
+    "calculate_correlations",
+    "generate_scorecard",
+]

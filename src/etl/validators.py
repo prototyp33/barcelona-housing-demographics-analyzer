@@ -397,8 +397,15 @@ def validate_all_fact_tables(
     fact_renta: Optional[pd.DataFrame] = None,
     fact_oferta_idealista: Optional[pd.DataFrame] = None,
     fact_regulacion: Optional[pd.DataFrame] = None,
+    fact_presion_turistica: Optional[pd.DataFrame] = None,
+    fact_seguridad: Optional[pd.DataFrame] = None,
+    fact_ruido: Optional[pd.DataFrame] = None,
     strategy: Union[str, FKValidationStrategy] = FKValidationStrategy.FILTER,
 ) -> Tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
@@ -421,6 +428,9 @@ def validate_all_fact_tables(
         fact_renta: DataFrame de renta (opcional).
         fact_oferta_idealista: DataFrame de oferta Idealista (opcional).
         fact_regulacion: DataFrame de regulación (opcional).
+        fact_presion_turistica: DataFrame de presión turística (opcional).
+        fact_seguridad: DataFrame de seguridad (opcional).
+        fact_ruido: DataFrame de ruido (opcional).
         strategy: Estrategia de validación a aplicar.
 
         Returns:
@@ -523,6 +533,42 @@ def validate_all_fact_tables(
         )
         results.append(result)
 
+    # Validar fact_presion_turistica
+    if fact_presion_turistica is not None and not fact_presion_turistica.empty:
+        fact_presion_turistica, result = validate_foreign_keys(
+            df=fact_presion_turistica,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_presion_turistica",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_seguridad
+    if fact_seguridad is not None and not fact_seguridad.empty:
+        fact_seguridad, result = validate_foreign_keys(
+            df=fact_seguridad,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_seguridad",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_ruido
+    if fact_ruido is not None and not fact_ruido.empty:
+        fact_ruido, result = validate_foreign_keys(
+            df=fact_ruido,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_ruido",
+            strategy=strategy,
+        )
+        results.append(result)
+
     # Resumen de validación
     if results:
         total_invalid = sum(r.invalid_records for r in results)
@@ -548,6 +594,9 @@ def validate_all_fact_tables(
         fact_renta,
         fact_oferta_idealista,
         fact_regulacion,
+        fact_presion_turistica,
+        fact_seguridad,
+        fact_ruido,
         results,
     )
 

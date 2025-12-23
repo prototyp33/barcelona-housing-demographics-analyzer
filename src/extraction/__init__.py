@@ -25,6 +25,8 @@ from .idescat import IDESCATExtractor
 from .incasol import IncasolSocrataExtractor
 from .generalitat_extractor import GeneralitatExtractor
 from .airbnb_extractor import AirbnbExtractor
+from .icgc_extractor import ICGCExtractor
+from .ruido_extractor import RuidoExtractor
 from .orchestrator import extract_all_sources, write_extraction_summary
 
 __all__ = [
@@ -45,6 +47,8 @@ __all__ = [
     "IncasolSocrataExtractor",
     "GeneralitatExtractor",
     "AirbnbExtractor",
+    "ICGCExtractor",
+    "RuidoExtractor",
     # Orchestration
     "extract_all_sources",
     "write_extraction_summary",
