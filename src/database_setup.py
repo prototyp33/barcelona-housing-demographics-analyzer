@@ -24,6 +24,8 @@ VALID_TABLES: FrozenSet[str] = frozenset(
         "fact_oferta_idealista",
         "fact_regulacion",
         "fact_presion_turistica",
+        "fact_seguridad",
+        "fact_ruido",
         "etl_runs",
     }
 )
@@ -276,6 +278,56 @@ CREATE_TABLE_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS idx_fact_presion_turistica_barrio_fecha
     ON fact_presion_turistica (barrio_id, anio, mes);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_seguridad (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        trimestre INTEGER NOT NULL,
+        delitos_patrimonio INTEGER,
+        delitos_seguridad_personal INTEGER,
+        tasa_criminalidad_1000hab REAL,
+        percepcion_inseguridad REAL,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_seguridad_unique
+    ON fact_seguridad (
+        barrio_id,
+        anio,
+        trimestre
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_seguridad_barrio_fecha
+    ON fact_seguridad (barrio_id, anio, trimestre);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_ruido (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        nivel_lden_medio REAL,
+        nivel_ld_dia REAL,
+        nivel_ln_noche REAL,
+        pct_poblacion_expuesta_65db REAL,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_ruido_unique
+    ON fact_ruido (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_ruido_barrio_fecha
+    ON fact_ruido (barrio_id, anio);
     """,
     """
     CREATE TABLE IF NOT EXISTS etl_runs (
