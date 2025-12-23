@@ -490,3 +490,83 @@ def render_breadcrumbs(crumbs: list[dict[str, str]]) -> None:
     
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+
+
+# Componentes de insights y recomendaciones
+def render_insight_card(
+    title: str,
+    value: str,
+    trend: str | None = None,
+    explanation: str | None = None,
+    icon: str = "💡",
+) -> None:
+    """
+    Tarjeta simple para mostrar un insight clave.
+    """
+    trend_html = f'<div style="color:#2F80ED; font-size:12px; font-weight:600;">{trend}</div>' if trend else ''
+    expl_html = f'<div style="color:#4A5568; font-size:12px;">{explanation}</div>' if explanation else ''
+    
+    st.markdown(
+        f'<div class="card" style="padding: 16px; border-radius: 14px; margin-bottom: 12px;">'
+        f'<div style="display:flex; align-items:center; gap:12px;">'
+        f'<span style="font-size:24px;">{icon}</span><div>'
+        f'<div style="font-size:14px; color:#4A5568; font-weight:600;">{title}</div>'
+        f'<div style="font-size:22px; font-weight:700; color:#1A1A1A;">{value}</div>'
+        f'{trend_html}{expl_html}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_prediction_chart(title: str, fig) -> None:
+    """
+    Renderiza un gráfico de predicción con estilo de tarjeta.
+    """
+    with card_chart(title=title):
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def render_recommendation_list(recommendations: list[dict]) -> None:
+    """
+    Lista de recomendaciones con scores.
+    """
+    if not recommendations:
+        render_empty_state(
+            title="Sin recomendaciones",
+            description="No se encontraron barrios que cumplan los criterios.",
+            icon="ℹ️",
+        )
+        return
+
+    for rec in recommendations:
+        name = rec.get('barrio_nombre', f"Barrio {rec.get('barrio_id', '')}")
+        expl = rec.get('explanation', '')
+        reason = rec.get('reason', '')
+        score = rec.get('total_score', 0)
+        
+        st.markdown(
+            f'<div class="card" style="padding: 12px; border-radius: 12px; margin-bottom: 10px;">'
+            f'<div style="display:flex; justify-content: space-between; align-items:center;">'
+            f'<div><div style="font-weight:700;">{name}</div>'
+            f'<div style="font-size:12px; color:#4A5568;">{expl}</div>'
+            f'<div style="font-size:12px; color:#4A5568;">{reason}</div></div>'
+            f'<div style="text-align:right;"><div style="font-weight:700; font-size:18px;">{score:.1f}</div>'
+            f'<div style="font-size:12px; color:#4A5568;">Score</div></div></div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_alert_badge(priority: str) -> str:
+    """
+    Retorna un badge de prioridad en HTML.
+    """
+    colors = {
+        "critical": "#EB5757",
+        "high": "#F2994A",
+        "medium": "#F2C94C",
+        "low": "#27AE60",
+    }
+    color = colors.get(priority, "#4A5568")
+    return (
+        f'<span style="padding:4px 10px; background:{color}1A; color:{color}; '
+        f'border-radius:12px; font-size:11px; font-weight:700;">{priority.upper()}</span>'
+    )

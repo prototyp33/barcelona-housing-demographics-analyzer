@@ -13,7 +13,18 @@ from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2, DB_PATH
 from src.app.data_loader import load_distritos, load_available_years, load_kpis, load_precios
 from src.app.components import card_standard, card_chart, card_snapshot, card_metric, render_skeleton_kpi, render_breadcrumbs
 from src.app.styles import inject_global_css, render_responsive_kpi_grid, render_ranking_item
-from src.app.views import overview, map_analysis, correlations, demographics, data_quality, market_view
+from src.app.views import (
+    overview,
+    map_analysis,
+    correlations,
+    demographics,
+    data_quality,
+    market_view,
+    advanced_analytics,
+    alerts,
+    recommendations,
+    market_cockpit,
+)
 
 
 def configure_page() -> None:
@@ -34,23 +45,14 @@ def render_sidebar() -> tuple[int, str | None, str]:
     
     with st.sidebar:
         st.markdown(
-            """
-            <div style="display: flex; align-items: center; margin-bottom: 30px;">
-                <div style="
-                    width: 44px; height: 44px;
-                    background: linear-gradient(135deg, #2F80ED 0%, #56CCF2 100%);
-                    border-radius: 14px; display: flex; align-items: center; justify-content: center;
-                    color: white; font-weight: bold; font-size: 22px;
-                    box-shadow: 0 8px 20px rgba(47, 128, 237, 0.35);
-                ">
-                    🏙️
-                </div>
-                <div style="margin-left: 12px;">
-                    <div style="font-size: 16px; font-weight: 700; color: #1A1A1A;">Barcelona</div>
-                    <div style="font-size: 12px; color: #4A5568;">Housing Analytics</div>
-                </div>
-            </div>
-            """,
+            f'<div style="display: flex; align-items: center; margin-bottom: 30px;">'
+            f'<div style="width: 44px; height: 44px; background: linear-gradient(135deg, #2F80ED 0%, #56CCF2 100%); '
+            f'border-radius: 14px; display: flex; align-items: center; justify-content: center; '
+            f'color: white; font-weight: bold; font-size: 22px; '
+            f'box-shadow: 0 8px 20px rgba(47, 128, 237, 0.35);">🏙️</div>'
+            f'<div style="margin-left: 12px;">'
+            f'<div style="font-size: 16px; font-weight: 700; color: #1A1A1A;">Barcelona</div>'
+            f'<div style="font-size: 12px; color: #4A5568;">Housing Analytics</div></div></div>',
             unsafe_allow_html=True,
         )
         
@@ -106,21 +108,12 @@ def render_sidebar() -> tuple[int, str | None, str]:
                     )
         
         st.markdown(
-            """
-            <div style="
-                display: flex; align-items: center;
-                background: rgba(255,255,255,0.5);
-                padding: 12px; border-radius: 14px;
-                border: 1px solid rgba(255,255,255,0.7);
-                margin-top: 20px;
-            ">
-                <div style="width: 36px; height: 36px; background: #E2E8F0; border-radius: 50%;"></div>
-                <div style="margin-left: 10px;">
-                    <div style="font-size: 12px; font-weight: 600; color: #1A1A1A;">Usuario Admin</div>
-                    <div style="font-size: 10px; color: #2F80ED;">● Conectado</div>
-                </div>
-            </div>
-            """,
+            f'<div style="display: flex; align-items: center; background: rgba(255,255,255,0.5); '
+            f'padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.7); margin-top: 20px;">'
+            f'<div style="width: 36px; height: 36px; background: #E2E8F0; border-radius: 50%;"></div>'
+            f'<div style="margin-left: 10px;">'
+            f'<div style="font-size: 12px; font-weight: 600; color: #1A1A1A;">Usuario Admin</div>'
+            f'<div style="font-size: 10px; color: #2F80ED;">● Conectado</div></div></div>',
             unsafe_allow_html=True,
         )
         
@@ -140,28 +133,14 @@ def render_custom_header(distrito_filter: str | None, metric_name: str, year: in
 
     with card_standard():
         st.markdown(
-            f"""
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                <div>
-                    <p style="color: #8E92BC; font-size: 12px; letter-spacing: 1px; margin: 0;">RADAR OPERACIONAL</p>
-                    <h2 style="margin: 4px 0 0 0; font-size: 26px; color: #1A1A1A;">{display_title}</h2>
-                    <p style="color: #4A5568; font-size: 14px; margin: 4px 0 0 0;">{display_subtitle}</p>
-                </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px;">
-                    <!-- Search Placeholder -->
-                    <input placeholder="Buscar barrio específico..." style="
-                        flex: 1;
-                        min-width: 220px;
-                        padding: 12px 16px;
-                        border-radius: 16px;
-                        border: 1px solid rgba(0,0,0,0.08);
-                        font-family: 'Inter', sans-serif;
-                        font-size: 14px;
-                        background: #F8FAFC;
-                    " />
-                </div>
-            </div>
-            """,
+            f'<div style="display: flex; flex-direction: column; gap: 10px;">'
+            f'<div><p style="color: #8E92BC; font-size: 12px; letter-spacing: 1px; margin: 0;">RADAR OPERACIONAL</p>'
+            f'<h2 style="margin: 4px 0 0 0; font-size: 26px; color: #1A1A1A;">{display_title}</h2>'
+            f'<p style="color: #4A5568; font-size: 14px; margin: 4px 0 0 0;">{display_subtitle}</p></div>'
+            f'<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px;">'
+            f'<input placeholder="Buscar barrio específico..." style="flex: 1; min-width: 220px; '
+            f'padding: 12px 16px; border-radius: 16px; border: 1px solid rgba(0,0,0,0.08); '
+            f"font-family: 'Inter', sans-serif; font-size: 14px; background: #F8FAFC;\" /></div></div>",
             unsafe_allow_html=True,
         )
         
@@ -271,32 +250,64 @@ def main() -> None:
         
     render_breadcrumbs(crumbs)
     
-    render_custom_header(distrito_filter, selected_metric, selected_year)
-    st.markdown("<br>", unsafe_allow_html=True)
-    render_primary_dashboard(selected_year, distrito_filter)
-    st.markdown("### 📚 Profundiza por módulo")
-    
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Territorio", "Demografía", "Correlaciones", "Calidad de Datos", "Market Cockpit"]
-    )
+    # Navegación principal con tabs según Wireframe 1
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🏘️ Market",
+        "📊 Insights",
+        "🚨 Alertas",
+        "💡 Recomendaciones",
+        "📄 Reportes",
+    ])
     
     with tab1:
+        # Market Cockpit - Wireframe 1
+        market_cockpit.render(year=selected_year, distrito_filter=distrito_filter)
+    
+    with tab2:
+        advanced_analytics.render(year=selected_year)
+    
+    with tab3:
+        alerts.render(year=selected_year)
+    
+    with tab4:
+        recommendations.render(year=selected_year)
+    
+    with tab5:
+        st.header("📝 Reportes")
+        st.write(
+            "Genera reportes PDF (Resumen Ejecutivo, Detalle de Barrio, Reporte Trimestral). "
+            "Ejecuta el script `python scripts/generate_reports.py --type executive_summary` para generar."
+        )
+    
+    # Tabs secundarios (legacy - mantener para compatibilidad)
+    st.markdown("---")
+    st.markdown("### 📚 Módulos Adicionales")
+    
+    tab_sec1, tab_sec2, tab_sec3, tab_sec4, tab_sec5 = st.tabs([
+        "Territorio",
+        "Demografía",
+        "Correlaciones",
+        "Calidad de Datos",
+        "Market View (Legacy)",
+    ])
+    
+    with tab_sec1:
         map_analysis.render(
             year=selected_year,
             distrito_filter=distrito_filter,
             key_prefix="tab_territorio",
         )
     
-    with tab2:
+    with tab_sec2:
         demographics.render(year=selected_year)
     
-    with tab3:
+    with tab_sec3:
         correlations.render(year=selected_year)
     
-    with tab4:
+    with tab_sec4:
         data_quality.render(year=selected_year, key_prefix="tab_data_quality")
-
-    with tab5:
+    
+    with tab_sec5:
         market_view.render_market_cockpit()
 
 

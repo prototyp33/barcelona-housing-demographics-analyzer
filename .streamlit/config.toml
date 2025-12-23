@@ -58,6 +58,11 @@ textColor = "#262730"
 # Fuente
 font = "sans serif"
 
+# Colores adicionales para componentes de Streamlit
+skeletonBackgroundColor = "#F0F2F6"
+widgetBackgroundColor = "#FFFFFF"
+widgetBorderColor = "#E5E7EB"
+
 # ==============================================================================
 # Configuración Alternativa: Tema Oscuro
 # ==============================================================================

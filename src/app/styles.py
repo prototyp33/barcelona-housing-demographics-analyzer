@@ -642,66 +642,33 @@ def render_kpi_card(
             f'<span style="font-size: 18px; font-weight: 600; margin-left: 6px; opacity: 0.75;">{unit}</span>'
         )
 
-    value_block = f"""
-    <div style="
-        display: flex; 
-        align-items: baseline; 
-        gap: 4px;
-        margin: 12px 0;
-    ">
-        <span style="
-            font-size: 36px; 
-            font-weight: 700; 
-            color: {color_value}; 
-            line-height: 1;
-            font-family: 'Inter', sans-serif;
-            letter-spacing: -0.5px;
-        ">{value_str}</span>
-        {unit_html}
-    </div>
-    """
+    value_block = (
+        f'<div style="display:flex;align-items:baseline;gap:4px;margin:12px 0;">'
+        f'<span style="font-size:36px;font-weight:700;color:{color_value};line-height:1;'
+        f"font-family:'Inter',sans-serif;letter-spacing:-0.5px;'>{value_str}</span>"
+        f"{unit_html}</div>"
+    )
 
     badge_html = ""
     if delta:
-        badge_html = f"""
-        <div style="
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 10px;
-            border-radius: 14px;
-            font-size: 12px;
-            font-weight: 600;
-            font-family: 'Inter', sans-serif;
-            {badge_base}
-        ">{delta}</div>
-        """
+        badge_html = (
+            f'<div style="display:inline-flex;align-items:center;padding:4px 10px;'
+            f'border-radius:14px;font-size:12px;font-weight:600;'
+            f"font-family:'Inter',sans-serif;{badge_base}>{delta}</div>"
+        )
 
-    html = f"""
-    <div class="bh-kpi-card" style="
-        background: {bg_card}; 
-        padding: 20px 24px; 
-        border-radius: 20px; 
-        box-shadow: {COLOR_TOKENS['shadow_elevation_1']}; 
-        font-family: 'Inter', sans-serif; 
-        border: none;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    ">
-        <div style="
-            display: flex; 
-            align-items: center;
-            font-size: 13px; 
-            font-weight: 500; 
-            color: {color_title}; 
-            margin-bottom: 8px;
-            font-family: 'Inter', sans-serif;
-        ">
-            {icon_html}
-            {title}
-        </div>
-        {value_block}
-        {badge_html}
-    </div>
-    """
+    html = (
+        f'<div class="bh-kpi-card" style="background:{bg_card};padding:20px 24px;'
+        f'border-radius:20px;box-shadow:{COLOR_TOKENS["shadow_elevation_1"]};'
+        f"font-family:'Inter',sans-serif;border:none;"
+        f'transition:all 0.3s cubic-bezier(0.4,0,0.2,1);">'
+        f'<div style="display:flex;align-items:center;font-size:13px;font-weight:500;'
+        f'color:{color_title};margin-bottom:8px;font-family:\'Inter\',sans-serif;">'
+        f"{icon_html} {title}</div>"
+        f"{value_block}"
+        f"{badge_html}"
+        f"</div>"
+    )
 
     if render:
         st.markdown(html, unsafe_allow_html=True)

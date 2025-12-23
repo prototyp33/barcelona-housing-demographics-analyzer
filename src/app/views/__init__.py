@@ -7,6 +7,10 @@ from src.app.views import (
     map_analysis,
     overview,
     market_view,
+    advanced_analytics,
+    alerts,
+    recommendations,
+    market_cockpit,
 )
 
 __all__ = [
@@ -16,5 +20,8 @@ __all__ = [
     "map_analysis",
     "overview",
     "market_view",
+    "advanced_analytics",
+    "alerts",
+    "recommendations",
+    "market_cockpit",
 ]
-
