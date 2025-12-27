@@ -26,6 +26,14 @@ VALID_TABLES: FrozenSet[str] = frozenset(
         "fact_presion_turistica",
         "fact_seguridad",
         "fact_ruido",
+        "fact_soroll",
+        "fact_calidad_aire",
+        "fact_educacion",
+        "fact_movilidad",
+        "fact_vivienda_publica",
+        "fact_servicios_salud",
+        "fact_medio_ambiente",
+        "fact_comercio",
         "etl_runs",
     }
 )
@@ -328,6 +336,245 @@ CREATE_TABLE_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS idx_fact_ruido_barrio_fecha
     ON fact_ruido (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_medio_ambiente (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        -- Ruido (mantener compatibilidad con fact_ruido)
+        nivel_lden_medio REAL,
+        nivel_ld_dia REAL,
+        nivel_ln_noche REAL,
+        pct_poblacion_expuesta_65db REAL,
+        -- Zonas verdes
+        superficie_zonas_verdes_m2 REAL,
+        num_parques_jardines INTEGER DEFAULT 0,
+        num_arboles INTEGER DEFAULT 0,
+        m2_zonas_verdes_por_habitante REAL,
+        -- Metadata
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_medio_ambiente_unique
+    ON fact_medio_ambiente (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_medio_ambiente_barrio_fecha
+    ON fact_medio_ambiente (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_educacion (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        pct_sin_estudios REAL,
+        pct_primaria REAL,
+        pct_secundaria REAL,
+        pct_universitarios REAL,
+        poblacion_16plus INTEGER,
+        num_centros_infantil INTEGER DEFAULT 0,
+        num_centros_primaria INTEGER DEFAULT 0,
+        num_centros_secundaria INTEGER DEFAULT 0,
+        num_centros_fp INTEGER DEFAULT 0,
+        num_centros_universidad INTEGER DEFAULT 0,
+        total_centros_educativos INTEGER DEFAULT 0,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn_educacion',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_educacion_unique
+    ON fact_educacion (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_educacion_barrio_fecha
+    ON fact_educacion (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_movilidad (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER,
+        estaciones_metro INTEGER DEFAULT 0,
+        estaciones_fgc INTEGER DEFAULT 0,
+        paradas_bus INTEGER DEFAULT 0,
+        estaciones_bicing INTEGER DEFAULT 0,
+        capacidad_bicing INTEGER DEFAULT 0,
+        uso_bicing_promedio REAL,
+        tiempo_medio_centro_minutos REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'atm_opendata',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_movilidad_unique
+    ON fact_movilidad (
+        barrio_id,
+        anio,
+        mes
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_movilidad_barrio_fecha
+    ON fact_movilidad (barrio_id, anio, mes);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_vivienda_publica (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        contratos_alquiler_nuevos INTEGER,
+        fianzas_depositadas_euros REAL,
+        renta_media_mensual_alquiler REAL,
+        viviendas_proteccion_oficial INTEGER,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'incasol_idescat',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_vivienda_publica_unique
+    ON fact_vivienda_publica (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_vivienda_publica_barrio_fecha
+    ON fact_vivienda_publica (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_servicios_salud (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        num_centros_salud INTEGER DEFAULT 0,
+        num_hospitales INTEGER DEFAULT 0,
+        num_farmacias INTEGER DEFAULT 0,
+        total_servicios_sanitarios INTEGER DEFAULT 0,
+        densidad_servicios_por_km2 REAL,
+        densidad_servicios_por_1000hab REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_servicios_salud_unique
+    ON fact_servicios_salud (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_servicios_salud_barrio_fecha
+    ON fact_servicios_salud (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_comercio (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        num_locales_comerciales INTEGER DEFAULT 0,
+        num_terrazas INTEGER DEFAULT 0,
+        num_licencias INTEGER DEFAULT 0,
+        total_establecimientos INTEGER DEFAULT 0,
+        densidad_comercial_por_km2 REAL,
+        densidad_comercial_por_1000hab REAL,
+        tasa_ocupacion_locales REAL,
+        pct_locales_ocupados REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_comercio_unique
+    ON fact_comercio (
+        barrio_id,
+        anio
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_comercio_barrio_fecha
+    ON fact_comercio (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_calidad_aire (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        no2_mean REAL,
+        pm25_mean REAL,
+        pm10_mean REAL,
+        o3_mean REAL,
+        stations_nearby INTEGER,
+        max_distance_m REAL,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_calidad_aire_unique
+    ON fact_calidad_aire (barrio_id, anio);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_calidad_aire_barrio_fecha
+    ON fact_calidad_aire (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_soroll (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        lden_mean REAL,
+        pct_exposed_65db REAL,
+        area_covered_m2 REAL,
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_soroll_unique
+    ON fact_soroll (barrio_id, anio);
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fact_soroll_barrio_fecha
+    ON fact_soroll (barrio_id, anio);
+    """,
+    """
+    CREATE VIEW IF NOT EXISTS vw_gentrification_risk AS
+    SELECT 
+        b.barrio_nombre AS nom_barri,
+        e.anio AS year,
+        e.pct_universitarios,
+        p.precio_m2_venta AS precio_venta_medio_m2,
+        a.pm25_mean,
+        s.pct_exposed_65db
+    FROM dim_barrios b
+    LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id
+    LEFT JOIN fact_precios p ON b.barrio_id = p.barrio_id AND e.anio = p.anio
+    LEFT JOIN fact_calidad_aire a ON b.barrio_id = a.barrio_id AND e.anio = a.anio
+    LEFT JOIN fact_soroll s ON b.barrio_id = s.barrio_id AND e.anio = s.anio;
     """,
     """
     CREATE TABLE IF NOT EXISTS etl_runs (
