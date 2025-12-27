@@ -28,6 +28,10 @@ erDiagram
     dim_barrios ||--o{ fact_servicios_salud : "has"
     dim_barrios ||--o{ fact_seguridad : "has"
     dim_barrios ||--o{ fact_medio_ambiente : "has"
+    dim_barrios ||--o{ fact_renta_avanzada : "has"
+    dim_barrios ||--o{ fact_catastro_avanzado : "has"
+    dim_barrios ||--o{ fact_hogares_avanzado : "has"
+    dim_barrios ||--o{ fact_turismo_intensidad : "has"
 
     fact_airbnb ..> fact_presion_turistica : "view"
     fact_control_alquiler ..> fact_regulacion : "view"
@@ -1536,3 +1540,62 @@ ORDER BY fm.m2_zonas_verdes_por_habitante DESC;
 - [SQLite Foreign Keys](https://www.sqlite.org/foreignkeys.html)
 - [Star Schema Design](https://en.wikipedia.org/wiki/Star_schema)
 - [Dimensional Modeling](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/)
+
+### fact_renta_avanzada (Tabla de Hechos)
+
+Métricas avanzadas de renta y desigualdad.
+
+| Columna          | Tipo    | Descripción                            |
+| ---------------- | ------- | -------------------------------------- |
+| id               | INTEGER | PK Auto-incremental                    |
+| barrio_id        | INTEGER | FK -> dim_barrios                      |
+| anio             | INTEGER | Año del dato                           |
+| renta_bruta_llar | REAL    | Renta tributaria bruta media por hogar |
+| indice_gini      | REAL    | Índice de Gini de la renta tributaria  |
+| ratio_p80_p20    | REAL    | Ratio de distribución de renta P80/P20 |
+| etl_loaded_at    | TEXT    | Timestamp de carga                     |
+
+### fact_catastro_avanzado (Tabla de Hechos)
+
+Características físicas y de propiedad del parque de viviendas.
+
+| Columna                      | Tipo    | Descripción                               |
+| ---------------------------- | ------- | ----------------------------------------- |
+| id                           | INTEGER | PK Auto-incremental                       |
+| barrio_id                    | INTEGER | FK -> dim_barrios                         |
+| anio                         | INTEGER | Año del dato                              |
+| num_propietarios_fisica      | INTEGER | Inmuebles propiedad de personas físicas   |
+| num_propietarios_juridica    | INTEGER | Inmuebles propiedad de personas jurídicas |
+| pct_propietarios_extranjeros | REAL    | % de inmuebles con propietario extranjero |
+| superficie_media_m2          | REAL    | Superficie media de las viviendas         |
+| num_plantas_avg              | REAL    | Promedio de plantas sobre rasante         |
+| antiguedad_media_bloque      | REAL    | Año medio de construcción                 |
+| etl_loaded_at                | TEXT    | Timestamp de carga                        |
+
+### fact_hogares_avanzado (Tabla de Hechos)
+
+Composición y características de los hogares.
+
+| Columna                             | Tipo    | Descripción                              |
+| ----------------------------------- | ------- | ---------------------------------------- |
+| id                                  | INTEGER | PK Auto-incremental                      |
+| barrio_id                           | INTEGER | FK -> dim_barrios                        |
+| anio                                | INTEGER | Año del dato                             |
+| promedio_personas_por_hogar         | REAL    | Ratio personas/hogar                     |
+| num_hogares_con_menores             | INTEGER | Hogares con al menos un menor de 18 años |
+| pct_hogares_nacionalidad_extranjera | REAL    | % hogares con residentes extranjeros     |
+| pct_presencia_mujeres               | REAL    | % de hogares con presencia de mujeres    |
+| etl_loaded_at                       | TEXT    | Timestamp de carga                       |
+
+### fact_turismo_intensidad (Tabla de Hechos)
+
+Indicadores de presión e intensidad turística.
+
+| Columna                         | Tipo    | Descripción                               |
+| ------------------------------- | ------- | ----------------------------------------- |
+| id                              | INTEGER | PK Auto-incremental                       |
+| barrio_id                       | INTEGER | FK -> dim_barrios                         |
+| anio                            | INTEGER | Año del dato                              |
+| indice_intensidad_turistica     | REAL    | Índice de intensidad/afectación turística |
+| num_establecimientos_turisticos | INTEGER | Número de HUTs u otros establecimientos   |
+| etl_loaded_at                   | TEXT    | Timestamp de carga                        |

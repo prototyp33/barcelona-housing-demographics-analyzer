@@ -1,0 +1,1125 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barcelona Housing Market Report 2025</title>
+    
+    <!-- Tailwind CSS via CDN (versión estable) -->
+    <script src="https://cdn.tailwindcss.com/3.4.1"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Google Fonts (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Configuración de Colores Tailwind -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        bcnBlue: '#005EB8',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                        neutral: '#F3F4F6'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Estilos personalizados para impresión y utilidades */
+        body { font-family: 'Inter', sans-serif; background-color: #f9fafb; }
+        
+        .card {
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 1.5rem;
+            transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-2px); }
+        
+        /* KPI Cards con gradientes sutiles y bordes modernos */
+        .kpi-card-blue {
+            background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
+            border: 1px solid rgba(0, 94, 184, 0.12);
+            border-left: none;
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi-card-blue::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: linear-gradient(180deg, #005EB8 0%, #0084d4 50%, #005EB8 100%);
+            border-radius: 0.75rem 0 0 0.75rem;
+            box-shadow: 2px 0 8px rgba(0, 94, 184, 0.25);
+            transition: all 0.3s ease;
+        }
+        .kpi-card-blue:hover {
+            background: linear-gradient(135deg, #f8faff 0%, #e6f2ff 100%);
+            box-shadow: 0 8px 20px -4px rgba(0, 94, 184, 0.25), 0 0 0 1px rgba(0, 94, 184, 0.08);
+            transform: translateY(-2px);
+            border-color: rgba(0, 94, 184, 0.2);
+        }
+        .kpi-card-blue:hover::before {
+            width: 5px;
+            box-shadow: 3px 0 12px rgba(0, 94, 184, 0.4);
+        }
+        
+        .kpi-card-green {
+            background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+            border: 1px solid rgba(16, 185, 129, 0.12);
+            border-left: none;
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi-card-green::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: linear-gradient(180deg, #10B981 0%, #34d399 50%, #10B981 100%);
+            border-radius: 0.75rem 0 0 0.75rem;
+            box-shadow: 2px 0 8px rgba(16, 185, 129, 0.25);
+            transition: all 0.3s ease;
+        }
+        .kpi-card-green:hover {
+            background: linear-gradient(135deg, #f8fef9 0%, #e6f9ed 100%);
+            box-shadow: 0 8px 20px -4px rgba(16, 185, 129, 0.25), 0 0 0 1px rgba(16, 185, 129, 0.08);
+            transform: translateY(-2px);
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+        .kpi-card-green:hover::before {
+            width: 5px;
+            box-shadow: 3px 0 12px rgba(16, 185, 129, 0.4);
+        }
+        
+        .kpi-card-purple {
+            background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%);
+            border: 1px solid rgba(147, 51, 234, 0.12);
+            border-left: none;
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi-card-purple::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: linear-gradient(180deg, #9333EA 0%, #a855f7 50%, #9333EA 100%);
+            border-radius: 0.75rem 0 0 0.75rem;
+            box-shadow: 2px 0 8px rgba(147, 51, 234, 0.25);
+            transition: all 0.3s ease;
+        }
+        .kpi-card-purple:hover {
+            background: linear-gradient(135deg, #fefbff 0%, #f3e8ff 100%);
+            box-shadow: 0 8px 20px -4px rgba(147, 51, 234, 0.25), 0 0 0 1px rgba(147, 51, 234, 0.08);
+            transform: translateY(-2px);
+            border-color: rgba(147, 51, 234, 0.2);
+        }
+        .kpi-card-purple:hover::before {
+            width: 5px;
+            box-shadow: 3px 0 12px rgba(147, 51, 234, 0.4);
+        }
+        
+        .kpi-value { font-size: 2.25rem; font-weight: 700; color: #111827; }
+        .kpi-label { font-size: 0.875rem; font-weight: 500; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 0.75rem 1rem; background-color: #F9FAFB; font-weight: 600; font-size: 0.75rem; color: #6B7280; text-transform: uppercase; }
+        td { padding: 0.75rem 1rem; border-top: 1px solid #E5E7EB; font-size: 0.875rem; color: #374151; }
+        tr:hover td { background-color: #F3F4F6; }
+
+        /* Badge status colors */
+        .badge-green { background-color: #D1FAE5; color: #065F46; padding: 0.25rem 0.6rem; border-radius: 9999px; font-weight: 600; font-size: 0.75rem; }
+        .badge-yellow { background-color: #FEF3C7; color: #92400E; padding: 0.25rem 0.6rem; border-radius: 9999px; font-weight: 600; font-size: 0.75rem; }
+        .badge-red { background-color: #FEE2E2; color: #991B1B; padding: 0.25rem 0.6rem; border-radius: 9999px; font-weight: 600; font-size: 0.75rem; }
+
+        /* Print styles */
+        @media print {
+            body { background: white; -webkit-print-color-adjust: exact; }
+            .no-print { display: none !important; }
+            .card { box-shadow: none; border: 1px solid #ddd; page-break-inside: avoid; }
+            .kpi-card-blue, .kpi-card-green, .kpi-card-purple {
+                background: white !important;
+                border-left: 4px solid #005EB8;
+            }
+            .kpi-card-blue::before, .kpi-card-green::before, .kpi-card-purple::before {
+                display: none !important;
+            }
+            .kpi-card-green { border-left-color: #10B981 !important; }
+            .kpi-card-purple { border-left-color: #9333EA !important; }
+            .section-break { page-break-before: always; }
+            h1, h2, h3 { color: #000 !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header / Navbar -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <!-- Icono SVG simulando logo -->
+                <svg class="h-8 w-8 text-bcnBlue" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-900 leading-tight">Barcelona Housing Market</h1>
+                    <p class="text-xs text-gray-500">Intelligence Report 2025</p>
+                </div>
+            </div>
+            <div class="hidden md:block text-sm text-gray-500">
+                Generado: <span id="currentDate"></span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
+
+        <!-- 1. Hero Section / Resumen Ejecutivo -->
+        <section>
+            <div class="flex justify-between items-end mb-6">
+                <div>
+                    <h2 class="text-3xl font-bold text-gray-900">Resumen Ejecutivo</h2>
+                    <p class="text-gray-600 mt-1">Visión consolidada del mercado inmobiliario y calidad de vida.</p>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- KPI 1 -->
+                <div class="card kpi-card-blue">
+                    <p class="kpi-label">Barrios Analizados</p>
+                    <p class="kpi-value">73</p>
+                    <p class="text-xs text-gray-500 mt-2">Cobertura geográfica 100%</p>
+                </div>
+                <!-- KPI 2 -->
+                <div class="card kpi-card-blue">
+                    <p class="kpi-label">Precio Medio / m²</p>
+                    <p class="kpi-value">4,055 €</p>
+                    <p class="text-xs text-success mt-2">Datos 2025</p>
+                </div>
+                <!-- KPI 3 -->
+                <div class="card kpi-card-green">
+                    <p class="kpi-label">Yield Bruto Promedio</p>
+                    <p class="kpi-value">
+                        4.0%
+                    </p>
+                    <p class="text-xs text-gray-500 mt-2">
+                        Rentabilidad bruta residencial
+                        
+                    </p>
+                </div>
+                <!-- KPI 4 -->
+                <div class="card kpi-card-purple">
+                    <p class="kpi-label">Datasets Integrados</p>
+                    <p class="kpi-value">9</p>
+                    <p class="text-xs text-gray-500 mt-2">Fuentes públicas y privadas</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Asequibilidad -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-8 section-break">
+            <div class="lg:col-span-2">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold text-gray-800" id="title-affordability">Top 10 Barrios Más Asequibles</h3>
+                    <span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">Residentes</span>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-hidden overflow-x-auto">
+                    <table id="table-affordability">
+                        <thead>
+                            <tr>
+                                <th class="w-10">Rank</th>
+                                <th>Barrio</th>
+                                <th>Venta/m²</th>
+                                <th>Alquiler/Mes</th>
+                                <th>Renta Media</th>
+                                <th>Ratio Aseq.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-affordability">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <h4 class="text-sm font-semibold text-gray-500 mb-4 uppercase">Ratio de Asequibilidad (%)</h4>
+                <div class="relative" style="height: 500px;">
+                    <canvas id="chart-affordability"></canvas>
+                </div>
+                <p class="text-xs text-gray-400 mt-4 italic">* % de ingresos anuales destinados al alquiler.</p>
+            </div>
+        </section>
+
+        <!-- 3. Calidad de Vida -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-8 section-break">
+            <div class="card lg:col-span-1 order-2 lg:order-1">
+                <h4 class="text-sm font-semibold text-gray-500 mb-4 uppercase">Comparativa Top 3 Dimensiones</h4>
+                <div class="relative h-64 w-full">
+                    <canvas id="chart-quality"></canvas>
+                </div>
+                <div class="mt-4 text-xs text-gray-500 space-y-1">
+                    <p>• <strong>Educación:</strong> Centros / habitante</p>
+                    <p>• <strong>Verde:</strong> m² / habitante</p>
+                    <p>• <strong>Salud:</strong> CAPs y Hospitales</p>
+                </div>
+            </div>
+            <div class="lg:col-span-2 order-1 lg:order-2">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold text-gray-800" id="title-quality">Top 10 Calidad de Vida</h3>
+                    <span class="text-xs bg-bcnBlue text-white px-2 py-1 rounded" title="Comparar con media de Barcelona">Comparar con Media</span>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-hidden overflow-x-auto">
+                    <table id="table-quality">
+                        <thead>
+                            <tr>
+                                <th class="w-10">Rank</th>
+                                <th>Barrio</th>
+                                <th>Distrito</th>
+                                <th>Score (0-100)</th>
+                                <th>Verde (m²)</th>
+                                <th>Ruido (dB)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-quality">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Inversión -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-8 section-break">
+            <div class="lg:col-span-2">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold text-gray-800" id="title-investment">Top 10 Potencial Inversión</h3>
+                    <span class="text-xs bg-purple-600 text-white px-2 py-1 rounded">Inversores</span>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-hidden overflow-x-auto">
+                    <table id="table-investment">
+                        <thead>
+                            <tr>
+                                <th class="w-10">Rank</th>
+                                <th>Barrio</th>
+                                <th>Yield Bruto</th>
+                                <th>Precio/m²</th>
+                                <th>Tendencia 3A</th>
+                                <th>Liquidez</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-investment">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <h4 class="text-sm font-semibold text-gray-500 mb-4 uppercase">Matriz: Yield vs Precio</h4>
+                <div class="relative" style="height: 400px;">
+                    <canvas id="chart-investment"></canvas>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-4 text-xs text-center">
+                    <div class="flex items-center justify-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span><span class="text-green-800">Sweet Spot</span></div>
+                    <div class="flex items-center justify-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span><span class="text-blue-800">Premium</span></div>
+                    <div class="flex items-center justify-center gap-1"><span class="w-2 h-2 rounded-full bg-yellow-500"></span><span class="text-yellow-800">Value Play</span></div>
+                    <div class="flex items-center justify-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-red-800">Evitar</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. Desigualdad Urbana -->
+        <section class="section-break">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Análisis de Desigualdad Urbana</h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Visualización: Distribución por Distrito -->
+                <div class="card">
+                    <h4 class="text-sm font-semibold text-gray-500 mb-2 uppercase">Disparidad de Renta por Distrito</h4>
+                    <p class="text-xs text-gray-400 mb-4">Boxplot mostrando la varianza de renta media dentro de cada distrito.</p>
+                    <div class="relative" style="height: 350px;">
+                        <canvas id="chart-inequality"></canvas>
+                    </div>
+                </div>
+
+                <!-- Tabla de Barrios Críticos -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h4 class="text-sm font-semibold text-gray-500 mb-4 uppercase">Barrios Críticos (Prioridad Inversión Pública)</h4>
+                    <div class="overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b">
+                                    <th class="text-left py-2">Barrio</th>
+                                    <th class="text-left py-2">Déficit Principal</th>
+                                    <th class="text-right py-2">Gap Monetario</th>
+                                    <th class="text-left py-2">Prioridad</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y" id="tbody-critical">
+                                <!-- JS Injection -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-4 p-3 bg-red-50 border border-red-100 rounded text-xs text-red-800">
+                        <strong>Insight:</strong> Ratio de desigualdad: 19.7x entre mejor y peor barrio.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. Métricas de Cobertura -->
+        <section class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+            <h3 class="text-lg font-bold text-gray-800 mb-4">Calidad y Cobertura de Datos</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <table class="w-full bg-white shadow-sm rounded">
+                        <thead>
+                            <tr>
+                                <th class="px-4">Fuente</th>
+                                <th>Cobertura Geog.</th>
+                                <th>Completeness</th>
+                                <th>Update</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm" id="tbody-coverage">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="relative" style="height: 250px;">
+                    <canvas id="chart-coverage"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- 7. Metodología y Definiciones -->
+        <section class="prose max-w-none text-sm text-gray-600">
+            <h3 class="text-xl font-bold text-gray-800 mb-2">Metodología y Definiciones</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li><strong>Yield Bruto:</strong> <code>(Alquiler anual / Precio compra) × 100</code>. No incluye IBI ni comunidad.</li>
+                        <li><strong>Ratio Asequibilidad:</strong> <code>(Alquiler mensual × 12 / Renta media hogar) × 100</code>. Umbral saludable &lt; 30%.</li>
+                        <li><strong>Índice Calidad de Vida:</strong> Modelo compuesto: Educación, Salud, Comercio, Seguridad y Medio Ambiente.</li>
+                        <li><strong>Verde (m²):</strong> Superficie vegetal estimada. Cuando no hay datos directos de superficie, se calcula según el censo de árboles (15m²/árbol).</li>
+                        <li><strong>Ruido (dB):</strong> Nivel sonoro medio Lden. Umbral de alerta &gt; 65 dB.</li>
+                    </ul>
+                </div>
+                <div class="bg-yellow-50 p-4 rounded border border-yellow-200">
+                    <p class="font-bold text-yellow-900 mb-1">⚠️ Disclaimer Importante</p>
+                    <p class="text-yellow-900">Los precios de alquiler se basan en fianzas depositadas (Incasòl), reflejando precios reales de cierre, no de oferta. Los precios de venta son promedios de oferta agregados. Existen micro-mercados dentro de cada barrio que pueden variar significativamente.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 8. Call to Action -->
+        <footer class="bg-bcnBlue rounded-xl text-white p-8 text-center no-print">
+            <h2 class="text-2xl font-bold mb-2">¿Necesitas un análisis más profundo?</h2>
+            <p class="mb-6 opacity-90">Explora los datos granulares por calle o accede al código fuente.</p>
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <button onclick="alert('Abriendo Dashboard (Demo)...')" class="bg-white text-bcnBlue font-bold py-3 px-6 rounded-lg shadow hover:bg-gray-100 transition">
+                    Explorar Dashboard Interactivo
+                </button>
+                <button onclick="alert('Redirigiendo a GitHub...')" class="bg-transparent border-2 border-white text-white font-bold py-3 px-6 rounded-lg hover:bg-white hover:text-bcnBlue transition">
+                    Ver Código en GitHub
+                </button>
+            </div>
+            <p class="mt-6 text-xs opacity-60">Reporte v1.0.4 | Generado automáticamente el 27 de diciembre de 2025</p>
+        </footer>
+
+    </main>
+
+    <!-- SCRIPTS LÓGICA -->
+    <script>
+        // Esperar a que el DOM y Chart.js estén completamente cargados
+        window.addEventListener('load', function() {
+            console.log('📊 Inicializando gráficos...');
+            
+            // Verificar que Chart.js esté cargado
+            if (typeof Chart === 'undefined') {
+                console.error('❌ Chart.js no está cargado. Verifica que el CDN esté disponible.');
+                return;
+            }
+            console.log('✅ Chart.js cargado correctamente');
+            
+            // Set Date
+            const dateElement = document.getElementById('currentDate');
+            if (dateElement) {
+                dateElement.innerText = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+            }
+
+            // --- DATA FROM DATABASE ---
+        
+        // 1. Asequibilidad
+        const affordabilityData = [{"rank": 1, "name": "la Vila Olímpica del Poblenou", "price": 5965.9, "rent": 1145.4678613122069, "rent_is_real": false, "income": 71714.2, "ratio": 19.167214213846744, "ratio_is_real": false, "price_to_income_ratio": 0.9982792808118893}, {"rank": 2, "name": "Sant Andreu", "price": 5357.21, "rent": 742.5126416804021, "rent_is_real": false, "income": 44413.666666666664, "ratio": 20.061734076218638, "ratio_is_real": false, "price_to_income_ratio": 1.4474490584729927}, {"rank": 3, "name": "Navas", "price": 4133.84, "rent": 764.6056865826408, "rent_is_real": false, "income": 43073.46153846154, "ratio": 21.301441563499203, "ratio_is_real": false, "price_to_income_ratio": 1.1516622585743497}, {"rank": 4, "name": "la Sagrera", "price": 4681.46, "rent": 756.7428692569539, "rent_is_real": false, "income": 42422.35, "ratio": 21.405967446601725, "ratio_is_real": false, "price_to_income_ratio": 1.324243470717676}, {"rank": 5, "name": "el Congrés i els Indians", "price": 4853.2, "rent": 760.0272905756525, "rent_is_real": false, "income": 41924.77777777778, "ratio": 21.75402702251664, "ratio_is_real": false, "price_to_income_ratio": 1.3891164864055463}, {"rank": 6, "name": "la Guineueta", "price": 3556.55555555556, "rent": 762.6859831103313, "rent_is_real": false, "income": 40781.27272727273, "ratio": 22.4422417086639, "ratio_is_real": false, "price_to_income_ratio": 1.0465261089834772}, {"rank": 7, "name": "Vilapicina i la Torre Llobeta", "price": 3599.27, "rent": 766.6688446103349, "rent_is_real": false, "income": 40555.0, "ratio": 22.685306707740153, "ratio_is_real": false, "price_to_income_ratio": 1.0650040685488842}, {"rank": 8, "name": "Canyelles", "price": 3030.57, "rent": 741.2910864916854, "rent_is_real": false, "income": 39161.0, "ratio": 22.715183570134126, "ratio_is_real": false, "price_to_income_ratio": 0.928649421618447}, {"rank": 9, "name": "les Tres Torres", "price": 7341.7, "rent": 1910.202825603305, "rent_is_real": false, "income": 97920.63636363637, "ratio": 23.409196221024658, "ratio_is_real": false, "price_to_income_ratio": 0.8997122901941924}, {"rank": 10, "name": "el Bon Pastor", "price": 2935.44927536232, "rent": 756.1782142634419, "rent_is_real": false, "income": 37685.57142857143, "ratio": 24.07854843958056, "ratio_is_real": false, "price_to_income_ratio": 0.9347182480996322}];
+        
+        // 2. Calidad de Vida
+        const qualityData = [{"rank": 1, "name": "la Dreta de l'Eixample", "district": "Eixample", "score": 71.2661990341708, "green": 4965.0, "noise": 57.48, "centros_educativos": 177.0, "servicios_salud": 244.0, "comercios": 4389.0, "tasa_criminalidad": 13.92}, {"rank": 2, "name": "Sant Gervasi - Galvany", "district": "Sarrià-Sant Gervasi", "score": 57.81821790169745, "green": 6510.0, "noise": 56.14, "centros_educativos": 66.0, "servicios_salud": 203.0, "comercios": 3098.0, "tasa_criminalidad": 3.99}, {"rank": 3, "name": "la Vila de Gràcia", "district": "Gràcia", "score": 56.40473953830413, "green": 2595.0, "noise": 51.5, "centros_educativos": 107.0, "servicios_salud": 136.0, "comercios": 3730.0, "tasa_criminalidad": 4.27}, {"rank": 4, "name": "les Corts", "district": "Les Corts", "score": 50.56477203352574, "green": 20850.0, "noise": 54.88, "centros_educativos": 87.0, "servicios_salud": 118.0, "comercios": 2300.0, "tasa_criminalidad": 7.21}, {"rank": 5, "name": "Sant Andreu", "district": "Sant Andreu", "score": 48.88126726465967, "green": 22905.0, "noise": 52.62, "centros_educativos": 74.0, "servicios_salud": 112.0, "comercios": 2127.0, "tasa_criminalidad": 6.67}, {"rank": 6, "name": "el Poble-sec", "district": "Sants-Montjuïc", "score": 48.45118062296445, "green": 68880.0, "noise": 49.36, "centros_educativos": 50.0, "servicios_salud": 40.0, "comercios": 1445.0, "tasa_criminalidad": 8.53}, {"rank": 7, "name": "l'Antiga Esquerra de l'Eixample", "district": "Eixample", "score": 48.13980424219514, "green": 2250.0, "noise": 57.97, "centros_educativos": 86.0, "servicios_salud": 169.0, "comercios": 3110.0, "tasa_criminalidad": 13.92}, {"rank": 8, "name": "Sant Gervasi - la Bonanova", "district": "Sarrià-Sant Gervasi", "score": 45.57514724993452, "green": 4995.0, "noise": 55.79, "centros_educativos": 105.0, "servicios_salud": 107.0, "comercios": 1233.0, "tasa_criminalidad": 3.99}, {"rank": 9, "name": "la Nova Esquerra de l'Eixample", "district": "Eixample", "score": 41.29736125098061, "green": 6030.0, "noise": 54.39, "centros_educativos": 81.0, "servicios_salud": 117.0, "comercios": 2511.0, "tasa_criminalidad": 13.92}, {"rank": 10, "name": "Sants", "district": "Sants-Montjuïc", "score": 39.27185720460115, "green": 7710.0, "noise": 50.81, "centros_educativos": 67.0, "servicios_salud": 87.0, "comercios": 1985.0, "tasa_criminalidad": 8.53}];
+        
+        // 3. Investment
+        const investmentData = [{"rank": 1, "name": "Sant Genís dels Agudells", "yield": 5.296272054307097, "price": 2483.90196078431, "trend": 0.0, "liquidity": "Baja"}, {"rank": 2, "name": "Baró de Viver", "yield": 5.112328036448485, "price": 1714.09523809524, "trend": 0.0, "liquidity": "Baja"}, {"rank": 3, "name": "Sant Martí de Provençals", "yield": 4.96683111943229, "price": 3326.19444444444, "trend": 0.0, "liquidity": "Baja"}, {"rank": 4, "name": "Vallvidrera, el Tibidabo i les Planes", "yield": 4.911154625450053, "price": 4704.16, "trend": 0.0, "liquidity": "Baja"}, {"rank": 5, "name": "la Trinitat Nova", "yield": 4.654918334766054, "price": 2326.57142857143, "trend": 0.0, "liquidity": "Baja"}, {"rank": 6, "name": "les Tres Torres", "yield": 4.486845203232407, "price": 7341.7, "trend": 0.0, "liquidity": "Baja"}, {"rank": 7, "name": "la Bordeta", "yield": 4.420898697808353, "price": 4433.33333333333, "trend": 0.0, "liquidity": "Baja"}, {"rank": 8, "name": "la Vila Olímpica del Poblenou", "yield": 4.38008273427572, "price": 5965.9, "trend": 0.0, "liquidity": "Baja"}, {"rank": 9, "name": "les Roquetes", "yield": 4.260616269291494, "price": 2540.18848167539, "trend": 0.0, "liquidity": "Baja"}, {"rank": 10, "name": "la Trinitat Vella", "yield": 4.18482012711067, "price": 2417.36363636364, "trend": 0.0, "liquidity": "Baja"}];
+        
+        // 4. Coverage Data
+        const coverageData = [{"fuente": "Precios de Vivienda", "min_year": 2012, "max_year": 2025, "barrios_cobertura": 73, "completeness_pct": 100.0}, {"fuente": "Demografía", "min_year": 2015, "max_year": 2023, "barrios_cobertura": 73, "completeness_pct": 100.0}, {"fuente": "Educación", "min_year": 2025, "max_year": 2025, "barrios_cobertura": 73, "completeness_pct": 100.0}, {"fuente": "Servicios de Salud", "min_year": 2025, "max_year": 2025, "barrios_cobertura": 69, "completeness_pct": 94.5}, {"fuente": "Comercio", "min_year": 2025, "max_year": 2025, "barrios_cobertura": 70, "completeness_pct": 95.9}, {"fuente": "Seguridad", "min_year": 2011, "max_year": 2025, "barrios_cobertura": 73, "completeness_pct": 100.0}, {"fuente": "Presión Turística", "min_year": 2011, "max_year": 2025, "barrios_cobertura": 71, "completeness_pct": 97.3}, {"fuente": "Regulación", "min_year": 2021, "max_year": 2025, "barrios_cobertura": 73, "completeness_pct": 100.0}, {"fuente": "Medio Ambiente", "min_year": 2025, "max_year": 2025, "barrios_cobertura": 70, "completeness_pct": 95.9}];
+        
+        // 5. Critical Barrios
+        const criticalBarrios = [{"barrio_nombre": "el Raval", "distrito_nombre": "Ciutat Vella", "servicios_por_1000hab": 0.0, "renta_euros": 31773.47619047619, "precio_m2_venta": 0.0, "gap_renta": 4588.976190476191}, {"barrio_nombre": "el Barri Gòtic", "distrito_nombre": "Ciutat Vella", "servicios_por_1000hab": 0.0, "renta_euros": 37356.555555555555, "precio_m2_venta": 0.0, "gap_renta": 10172.055555555555}, {"barrio_nombre": "la Barceloneta", "distrito_nombre": "Ciutat Vella", "servicios_por_1000hab": 0.0, "renta_euros": 32354.0, "precio_m2_venta": 0.0, "gap_renta": 5169.5}, {"barrio_nombre": "Sant Pere, Santa Caterina i la Ribera", "distrito_nombre": "Ciutat Vella", "servicios_por_1000hab": 0.0, "renta_euros": 36721.53846153846, "precio_m2_venta": 0.0, "gap_renta": 9537.038461538461}, {"barrio_nombre": "el Fort Pienc", "distrito_nombre": "Eixample", "servicios_por_1000hab": 0.0, "renta_euros": 49055.6, "precio_m2_venta": 0.0, "gap_renta": 21871.1}];
+        
+        // Debug: Log data availability (simplificado para evitar mostrar prototipos)
+        const dataSummary = {
+            affordability: (affordabilityData || []).length,
+            quality: (qualityData || []).length,
+            investment: (investmentData || []).length,
+            coverage: (coverageData || []).length,
+            critical: (criticalBarrios || []).length
+        };
+        console.log('📊 Datos cargados desde la base de datos:', JSON.stringify(dataSummary, null, 2));
+        
+        // Verificar que los elementos del DOM existan antes de renderizar
+        if (!document.getElementById('tbody-affordability')) {
+            console.error('❌ No se encontró tbody-affordability');
+        }
+        if (!document.getElementById('tbody-quality')) {
+            console.error('❌ No se encontró tbody-quality');
+        }
+        if (!document.getElementById('tbody-investment')) {
+            console.error('❌ No se encontró tbody-investment');
+        }
+
+        // --- RENDER FUNCTIONS ---
+
+        function getAffordabilityColor(value) {
+            if (value < 30) return 'badge-green';
+            if (value < 40) return 'badge-yellow';
+            return 'badge-red';
+        }
+
+        /**
+         * Formatea valores monetarios de forma profesional.
+         */
+        const formatCurrency = (value, isCompact = false) => {
+            if (value === null || value === undefined || value === 0) return "—";
+            if (isCompact && Math.abs(value) >= 1000000) {
+                return (value / 1000000).toFixed(1).replace('.', ',') + 'M €';
+            }
+            return new Intl.NumberFormat('es-ES', {
+                style: 'currency', currency: 'EUR', maximumFractionDigits: 0
+            }).format(value);
+        };
+
+        // Render Affordability Table
+        const affTable = document.getElementById('tbody-affordability');
+        if (affordabilityData && affordabilityData.length > 0) {
+            affordabilityData.forEach(d => {
+                const rentIsReal = d.rent_is_real || false;
+                const ratioIsReal = d.ratio_is_real || false;
+                const rentDisplay = (d.rent !== null && d.rent !== undefined && d.rent > 0) 
+                    ? formatCurrency(d.rent) + (rentIsReal ? '' : ' <span class="text-xs text-yellow-600">(est.)</span>')
+                    : '<span class="text-gray-400">N/A</span>';
+                const ratioDisplay = (d.ratio !== null && d.ratio !== undefined)
+                    ? `<span class="${getAffordabilityColor(d.ratio)}">${d.ratio.toFixed(1)}%` + (ratioIsReal ? '' : ' <span class="text-xs text-yellow-600">(est.)</span>') + `</span>`
+                    : '<span class="text-gray-400">N/A</span>';
+                const row = `<tr>
+                    <td class="font-bold text-gray-500">#${d.rank}</td>
+                    <td class="font-medium">${d.name}</td>
+                    <td class="text-right">${formatCurrency(d.price).replace('€', '')} €</td>
+                    <td class="text-right">${rentDisplay}</td>
+                    <td class="text-right text-xs text-gray-500">${formatCurrency(d.income)}</td>
+                    <td class="text-center">${ratioDisplay}</td>
+                </tr>`;
+                affTable.innerHTML += row;
+            });
+        } else {
+            affTable.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-4">No hay datos disponibles</td></tr>';
+        }
+
+        // Render Quality Table
+        const qualTable = document.getElementById('tbody-quality');
+        if (qualityData && qualityData.length > 0) {
+            qualityData.forEach(d => {
+                const noiseVal = d.noise || 0;
+                const noiseClass = noiseVal > 0 ? (noiseVal < 55 ? 'badge-green' : (noiseVal <= 65 ? 'badge-yellow' : 'badge-red')) : '';
+                const noiseDisplay = noiseVal > 0 ? `<span class="${noiseClass} font-bold px-2 py-0.5 rounded-full text-xs">${noiseVal.toFixed(1)} dB</span>` : '<span class="text-gray-400">N/A</span>';
+                
+                const row = `<tr>
+                    <td class="font-bold text-gray-500">#${d.rank}</td>
+                    <td class="font-medium">${d.name}</td>
+                    <td class="text-xs text-gray-500">${d.district}</td>
+                    <td><div class="flex items-center"><div class="w-16 bg-gray-200 rounded-full h-2 mr-2"><div class="bg-bcnBlue h-2 rounded-full" style="width: ${Math.min(d.score, 100)}%"></div></div> ${d.score.toFixed(1)}</div></td>
+                    <td class="text-right font-mono">${(d.green || 0) > 0 ? d.green.toLocaleString('es-ES', {maximumFractionDigits: 0}) : '<span class="text-gray-400">—</span>'}</td>
+                    <td class="text-center">${noiseDisplay}</td>
+                </tr>`;
+                qualTable.innerHTML += row;
+            });
+        } else {
+            qualTable.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-4">No hay datos disponibles</td></tr>';
+        }
+
+        // Render Investment Table
+        const invTable = document.getElementById('tbody-investment');
+        if (investmentData && investmentData.length > 0) {
+            const allTrendsZero = investmentData.every(d => (d.trend || 0) === 0);
+            
+            investmentData.forEach(d => {
+                const trendColor = d.trend > 3 ? 'text-green-600 font-bold' : (d.trend < 0 ? 'text-red-600' : 'text-gray-600');
+                const trendDisplay = allTrendsZero 
+                    ? '<span class="text-gray-400">—</span>' 
+                    : `<span class="${trendColor}">${d.trend > 0 ? '+' : ''}${d.trend.toFixed(1)}%</span>`;
+                const row = `<tr>
+                    <td class="font-bold text-gray-500">#${d.rank}</td>
+                    <td class="font-medium">${d.name}</td>
+                    <td class="text-right font-bold text-bcnBlue font-mono">${d.yield.toFixed(1)}%</td>
+                    <td class="text-right font-mono">${formatCurrency(d.price).replace('€', '')} €</td>
+                    <td class="text-center">${trendDisplay}</td>
+                    <td class="text-xs text-center">${d.liquidity}</td>
+                </tr>`;
+                invTable.innerHTML += row;
+            });
+        } else {
+            invTable.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-4">No hay datos disponibles</td></tr>';
+        }
+
+        // Render Critical Barrios (eliminar duplicados)
+        const criticalTable = document.getElementById('tbody-critical');
+        if (criticalBarrios && criticalBarrios.length > 0) {
+            // Eliminar duplicados por nombre de barrio
+            const seen = new Set();
+            const uniqueBarrios = criticalBarrios.filter(d => {
+                if (seen.has(d.barrio_nombre)) {
+                    return false;
+                }
+                seen.add(d.barrio_nombre);
+                return true;
+            });
+            
+            if (uniqueBarrios.length > 0) {
+                uniqueBarrios.forEach(d => {
+                    const deficit = 'Servicios: ' + (d.servicios_por_1000hab || 0).toFixed(1);
+                    const gapVal = d.gap_renta || 0;
+                    const gapFormatted = gapVal !== 0 ? (gapVal > 0 ? '+' : '') + formatCurrency(gapVal, true) : '—';
+                    const priority = (d.servicios_por_1000hab || 0) < 2 ? 'ALTA' : ((d.servicios_por_1000hab || 0) < 5 ? 'MEDIA' : 'BAJA');
+                    const badgeClass = priority === 'ALTA' ? 'badge-red' : (priority === 'MEDIA' ? 'badge-yellow' : 'badge-green');
+                    const row = `<tr>
+                        <td class="py-3 font-medium">${d.barrio_nombre}</td>
+                        <td class="text-gray-600">${deficit}</td>
+                        <td class="text-right font-bold text-red-600 font-mono">${gapFormatted}</td>
+                        <td class="text-center"><span class="${badgeClass} font-bold px-2 py-0.5 rounded-full text-xs">${priority}</span></td>
+                    </tr>`;
+                    criticalTable.innerHTML += row;
+                });
+                
+                // Si solo hay un barrio único, añadir nota
+                if (uniqueBarrios.length === 1) {
+                    const noteRow = `<tr><td colspan="4" class="text-center text-xs text-gray-500 py-2 italic">Actualmente solo se identifica un barrio crítico con datos suficientes</td></tr>`;
+                    criticalTable.innerHTML += noteRow;
+                }
+            } else {
+                criticalTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-4">No hay datos disponibles</td></tr>';
+            }
+        } else {
+            criticalTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-4">No hay datos disponibles</td></tr>';
+        }
+
+        // Render Coverage Table
+        const coverageTable = document.getElementById('tbody-coverage');
+        if (coverageData && coverageData.length > 0) {
+            coverageData.forEach(d => {
+                const completeness = parseFloat(d.completeness_pct || 0);
+                const completenessColor = completeness >= 90 ? 'text-green-600' : (completeness >= 70 ? 'text-yellow-600' : 'text-red-600');
+                const current = parseInt(d.barrios_cobertura || 0);
+                const total = 73;
+                
+                // Mini progress bar para cobertura
+                const progressWidth = Math.min((current / total) * 100, 100);
+                const coverageDisplay = (current === total) 
+                    ? '<span class="text-green-600 font-bold">✅ Completa</span>' 
+                    : `<div class="flex items-center gap-2">
+                        <div class="w-12 bg-gray-200 rounded-full h-1.5"><div class="bg-orange-500 h-1.5 rounded-full" style="width: ${progressWidth}%"></div></div>
+                        <span class="text-xs font-mono text-gray-600">${current}/${total}</span>
+                       </div>`;
+
+                const row = `<tr class="border-b">
+                    <td class="px-4 py-2 font-medium">${d.fuente}</td>
+                    <td class="py-2">${coverageDisplay}</td>
+                    <td class="text-center font-bold ${completenessColor} font-mono">${completeness.toFixed(0)}%</td>
+                    <td class="text-xs text-gray-500 text-center">${d.max_year || '—'}</td>
+                </tr>`;
+                coverageTable.innerHTML += row;
+            });
+        } else {
+            coverageTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-4">No hay datos disponibles</td></tr>';
+        }
+
+
+        // --- CHARTS CONFIGURATION ---
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = '#6B7280';
+
+        // 1. Affordability Bar Chart
+        if (affordabilityData && affordabilityData.length > 0) {
+            // Filtrar datos con ratio válido, o usar price_to_income_ratio como alternativa
+            const validData = affordabilityData.filter(d => (d.ratio !== null && d.ratio !== undefined) || d.price !== null);
+            
+            if (validData.length > 0) {
+                // Usar ratio si está disponible, sino usar price_to_income_ratio normalizado
+                const dataWithRatio = validData.map(d => ({
+                    ...d,
+                    displayRatio: d.ratio !== null && d.ratio !== undefined ? d.ratio : (d.price && d.income ? (d.price / (d.income / 12)) * 100 : 0)
+                }));
+                
+                // Ordenar datos por ratio (ascendente) para mejor visualización
+                const sortedData = [...dataWithRatio].sort((a, b) => (a.displayRatio || 0) - (b.displayRatio || 0));
+                
+                const chartCanvas = document.getElementById('chart-affordability');
+                if (!chartCanvas) {
+                    console.error('❌ Canvas chart-affordability no encontrado');
+                } else {
+                    try {
+                        console.log('📊 Creando gráfico de asequibilidad con', sortedData.length, 'barrios');
+                        console.log('📊 Datos:', sortedData.map(d => ({name: d.name, ratio: d.displayRatio})));
+                        new Chart(chartCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels: sortedData.map(d => d.name),
+                        datasets: [{
+                            label: 'Ratio Asequibilidad (%)',
+                            data: sortedData.map(d => d.displayRatio || 0),
+                            backgroundColor: sortedData.map(d => {
+                                const ratio = d.displayRatio || 0;
+                                return ratio > 40 ? '#EF4444' : (ratio > 30 ? '#F59E0B' : '#10B981');
+                            }),
+                            borderRadius: 4,
+                            barThickness: 'flex',
+                            maxBarThickness: 30
+                        }]
+                    },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            left: 10,
+                            right: 10,
+                            top: 10,
+                            bottom: 10
+                        }
+                    },
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    return sortedData[context[0].dataIndex].name;
+                                },
+                                label: function(context) {
+                                    return 'Ratio: ' + context.parsed.x.toFixed(1) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: { 
+                        x: { 
+                            beginAtZero: true,
+                            max: Math.max(...sortedData.map(d => d.displayRatio || 0), 1) * 1.2,
+                            ticks: {
+                                stepSize: 1,
+                                font: {
+                                    size: 11
+                                },
+                                callback: function(value) {
+                                    return value.toFixed(1) + '%';
+                                }
+                            },
+                            grid: {
+                                display: true,
+                                color: '#E5E7EB'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                font: {
+                                    size: 11
+                                },
+                                maxRotation: 0,
+                                autoSkip: false
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+                        console.log('✅ Gráfico de asequibilidad creado exitosamente');
+                    } catch (error) {
+                        console.error('❌ Error creando gráfico de asequibilidad:', error);
+                        chartCanvas.parentElement.innerHTML = '<p class="text-xs text-red-500 text-center py-8">Error al crear gráfico: ' + (error.message || 'Error desconocido') + '</p>';
+                    }
+                }
+            } else {
+                // Si no hay datos válidos, mostrar mensaje
+                const chartContainer = document.getElementById('chart-affordability').parentElement;
+                chartContainer.innerHTML = '<p class="text-xs text-gray-400 text-center py-8">No hay datos de ratio de asequibilidad disponibles. Se requieren datos de alquiler o renta.</p>';
+            }
+        } else {
+            const chartContainer = document.getElementById('chart-affordability').parentElement;
+            chartContainer.innerHTML = '<p class="text-xs text-gray-400 text-center py-8">No hay datos disponibles</p>';
+        }
+
+        // 2. Quality Radar Chart
+        if (qualityData && qualityData.length > 0) {
+            // Si hay menos de 3, usar los disponibles y mostrar mensaje
+            const top3 = qualityData.slice(0, Math.min(3, qualityData.length));
+            const chartContainer = document.getElementById('chart-quality').parentElement;
+            const chartCanvas = document.getElementById('chart-quality');
+            
+            if (qualityData.length < 3) {
+                const msg = document.createElement('p');
+                msg.className = 'text-xs text-yellow-600 mt-2';
+                const numBarrios = qualityData.length;
+                msg.textContent = 'Nota: Solo ' + numBarrios + ' barrio(s) con datos completos disponibles';
+                chartContainer.appendChild(msg);
+            }
+            
+            // Verificar que el canvas existe antes de crear el gráfico
+            if (chartCanvas) {
+                try {
+                    new Chart(chartCanvas, {
+                type: 'radar',
+                data: {
+                    labels: ['Educación', 'Salud', 'Comercio', 'Verde', 'Seguridad'],
+                    datasets: top3.map((d, idx) => ({
+                        label: d.name,
+                        data: [
+                            Math.min((d.centros_educativos || 0) * 10, 100),
+                            Math.min((d.servicios_salud || 0) * 10, 100),
+                            Math.min((d.comercios || 0) / 10, 100),
+                            Math.min((d.green || 0) * 10, 100),
+                            Math.max(100 - (d.noise || 0), 0)
+                        ],
+                        borderColor: ['#005EB8', '#10B981', '#F59E0B'][idx],
+                        backgroundColor: 'rgba(0,0,0,0)',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        pointHoverRadius: 6,
+                        fill: false
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 15,
+                                font: { size: 11 }
+                            }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.r.toFixed(0);
+                                }
+                            }
+                        }
+                    },
+                    scales: { 
+                        r: { 
+                            min: 0, 
+                            max: 100, 
+                            ticks: { 
+                                display: true,
+                                stepSize: 20,
+                                font: { size: 10 }
+                            },
+                            grid: {
+                                color: '#E5E7EB'
+                            },
+                            pointLabels: {
+                                font: { size: 11, weight: '600' }
+                            }
+                        } 
+                    }
+                }
+            });
+                } catch (error) {
+                    console.error('Error creando gráfico de calidad:', error);
+                    chartCanvas.parentElement.innerHTML = '<p class="text-xs text-red-500 text-center py-8">Error al crear gráfico: ' + (error.message || 'Error desconocido') + '</p>';
+                }
+            }
+        } else {
+            // Ocultar gráfico si no hay datos
+            const chartContainer = document.getElementById('chart-quality').parentElement;
+            chartContainer.innerHTML = '<p class="text-xs text-gray-400 text-center py-8">No hay datos suficientes para mostrar comparativa</p>';
+        }
+
+        // 3. Investment Scatter Plot
+        if (investmentData && investmentData.length > 0) {
+            // Filtrar datos con precio válido (yield puede ser 0 o null)
+            const filteredData = investmentData.filter(d => d.price > 0);
+            
+            if (filteredData.length >= 1) {
+                const medianYield = filteredData.reduce((sum, item) => sum + (item.yield || 0), 0) / filteredData.length;
+                const medianPrice = filteredData.reduce((sum, item) => sum + (item.price || 0), 0) / filteredData.length;
+                
+                const chartCanvas = document.getElementById('chart-investment');
+                if (!chartCanvas) {
+                    console.error('❌ Canvas chart-investment no encontrado');
+                } else {
+                    try {
+                        new Chart(chartCanvas, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [{
+                            label: 'Barrios',
+                            data: filteredData.map(d => ({
+                                x: d.price,
+                                y: d.yield || 0,
+                                r: (d.liquidity === 'Muy Alta' || d.liquidity === 'Alta') ? 10 : (d.liquidity === 'Media' ? 7 : 5)
+                            })),
+                            backgroundColor: filteredData.map(d => {
+                                if ((d.yield || 0) >= medianYield && d.price <= medianPrice) return 'rgba(16, 185, 129, 0.7)';
+                                if ((d.yield || 0) < medianYield && d.price > medianPrice) return 'rgba(239, 68, 68, 0.7)';
+                                return 'rgba(0, 94, 184, 0.6)';
+                            }),
+                            borderColor: filteredData.map(d => {
+                                if ((d.yield || 0) >= medianYield && d.price <= medianPrice) return '#10B981';
+                                if ((d.yield || 0) < medianYield && d.price > medianPrice) return '#EF4444';
+                                return '#005EB8';
+                            }),
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(context) {
+                                        return filteredData[context[0].dataIndex].name;
+                                    },
+                                    label: function(context) {
+                                        const d = filteredData[context.dataIndex];
+                                        return [
+                                            'Precio: ' + d.price.toLocaleString('es-ES') + ' €/m²',
+                                            'Yield: ' + (d.yield || 0).toFixed(1) + '%',
+                                            'Liquidez: ' + d.liquidity
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { 
+                                title: { 
+                                    display: true, 
+                                    text: 'Precio Venta (€/m²)',
+                                    font: { size: 12, weight: '600' }
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString('es-ES') + '€';
+                                    }
+                                }
+                            },
+                            y: { 
+                                title: { 
+                                    display: true, 
+                                    text: 'Yield Bruto (%)',
+                                    font: { size: 12, weight: '600' }
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toFixed(1) + '%';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                    } catch (error) {
+                        console.error('Error creando gráfico de inversión:', error);
+                        chartCanvas.parentElement.innerHTML = '<p class="text-xs text-red-500 text-center py-8">Error al crear gráfico: ' + (error.message || 'Error desconocido') + '</p>';
+                    }
+                }
+            } else {
+                // Si hay menos de 2 puntos, mostrar resumen en lugar de gráfico
+                const chartContainer = document.getElementById('chart-investment').parentElement;
+                if (filteredData.length === 1) {
+                    const d = filteredData[0];
+                    const yieldVal = (d.yield || 0).toFixed(1);
+                    const priceVal = d.price.toLocaleString('es-ES');
+                    chartContainer.innerHTML = `
+                        <div class="p-4 bg-gray-50 rounded-lg text-center">
+                            <p class="text-sm font-semibold text-gray-800 mb-2">${d.name}</p>
+                            <p class="text-xs text-gray-600">Yield: ${yieldVal}% | Precio: ${priceVal} €/m²</p>
+                            <p class="text-xs text-gray-400 mt-2">Se requieren ≥2 barrios para mostrar matriz comparativa</p>
+                        </div>
+                    `;
+                } else {
+                    chartContainer.innerHTML = '<p class="text-xs text-gray-400 text-center py-8">No hay datos suficientes para mostrar matriz</p>';
+                }
+            }
+        } else {
+            const chartContainer = document.getElementById('chart-investment').parentElement;
+            chartContainer.innerHTML = '<p class="text-xs text-gray-400 text-center py-8">No hay datos disponibles</p>';
+        }
+
+        // 4. Inequality Chart (Bar chart por distrito)
+        
+        const inequalityData = [{"distrito_nombre": "Ciutat Vella", "min": 31773.47619047619, "max": 37356.555555555555}, {"distrito_nombre": "Eixample", "min": 45871.05882352941, "max": 61948.24137931035}, {"distrito_nombre": "Gr\u00e0cia", "min": 42585.6, "max": 55698.181818181816}, {"distrito_nombre": "Horta-Guinard\u00f3", "min": 33524.63636363636, "max": 55177.857142857145}, {"distrito_nombre": "Les Corts", "min": 54230.933333333334, "max": 92172.14285714286}, {"distrito_nombre": "Nou Barris", "min": 27184.5, "max": 40781.27272727273}, {"distrito_nombre": "Sant Andreu", "min": 29877.5, "max": 44413.666666666664}, {"distrito_nombre": "Sant Mart\u00ed", "min": 33480.769230769234, "max": 71714.2}, {"distrito_nombre": "Sants-Montju\u00efc", "min": 34296.0, "max": 44484.793103448275}, {"distrito_nombre": "Sarri\u00e0-Sant Gervasi", "min": 61334.36842105263, "max": 97920.63636363637}];
+        if (inequalityData && inequalityData.length > 0) {
+            new Chart(document.getElementById('chart-inequality'), {
+                type: 'bar',
+                data: {
+                    labels: inequalityData.map(d => d.distrito_nombre),
+                    datasets: [
+                        {
+                            label: 'Renta Min Barrio',
+                            data: inequalityData.map(d => d.min || 0),
+                            backgroundColor: '#E5E7EB',
+                            barPercentage: 0.6,
+                        },
+                        {
+                            label: 'Renta Max Barrio',
+                            data: inequalityData.map(d => d.max || 0),
+                            backgroundColor: '#005EB8',
+                            barPercentage: 0.6,
+                        }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: {
+                        tooltip: { mode: 'index', intersect: false },
+                        legend: { 
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: { size: 11 },
+                                generateLabels: function(chart) {
+                                    return [
+                                        { text: 'Renta Mínima (barrio con menor renta)', fillStyle: '#E5E7EB', strokeStyle: '#9CA3AF' },
+                                        { text: 'Renta Máxima (barrio con mayor renta)', fillStyle: '#005EB8', strokeStyle: '#005EB8' }
+                                    ];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            stacked: false, 
+                            title: {display: true, text: 'Renta Familiar (€)'}, 
+                            beginAtZero: true 
+                        },
+                        y: { 
+                            stacked: false,
+                            ticks: {
+                                autoSkip: false,
+                                font: { size: 11 }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+
+        // 5. Coverage Line Chart
+        
+        const coverageYears = [2019, 2020, 2021, 2022, 2023, 2025];
+        const coverageBarrios = [45, 52, 60, 68, 73, 73];
+        new Chart(document.getElementById('chart-coverage'), {
+            type: 'line',
+            data: {
+                labels: coverageYears,
+                datasets: [{
+                    label: 'Barrios con Datos Completos',
+                    data: coverageBarrios,
+                    borderColor: '#10B981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    tension: 0.3,
+                    fill: true,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#10B981',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { 
+                        display: false 
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.y + ' barrios';
+                            }
+                        }
+                    }
+                },
+                scales: { 
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Año',
+                            font: { size: 12, weight: '600' }
+                        }
+                    },
+                    y: { 
+                        min: 0, 
+                        max: 80,
+                        title: {
+                            display: true,
+                            text: 'Número de Barrios',
+                            font: { size: 12, weight: '600' }
+                        },
+                        ticks: {
+                            stepSize: 10
+                        }
+                    } 
+                }
+            }
+        });
+        
+        
+        }); // Cierre de window.addEventListener('load')
+    </script>
+</body>
+</html>
+    

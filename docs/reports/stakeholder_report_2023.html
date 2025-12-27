@@ -1,0 +1,771 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barcelona Housing Market Intelligence Report 2023</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 60px 40px;
+            text-align: center;
+        }
+        
+        .hero h1 {
+            font-size: 3em;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .hero .subtitle {
+            font-size: 1.2em;
+            opacity: 0.95;
+            margin-bottom: 40px;
+        }
+        
+        .hero-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+        
+        .metric-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 30px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* Content Section */
+        .content {
+            padding: 40px;
+        }
+        
+        .section {
+            margin-bottom: 50px;
+        }
+        
+        .section-title {
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .section-subtitle {
+            color: #666;
+            font-size: 1.1em;
+            margin-bottom: 25px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85em;
+            letter-spacing: 0.5px;
+        }
+        
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #fafbfc;
+        }
+        
+        .highlight {
+            background-color: #fff3cd;
+            font-weight: 600;
+        }
+        
+        .footer {
+            background: #f8f9fa;
+            padding: 30px 40px;
+            text-align: center;
+            color: #666;
+            border-top: 1px solid #dee2e6;
+        }
+        
+        .footer p {
+            margin: 5px 0;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        /* Color coding para tablas */
+        .cell-success {
+            background-color: #d4edda !important;
+            color: #155724 !important;
+            font-weight: 600;
+        }
+        
+        .cell-warning {
+            background-color: #fff3cd !important;
+            color: #856404 !important;
+            font-weight: 600;
+        }
+        
+        .cell-danger {
+            background-color: #f8d7da !important;
+            color: #721c24 !important;
+            font-weight: 600;
+        }
+        
+        /* Metodología */
+        .methodology {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .methodology h3 {
+            color: #005EB8;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .methodology h3:first-child {
+            margin-top: 0;
+        }
+        
+        .methodology ul {
+            margin-left: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .methodology li {
+            margin-bottom: 10px;
+            line-height: 1.8;
+        }
+        
+        /* CTA Section */
+        .cta-section {
+            text-align: center;
+            padding: 40px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 8px;
+        }
+        
+        .cta-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .cta-button {
+            padding: 15px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: inline-block;
+        }
+        
+        .cta-button.primary {
+            background: #005EB8;
+            color: white;
+        }
+        
+        .cta-button.secondary {
+            background: white;
+            color: #005EB8;
+            border: 2px solid #005EB8;
+        }
+        
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .cta-text {
+            color: #666;
+            font-style: italic;
+        }
+        
+        /* Plotly charts container */
+        .chart-container {
+            margin: 30px 0;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2em;
+            }
+            
+            .hero-metrics {
+                grid-template-columns: 1fr;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Hero Section -->
+        <div class="hero">
+            <h1>Barcelona Housing Market Intelligence Report 2023</h1>
+            <div class="subtitle">
+                Análisis Comprehensivo del Mercado Inmobiliario y Demografía Urbana<br>
+                <small>Generado el 26 de December de 2025 a las 12:30:48</small>
+            </div>
+            
+            <div class="hero-metrics">
+                <div class="metric-card">
+                    <div class="metric-value">73</div>
+                    <div class="metric-label">Barrios Analizados</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">€0</div>
+                    <div class="metric-label">Precio Medio / m²</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">0.00%</div>
+                    <div class="metric-label">Yield Bruto Promedio</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">2+</div>
+                    <div class="metric-label">Fuentes de Datos</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Content Section -->
+        <div class="content">
+            <!-- Sección 1: Top Asequibles -->
+            <div class="section">
+                <h2 class="section-title">1. Top 10 Barrios Más Asequibles</h2>
+                <p class="section-subtitle">Mejor relación precio-calidad para inversión residencial. Ratio de asequibilidad = (Alquiler anual / Renta media) × 100</p>
+                <p>No hay datos disponibles para esta sección.</p>
+                
+            </div>
+            
+            <!-- Sección 2: Calidad de Vida -->
+            <div class="section">
+                <h2 class="section-title">2. Top 10 Barrios con Mejor Calidad de Vida</h2>
+                <p class="section-subtitle">Índice compuesto: educación + salud + comercio + medio ambiente</p>
+                <p>No hay datos disponibles para esta sección.</p>
+                
+            </div>
+            
+            <!-- Sección 3: Potencial de Inversión -->
+            <div class="section">
+                <h2 class="section-title">3. Top 10 Barrios con Mejor Potencial de Inversión</h2>
+                <p class="section-subtitle">Score basado en yield bruto, tendencia de precio y liquidez del mercado</p>
+                <p>No hay datos disponibles para esta sección.</p>
+                
+            </div>
+            
+            <!-- Sección 4: Desigualdad Urbana -->
+            <div class="section">
+                <h2 class="section-title">4. Análisis de Desigualdad Urbana</h2>
+                <p class="section-subtitle">Barrios con menor acceso a servicios públicos (prioridad para inversión pública)</p>
+                
+                <div class="disparity-summary" style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h3>Resumen de Disparidad</h3>
+                    <p><strong>Mejor barrio:</strong> el Raval</p>
+                    <p><strong>Peor barrio:</strong> el Raval</p>
+                    <p><strong>Ratio de desigualdad:</strong> 0.00x</p>
+                    
+                    
+                </div>
+                
+                <h3>Barrios Críticos (Bottom 5)</h3>
+                <table border="1" class="dataframe" id="table-critical">
+  <thead>
+    <tr style="text-align: right;">
+      <th>barrio_id</th>
+      <th>barrio_nombre</th>
+      <th>distrito_nombre</th>
+      <th>poblacion_total</th>
+      <th>renta_euros</th>
+      <th>precio_m2_venta</th>
+      <th>total_centros_educativos</th>
+      <th>total_servicios_sanitarios</th>
+      <th>total_establecimientos</th>
+      <th>m2_zonas_verdes_por_habitante</th>
+      <th>servicios_por_1000hab</th>
+      <th>estado_zonas_verdes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.47619</td>
+      <td>NaN</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.47619</td>
+      <td>3386.000000</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.47619</td>
+      <td>3203.655936</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.47619</td>
+      <td>6309.500000</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.47619</td>
+      <td>3229.262911</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+  </tbody>
+</table>
+                
+                <h3 style="margin-top: 30px;">Top 10 Barrios con Menor Acceso a Servicios</h3>
+                <table border="1" class="dataframe" id="table-inequality">
+  <thead>
+    <tr style="text-align: right;">
+      <th>barrio_id</th>
+      <th>barrio_nombre</th>
+      <th>distrito_nombre</th>
+      <th>poblacion_total</th>
+      <th>renta_euros</th>
+      <th>precio_m2_venta</th>
+      <th>total_centros_educativos</th>
+      <th>total_servicios_sanitarios</th>
+      <th>total_establecimientos</th>
+      <th>m2_zonas_verdes_por_habitante</th>
+      <th>servicios_por_1000hab</th>
+      <th>estado_zonas_verdes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>NaN</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>3386.000000</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>3203.655936</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>6309.500000</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>3229.262911</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>3150.592593</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>el Raval</td>
+      <td>Ciutat Vella</td>
+      <td>45671</td>
+      <td>31773.476190</td>
+      <td>3338.870000</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>el Barri Gòtic</td>
+      <td>Ciutat Vella</td>
+      <td>24460</td>
+      <td>37356.555556</td>
+      <td>NaN</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>el Barri Gòtic</td>
+      <td>Ciutat Vella</td>
+      <td>24460</td>
+      <td>37356.555556</td>
+      <td>4923.000000</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>el Barri Gòtic</td>
+      <td>Ciutat Vella</td>
+      <td>24460</td>
+      <td>37356.555556</td>
+      <td>3848.538462</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>None</td>
+      <td>0.0</td>
+      <td>Óptimo</td>
+    </tr>
+  </tbody>
+</table>
+            </div>
+            
+            <!-- Sección 5: Cobertura de Datos -->
+            <div class="section">
+                <h2 class="section-title">5. Métricas de Cobertura de Datos</h2>
+                <p class="section-subtitle">Calidad y completitud de las fuentes de datos</p>
+                <table border="1" class="dataframe" id="table-coverage">
+  <thead>
+    <tr style="text-align: right;">
+      <th>fuente</th>
+      <th>min_year</th>
+      <th>max_year</th>
+      <th>barrios_cobertura</th>
+      <th>completeness_pct</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Precios de Vivienda</td>
+      <td>2012</td>
+      <td>2025</td>
+      <td>73</td>
+      <td>100.0</td>
+    </tr>
+    <tr>
+      <td>Demografía</td>
+      <td>2015</td>
+      <td>2023</td>
+      <td>73</td>
+      <td>100.0</td>
+    </tr>
+    <tr>
+      <td>Educación</td>
+      <td>2023</td>
+      <td>2023</td>
+      <td>0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>Servicios de Salud</td>
+      <td>2023</td>
+      <td>2023</td>
+      <td>0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <td>Comercio</td>
+      <td>2023</td>
+      <td>2023</td>
+      <td>0</td>
+      <td>0.0</td>
+    </tr>
+  </tbody>
+</table>
+            </div>
+            
+            <!-- Sección 6: Metodología -->
+            <div class="section">
+                <h2 class="section-title">6. Metodología y Definiciones</h2>
+                <div class="methodology">
+                    <h3>Glosario de Métricas</h3>
+                    <ul>
+                        <li><strong>Yield Bruto:</strong> (Alquiler anual / Precio compra) × 100. No incluye gastos de comunidad, IBI, mantenimiento.</li>
+                        <li><strong>Ratio Asequibilidad:</strong> (Alquiler mensual × 12 / Renta media anual) × 100. Indica el porcentaje de renta destinado a vivienda.</li>
+                        <li><strong>Índice Calidad de Vida:</strong> Promedio ponderado de [educación×0.3 + salud×0.3 + comercio×0.2 + verde×0.2] menos nivel de ruido×0.1.</li>
+                        <li><strong>Score Liquidez:</strong> Basado en número de anuncios disponibles en el mercado.</li>
+                    </ul>
+                    <h3>Fuentes de Datos</h3>
+                    <ul>
+                        <li><strong>Open Data BCN:</strong> Equipamientos educativos, servicios de salud, comercio, zonas verdes</li>
+                        <li><strong>IDESCAT:</strong> Demografía, renta disponible</li>
+                        <li><strong>Portal de Dades:</strong> Precios de vivienda oficiales</li>
+                        <li><strong>ATM:</strong> Infraestructuras de transporte</li>
+                        <li><strong>Idealista:</strong> Oferta inmobiliaria (sample limitado)</li>
+                    </ul>
+                    <h3>Disclaimers</h3>
+                    <ul>
+                        <li>Los yields son brutos y no incluyen gastos operativos.</li>
+                        <li>Los datos de alquiler provienen de fianzas depositadas (Incasòl), representan cierres reales.</li>
+                        <li>Los precios de venta son promedios por barrio, pueden existir micro-mercados internos.</li>
+                        <li>Los datos de Idealista tienen limitaciones de muestra (150 llamadas/mes).</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Sección 7: Call to Action -->
+            <div class="section">
+                <h2 class="section-title">7. Recursos y Próximos Pasos</h2>
+                <div class="cta-section">
+                    <div class="cta-buttons">
+                        <a href="#" class="cta-button primary">Explorar Dashboard Interactivo</a>
+                        <a href="#" class="cta-button secondary">Ver Código en GitHub</a>
+                    </div>
+                    <p class="cta-text">Este reporte se actualiza mensualmente. Suscríbete para recibirlo automáticamente.</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>Barcelona Housing Demographics Analyzer</strong></p>
+            <p>Datos consolidados de fuentes oficiales: Open Data BCN, IDESCAT, Portal de Dades, ATM, Idealista</p>
+            <p>Reporte generado automáticamente el 2025-12-26 12:30:48</p>
+            <p style="margin-top: 15px; font-size: 0.9em; color: #999;">
+                Este reporte es confidencial y está destinado únicamente para uso interno.
+            </p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script>
+        // Añadir formato a números en tablas y color coding
+        document.addEventListener('DOMContentLoaded', function() {
+            const tables = document.querySelectorAll('table');
+            tables.forEach(table => {
+                const rows = table.querySelectorAll('tbody tr');
+                rows.forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    cells.forEach((cell, idx) => {
+                        const text = cell.textContent.trim();
+                        const header = table.querySelectorAll('th')[idx]?.textContent.toLowerCase() || '';
+                        
+                        // Formatear números
+                        if (/^\d+\.\d+$/.test(text) || /^\d+$/.test(text)) {
+                            const num = parseFloat(text);
+                            if (header.includes('precio') || header.includes('renta')) {
+                                cell.textContent = '€' + num.toLocaleString('es-ES', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+                            } else if (header.includes('ratio') || header.includes('yield') || header.includes('pct')) {
+                                cell.textContent = num.toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
+                                // Color coding para ratios
+                                if (num < 30) {
+                                    cell.style.backgroundColor = '#d4edda';
+                                    cell.style.color = '#155724';
+                                    cell.style.fontWeight = '600';
+                                } else if (num < 40) {
+                                    cell.style.backgroundColor = '#fff3cd';
+                                    cell.style.color = '#856404';
+                                    cell.style.fontWeight = '600';
+                                } else {
+                                    cell.style.backgroundColor = '#f8d7da';
+                                    cell.style.color = '#721c24';
+                                    cell.style.fontWeight = '600';
+                                }
+                            }
+                        }
+                    });
+                });
+            });
+        });
+    </script>
+</body>
+</html>
+    

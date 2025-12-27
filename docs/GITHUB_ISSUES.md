@@ -9,9 +9,38 @@ Este documento contiene las issues sugeridas para el proyecto Barcelona Housing 
 **Commit**: `dd4a643`  
 **Descripción**: Implementación completa del sistema de extracción de datos de múltiples fuentes (INE, OpenDataBCN, Idealista) con mejoras avanzadas.
 
+### Issue F-216: Validación de Fuentes de Datos (Educación y Medio Ambiente)
+**Estado**: ✅ Completada  
+**Descripción**: Investigación y validación de fuentes de datos para Educación (Padró), Calidad del Aire (ASPB) y Ruido (MER).
+**Resultados**: 
+- Educación: Padró Municipal (2007-2023) validado.
+- Aire: Sensores ASPB + IDW validado.
+- Ruido: Mapas Estratégicos de Ruido (2012, 2017, 2022) validados.
+
 ---
 
 ## 🎯 Issues Prioritarias (Pendientes)
+
+### Issue #217: Diseño de Esquema V2 (Educación y Medio Ambiente)
+**Prioridad**: Alta  
+**Tipo**: Feature  
+**Milestone**: Phase 2 - Advanced Urban Indicators
+
+**Descripción**:
+Diseñar e implementar las tablas de hechos para los nuevos indicadores urbanos validados en F-216.
+
+**Tareas**:
+- [x] Crear `docs/database/SCHEMA_V2_EDUCATION_ENVIRONMENTAL.sql`
+- [ ] Implementar migraciones de base de datos para nuevas tablas
+- [ ] Crear vistas de análisis (`vw_gentrification_risk`)
+- [x] Definir estructura de extractores y transformadores placeholders
+
+**Criterios de Aceptación**:
+- Tablas creadas con integridad referencial a `dim_barrios`.
+- Esquema soporta análisis temporal y espacial.
+- Vistas de análisis funcionando correctamente.
+
+---
 
 ### Issue #2: Implementar Procesamiento y Limpieza de Datos
 **Prioridad**: Alta  
