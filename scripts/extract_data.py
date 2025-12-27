@@ -41,7 +41,7 @@ def main():
     parser.add_argument(
         "--sources",
         nargs="+",
-        choices=["ine", "opendatabcn", "idealista"],
+        choices=["ine", "opendatabcn", "idealista", "portaldades", "generalitat", "opendatabcn_advanced"],
         default=None,
         help="Fuentes específicas a extraer (default: todas)"
     )
@@ -104,7 +104,7 @@ def main():
     if args.sources:
         print(f"Fuentes: {', '.join(args.sources)}")
     else:
-        print("Fuentes: todas (ine, opendatabcn, idealista)")
+        print("Fuentes: todas (ine, opendatabcn, idealista, portaldades, generalitat, opendatabcn_advanced)")
     print(f"{'='*60}\n")
     
     try:
