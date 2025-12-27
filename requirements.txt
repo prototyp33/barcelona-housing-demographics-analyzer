@@ -40,7 +40,7 @@ webdriver-manager==4.0.2  # Gestión automática de drivers (geckodriver, chrome
 # =============================================================================
 # Visualization & Dashboard
 # =============================================================================
-streamlit==1.52.1  # Actualizado para soportar pyarrow 22.0.0
+streamlit==1.52.2  # Actualizado para soportar pyarrow 22.0.0
 plotly==6.5.0
 altair==6.0.0
 matplotlib==3.10.8
