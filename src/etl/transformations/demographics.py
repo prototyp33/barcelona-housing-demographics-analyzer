@@ -32,9 +32,25 @@ def prepare_fact_demografia(
 ) -> pd.DataFrame:
     """Agrega datos censales demográficos por barrio y año."""
     df = demographics.copy()
-    for column in ("Valor", "año", "Codi_Barri"):
+    # Normalización agresiva: minúsculas y sin espacios
+    df.columns = [c.strip().lower() for c in df.columns]
+    
+    rename_map = {
+        "any": "año", "data_referencia": "año", "año": "año", "anio": "año",
+        "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
+        "sexe": "SEXE", "sexo": "SEXE", "valor": "Valor"
+    }
+    for col_old, col_new in rename_map.items():
+        if col_old in df.columns:
+            df = df.rename(columns={col_old: col_new})
+
+    # Eliminar columnas duplicadas (especialmente 'año' si existía Data_Referencia y Any)
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    # Asegurar que tenemos lo mínimo
+    for column in ("Valor", "año", "Codi_Barri", "SEXE"):
         if column not in df.columns:
-            raise ValueError(f"Demographics dataframe missing column '{column}'")
+            raise ValueError(f"Demographics dataframe missing column '{column}'. Columns found: {list(df.columns)}")
 
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce")
     df = df.dropna(subset=["Valor", "año", "Codi_Barri"])

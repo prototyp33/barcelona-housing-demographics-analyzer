@@ -28,26 +28,25 @@ def prepare_fact_renta_avanzada(
         logger.info(f"Procesando componente de renta avanzada: {key}")
         df = df.copy()
         
-        # Normalizar columnas
-        df.columns = [c.strip() for c in df.columns]
-        
-        # Identificar columna de valor (suele ser 'Valor' o 'Import_Euros')
-        valor_col = None
-        for c in ['Valor', 'Import_Euros', 'Renda_Bruta_Llar', 'Index_Gini', 'Ratio_P80_P20']:
-            if c in df.columns:
-                valor_col = c
-                break
-        
-        if not valor_col:
-            # Buscar la primera columna numérica que no sea Codi_Barri ni Any
-            cols = [c for c in df.columns if c not in ['Codi_Barri', 'Any', 'Nom_Barri', 'Codi_Districte', 'Nom_Districte']]
-            if cols: valor_col = cols[0]
-            
-        if not valor_col:
-            logger.warning(f"No se encontró columna de valor en {key}")
-            continue
+        # 1. Normalización agresiva
+        df.columns = [c.strip().lower() for c in df.columns]
+        rename_map = {
+            "any": "Any", "data_referencia": "Any", "año": "Any", "anio": "Any",
+            "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
+            "valor": "Valor", "import_euros": "Valor",
+            # Mapeo específico para datasets de renta (múltiples encodings del símbolo €)
+            "import_renda_bruta_€": "Valor",
+            "import_renda_bruta_â¬": "Valor",
+            "import_renda_bruta_â\x82¬": "Valor",
+            "import_renda_bruta_eur": "Valor",
+            "index_gini": "Valor",
+            "distribucio_p80_20": "Valor"
+        }
+        for col_old, col_new in rename_map.items():
+            if col_old in df.columns:
+                df = df.rename(columns={col_old: col_new})
 
-        # Renombrar según el dataset
+        # 2. Identificar métricas
         target_col = None
         if 'bruta' in key.lower() or 'gross' in key.lower():
             target_col = 'renta_bruta_llar'
@@ -59,27 +58,20 @@ def prepare_fact_renta_avanzada(
         if not target_col:
             continue
             
-        df = df.rename(columns={valor_col: target_col})
+        # 3. Verificar que existe la columna Valor
+        if 'Valor' not in df.columns:
+            logger.warning(f"No se encontró columna 'Valor' en {key} después de normalización. Columnas: {list(df.columns)}")
+            continue
+
+        df = df.rename(columns={'Valor': target_col})
         
-        # Identificar año robustamente
-        if 'Any' not in df.columns:
-            if 'Data_Referencia' in df.columns:
-                df['Any'] = pd.to_datetime(df['Data_Referencia'], errors='coerce').dt.year
-            elif 'Año' in df.columns:
-                df = df.rename(columns={'Año': 'Any'})
-            elif 'Anio' in df.columns:
-                df = df.rename(columns={'Anio': 'Any'})
-        
-        # Identificar Codi_Barri robustamente
-        if 'Codi_Barri' not in df.columns:
-            if 'codi_barri' in df.columns:
-                df = df.rename(columns={'codi_barri': 'Codi_Barri'})
-            elif 'BARRIO_ID' in df.columns:
-                df = df.rename(columns={'BARRIO_ID': 'Codi_Barri'})
-        
-        # Asegurar Any y Codi_Barri son numéricos
+        # 4. Asegurar Any y Codi_Barri son numéricos
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
+        
+        # AGREGAR: Los datos vienen por sección censal, necesitamos nivel barrio
+        # Para renta, tomamos la media de las secciones (aproximación común si no hay pesos)
+        df = df.groupby(['Any', 'Codi_Barri'])[target_col].mean().reset_index()
         
         # Mergear con la base
         if combined_df.empty:
@@ -127,37 +119,76 @@ def prepare_fact_catastro_avanzado(
             continue
             
         df = df.copy()
-        df.columns = [c.strip() for c in df.columns]
         
-        # Identificar métricas
-        if 'owner_type' in key:
-            # Tipus_Propietari: 'Persona física', 'Persona jurídica'
-            if 'Tipus_Propietari' in df.columns:
-                p_fisica = df[df['Tipus_Propietari'] == 'Persona física'].groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
-                p_juridica = df[df['Tipus_Propietari'] == 'Persona jurídica'].groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
-                p_fisica = p_fisica.rename(columns={'Valor': 'num_propietarios_fisica'})
-                p_juridica = p_juridica.rename(columns={'Valor': 'num_propietarios_juridica'})
-                df = pd.merge(p_fisica, p_juridica, on=['Any', 'Codi_Barri'], how='outer')
-        elif 'avg_surface' in key:
-            df = df.rename(columns={'Valor': 'superficie_media_m2'})
-        elif 'floors' in key:
-            df = df.rename(columns={'Valor': 'num_plantas_avg'})
-        elif 'year_const' in key:
-            df = df.rename(columns={'Valor': 'antiguedad_media_bloque'})
-        elif 'owner_nationality' in key:
-            # Ejemplo: % extranjeros
-            if 'Nacionalitat' in df.columns:
-                extranjeros = df[df['Nacionalitat'] == 'Estrangera'].groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
-                total = df.groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
-                df = pd.merge(extranjeros, total, on=['Any', 'Codi_Barri'], suffixes=('_ext', '_total'))
-                df['pct_propietarios_extranjeros'] = (df['Valor_ext'] / df['Valor_total']) * 100
-                df = df[['Any', 'Codi_Barri', 'pct_propietarios_extranjeros']]
-            else: continue
-        else: continue
+        # 1. Normalización agresiva
+        df.columns = [c.strip().lower() for c in df.columns]
+        rename_map = {
+            "any": "Any", "data_referencia": "Any", "año": "Any", "anio": "Any",
+            "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
+            "valor": "Valor"
+        }
+        for col_old, col_new in rename_map.items():
+            if col_old in df.columns:
+                df = df.rename(columns={col_old: col_new})
 
-        # Asegurar tipos antes del merge
+        # 2. Asegurar Any y Codi_Barri son numéricos
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
+
+        # 3. Identificar métricas y agregar INMEDIATAMENTE
+        if 'owner_type' in key:
+            # Tipus_Propietari: 'Persona física', 'Persona jurídica'
+            tp_col = 'tipus_propietari' if 'tipus_propietari' in df.columns else None
+            if tp_col:
+                p_fisica = df[df[tp_col] == 'Persona física'].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_propietarios_fisica')
+                p_juridica = df[df[tp_col] == 'Persona jurídica'].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_propietarios_juridica')
+                df = pd.merge(p_fisica, p_juridica, on=['Any', 'Codi_Barri'], how='outer').fillna(0)
+            else:
+                continue
+                
+        elif 'avg_surface' in key:
+            # Agregar por barrio
+            value_col = [c for c in df.columns if 'superficie' in c or 'valor' in c]
+            if value_col:
+                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
+                df = df.rename(columns={value_col[0]: 'superficie_media_m2'})
+            else:
+                continue
+                
+        elif 'floors' in key:
+            value_col = [c for c in df.columns if 'planta' in c or 'valor' in c]
+            if value_col:
+                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
+                df = df.rename(columns={value_col[0]: 'num_plantas_avg'})
+            else:
+                continue
+                
+        elif 'year_const' in key:
+            value_col = [c for c in df.columns if 'any' in c.lower() and c != 'Any']
+            if not value_col:
+                value_col = [c for c in df.columns if 'valor' in c]
+            if value_col:
+                # Calcular antigüedad (año actual - año construcción)
+                current_year = 2024
+                df['antiguedad'] = current_year - pd.to_numeric(df[value_col[0]], errors='coerce')
+                df = df.groupby(['Any', 'Codi_Barri'])['antiguedad'].mean().reset_index()
+                df = df.rename(columns={'antiguedad': 'antiguedad_media_bloque'})
+            else:
+                continue
+                
+        elif 'owner_nationality' in key:
+            # Ejemplo: % extranjeros
+            nac_col = 'nacionalitat' if 'nacionalitat' in df.columns else None
+            if nac_col:
+                extranjeros = df[df[nac_col].str.contains('Estrang', na=False, case=False)].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_ext')
+                total = df.groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_total')
+                df = pd.merge(extranjeros, total, on=['Any', 'Codi_Barri'], how='right').fillna(0)
+                df['pct_propietarios_extranjeros'] = (df['num_ext'] / df['num_total']) * 100
+                df = df[['Any', 'Codi_Barri', 'pct_propietarios_extranjeros']]
+            else:
+                continue
+        else:
+            continue
         
         # Mergear
         if combined_df.empty:
@@ -200,48 +231,92 @@ def prepare_fact_hogares_avanzado(
     combined_df = pd.DataFrame()
     
     for key, df in dfs.items():
-        if df is None or df.empty: continue
-        df = df.copy()
-        df.columns = [c.strip() for c in df.columns]
-
-        # 1. Identificar año robustamente (AL PRINCIPIO)
-        if 'Any' not in df.columns:
-            if 'Data_Referencia' in df.columns:
-                df['Any'] = pd.to_datetime(df['Data_Referencia'], errors='coerce').dt.year
-            elif 'Año' in df.columns:
-                df = df.rename(columns={'Año': 'Any'})
-            elif 'Anio' in df.columns:
-                df = df.rename(columns={'Anio': 'Any'})
+        if df is None or df.empty: 
+            logger.info(f"Saltando {key}: vacío o None")
+            continue
         
-        # 2. Identificar Codi_Barri robustamente (AL PRINCIPIO)
-        if 'Codi_Barri' not in df.columns:
-            if 'codi_barri' in df.columns:
-                df = df.rename(columns={'codi_barri': 'Codi_Barri'})
-            elif 'BARRIO_ID' in df.columns:
-                df = df.rename(columns={'BARRIO_ID': 'Codi_Barri'})
+        logger.info(f"Procesando {key}: {len(df)} filas, columnas: {list(df.columns)[:5]}...")
+        df = df.copy()
+        
+        # 1. Normalización agresiva
+        df.columns = [c.strip().lower() for c in df.columns]
+        
+        # Priorizar 'any' sobre 'data_referencia' si ambos existen
+        rename_map = {
+            "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
+            "valor": "Valor"
+        }
+        # Renombrar columna de año (priorizar 'any')
+        if 'any' in df.columns:
+            rename_map["any"] = "Any"
+        if 'data_referencia' in df.columns and 'Any' not in df.columns:
+            rename_map["data_referencia"] = "Any"
+        if 'año' in df.columns and 'Any' not in df.columns:
+            rename_map["año"] = "Any"
+        if 'anio' in df.columns and 'Any' not in df.columns:
+            rename_map["anio"] = "Any"
+            
+        for col_old, col_new in rename_map.items():
+            if col_old in df.columns:
+                df = df.rename(columns={col_old: col_new})
+        
+        # Eliminar columnas duplicadas si existen
+        df = df.loc[:, ~df.columns.duplicated()]
 
-        # 3. Procesamiento específico
-        if 'crowding' in key:
-            # Personas por hogar
-            df = df.rename(columns={'Valor': 'promedio_personas_por_hogar'})
-        elif 'minors' in key:
-            df = df.rename(columns={'Valor': 'num_hogares_con_menores'})
-        elif 'women' in key:
-            df = df.rename(columns={'Valor': 'pct_presencia_mujeres'})
-        elif 'nationality' in key:
-            if 'Nacionalitat' in df.columns and 'Any' in df.columns and 'Codi_Barri' in df.columns:
-                extranjeros = df[df['Nacionalitat'] == 'Estrangera'].groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
-                total = df.groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
-                df = pd.merge(extranjeros, total, on=['Any', 'Codi_Barri'], suffixes=('_ext', '_total'))
-                df['pct_hogares_nacionalidad_extranjera'] = (df['Valor_ext'] / df['Valor_total']) * 100
-                df = df[['Any', 'Codi_Barri', 'pct_hogares_nacionalidad_extranjera']]
-            else: continue
-        else: continue
-
-        # Asegurar tipos antes del merge
+        logger.info(f"  Después de normalización: {list(df.columns)[:8]}")
+        
+        # 2. Verificar que existen las columnas necesarias
+        if 'Any' not in df.columns or 'Codi_Barri' not in df.columns:
+            logger.warning(f"Columnas faltantes en {key}. Columnas: {list(df.columns)}")
+            continue
+            
+        # 3. Asegurar Any y Codi_Barri son numéricos
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
 
+        # 4. Procesamiento específico y agregación INMEDIATA
+        if 'crowding' in key:
+            # Promedio de personas por hogar
+            value_col = [c for c in df.columns if 'persones' in c or 'valor' in c]
+            if value_col:
+                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
+                df = df.rename(columns={value_col[0]: 'promedio_personas_por_hogar'})
+            else:
+                continue
+                
+        elif 'minors' in key:
+            # Hogares con menores
+            value_col = [c for c in df.columns if 'valor' in c or 'nombre' in c]
+            if value_col:
+                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].sum().reset_index()
+                df = df.rename(columns={value_col[0]: 'num_hogares_con_menores'})
+            else:
+                continue
+                
+        elif 'women' in key:
+            # Presencia de mujeres
+            value_col = [c for c in df.columns if 'dones' in c or 'valor' in c]
+            if value_col:
+                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
+                df = df.rename(columns={value_col[0]: 'pct_presencia_mujeres'})
+            else:
+                continue
+                
+        elif 'nationality' in key:
+            nac_col = 'nacionalitat' if 'nacionalitat' in df.columns else ('nacionalitat_domicili' if 'nacionalitat_domicili' in df.columns else None)
+            if nac_col:
+                # Convertir a string para poder usar .str.contains
+                df[nac_col] = df[nac_col].astype(str)
+                extranjeros = df[df[nac_col].str.contains('Estrang', na=False, case=False)].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_ext')
+                total = df.groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_total')
+                df = pd.merge(extranjeros, total, on=['Any', 'Codi_Barri'], how='right').fillna(0)
+                df['pct_hogares_nacionalidad_extranjera'] = (df['num_ext'] / df['num_total']) * 100
+                df = df[['Any', 'Codi_Barri', 'pct_hogares_nacionalidad_extranjera']]
+            else:
+                continue
+        else:
+            continue
+        
         if combined_df.empty: combined_df = df
         else: 
             combined_df['Any'] = pd.to_numeric(combined_df['Any'], errors='coerce')
@@ -279,32 +354,37 @@ def prepare_fact_turismo_intensidad(
     for key, df in dfs.items():
         if df is None or df.empty: continue
         df = df.copy()
-        df.columns = [c.strip() for c in df.columns]
         
-        # 1. Identificar año robustamente
-        if 'Any' not in df.columns:
-            if 'Data_Referencia' in df.columns:
-                df['Any'] = pd.to_datetime(df['Data_Referencia'], errors='coerce').dt.year
-            elif 'Año' in df.columns:
-                df = df.rename(columns={'Año': 'Any'})
-            elif 'Anio' in df.columns:
-                df = df.rename(columns={'Anio': 'Any'})
-        
-        # 2. Identificar Codi_Barri robustamente
-        if 'Codi_Barri' not in df.columns:
-            if 'codi_barri' in df.columns:
-                df = df.rename(columns={'codi_barri': 'Codi_Barri'})
+        # 1. Normalización agresiva
+        df.columns = [c.strip().lower() for c in df.columns]
+        rename_map = {
+            "any": "Any", "data_referencia": "Any", "año": "Any", "anio": "Any",
+            "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
+            "valor": "Valor"
+        }
+        for col_old, col_new in rename_map.items():
+            if col_old in df.columns:
+                df = df.rename(columns={col_old: col_new})
 
-        # 3. Procesamiento específico
-        if 'intensity' in key:
-            df = df.rename(columns={'Valor': 'indice_intensidad_turistica'})
-        elif 'hut' in key:
-            df = df.rename(columns={'Valor': 'num_establecimientos_turisticos'})
-        else: continue
-        
-        # Asegurar tipos antes del merge
+        # 2. Asegurar Any y Codi_Barri son numéricos
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
+
+        # 3. Procesamiento específico
+        target_col = None
+        if 'intensity' in key:
+            target_col = 'indice_intensidad_turistica'
+            df = df.rename(columns={'Valor': target_col})
+        elif 'hut' in key:
+            target_col = 'num_establecimientos_turisticos'
+            df = df.rename(columns={'Valor': target_col})
+        else: continue
+        
+        # AGREGAR: Nivel barrio
+        if 'indice' in target_col:
+            df = df.groupby(['Any', 'Codi_Barri'])[target_col].mean().reset_index()
+        else:
+            df = df.groupby(['Any', 'Codi_Barri'])[target_col].sum().reset_index()
         
         if combined_df.empty: combined_df = df
         else: 

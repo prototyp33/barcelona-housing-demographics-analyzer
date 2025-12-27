@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import sqlite3
@@ -11,6 +12,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from .. import data_processing
+from .batch_processor import insert_dataframe_in_batches, optimize_dataframe_memory
 from ..database_setup import (
     create_connection,
     create_database_schema,
@@ -244,11 +246,18 @@ def run_etl(
         
         # Fallback a patrones de nombre (legacy)
         if demographics_path is None:
-            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_*.csv")
+            # Primero intentar con el nuevo nombre opendatabcn_demographics (que es muy específico)
+            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
+            if demographics_path is None:
+                # Buscar específicamente pad_mdbas_sexe (estándar) o pad_mdb_lloc-naix (ampliada)
+                demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdbas_sexe_*.csv")
+                if demographics_path is None:
+                    demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_lloc-naix*.csv")
+            
             if demographics_path and "lloc-naix" in demographics_path.name.lower():
                 is_demographics_ampliada = True
-        if demographics_path is None:
-            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
+        
+        # ELIMINADO EL REDUNDANTE QUE SOBREESCRIBÍA
         
         renta_path = None
         if use_manifest:
@@ -992,28 +1001,37 @@ def run_etl(
                 exc,
             )
 
-        # Cargar demografía (estándar o ampliada)
+        # Cargar demografía (estándar o ampliada) con batch processing
         if fact_demografia_ampliada is not None:
             logger.info("Cargando tabla de hechos demográficos ampliados")
-            fact_demografia_ampliada.to_sql(
-                "fact_demografia_ampliada", conn, if_exists="append", index=False
+            fact_demografia_ampliada = optimize_dataframe_memory(fact_demografia_ampliada)
+            insert_dataframe_in_batches(
+                fact_demografia_ampliada, "fact_demografia_ampliada", conn,
+                batch_size=10000, if_exists="append"
             )
+            del fact_demografia_ampliada
+            gc.collect()
         elif fact_demografia is not None:
             logger.info("Cargando tabla de hechos demográficos")
-            fact_demografia.to_sql(
-                "fact_demografia", conn, if_exists="append", index=False
+            fact_demografia = optimize_dataframe_memory(fact_demografia)
+            insert_dataframe_in_batches(
+                fact_demografia, "fact_demografia", conn,
+                batch_size=10000, if_exists="append"
             )
+            del fact_demografia
+            gc.collect()
         else:
             logger.warning("No se cargaron datos demográficos")
 
         if not fact_precios.empty:
             logger.info("Cargando tabla de hechos de precios")
-            fact_precios.to_sql(
-                "fact_precios",
-                conn,
-                if_exists="append",
-                index=False,
+            fact_precios = optimize_dataframe_memory(fact_precios)
+            insert_dataframe_in_batches(
+                fact_precios, "fact_precios", conn,
+                batch_size=10000, if_exists="append"
             )
+            del fact_precios
+            gc.collect()
         else:
             logger.warning(
                 "No se cargaron datos en fact_precios (dataframe vacío)"
@@ -1094,22 +1112,43 @@ def run_etl(
         else:
             logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
 
-        # Cargar datasets avanzados
-        if fact_renta_avanzada is not None and not fact_renta_avanzada.empty:
-            logger.info("Cargando tabla de hechos de renta avanzada")
-            fact_renta_avanzada.to_sql("fact_renta_avanzada", conn, if_exists="append", index=False)
-            
-        if fact_catastro_avanzado is not None and not fact_catastro_avanzado.empty:
-            logger.info("Cargando tabla de hechos de catastro avanzado")
-            fact_catastro_avanzado.to_sql("fact_catastro_avanzado", conn, if_exists="append", index=False)
-            
-        if fact_hogares_avanzado is not None and not fact_hogares_avanzado.empty:
-            logger.info("Cargando tabla de hechos de hogares avanzado")
-            fact_hogares_avanzado.to_sql("fact_hogares_avanzado", conn, if_exists="append", index=False)
-            
-        if fact_turismo_intensidad is not None and not fact_turismo_intensidad.empty:
-            logger.info("Cargando tabla de hechos de intensidad turística")
-            fact_turismo_intensidad.to_sql("fact_turismo_intensidad", conn, if_exists="append", index=False)
+        # Cargar datasets avanzados usando batch processing
+        logger.info("=== Cargando datasets avanzados con procesamiento por lotes ===")
+        
+        # Optimize memory before insertion
+        if fact_renta_avanzada is not None:
+            fact_renta_avanzada = optimize_dataframe_memory(fact_renta_avanzada)
+        if fact_catastro_avanzado is not None:
+            fact_catastro_avanzado = optimize_dataframe_memory(fact_catastro_avanzado)
+        if fact_hogares_avanzado is not None:
+            fact_hogares_avanzado = optimize_dataframe_memory(fact_hogares_avanzado)
+        if fact_turismo_intensidad is not None:
+            fact_turismo_intensidad = optimize_dataframe_memory(fact_turismo_intensidad)
+        
+        # Insert using batch processing
+        insert_dataframe_in_batches(
+            fact_renta_avanzada, "fact_renta_avanzada", conn, 
+            batch_size=5000, clear_first=True
+        )
+        gc.collect()  # Force garbage collection between tables
+        
+        insert_dataframe_in_batches(
+            fact_catastro_avanzado, "fact_catastro_avanzado", conn,
+            batch_size=5000, clear_first=True
+        )
+        gc.collect()
+        
+        insert_dataframe_in_batches(
+            fact_hogares_avanzado, "fact_hogares_avanzado", conn,
+            batch_size=5000, clear_first=True
+        )
+        gc.collect()
+        
+        insert_dataframe_in_batches(
+            fact_turismo_intensidad, "fact_turismo_intensidad", conn,
+            batch_size=5000, clear_first=True
+        )
+        gc.collect()
 
         # Crear vistas analíticas después de cargar los datos
         try:

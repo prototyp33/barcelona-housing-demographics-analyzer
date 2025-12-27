@@ -35,14 +35,14 @@ class OpenDataBCNExtractor(BaseExtractor):
         "income_p80_p20": "atles-renda-p80-p20-distribucio",
         "cadastre_year_const": "est-cadastre-habitatges-any-const",
         "cadastre_owner_type": "est-cadastre-carrecs-tipus-propietari",
-        "cadastre_avg_surface": "est-cadastre-habitatges-sup-mitjana",
+        "cadastre_avg_surface": "est-cadastre-habitatges-superficie-mitjana",
         "cadastre_owner_nationality": "est-cadastre-locals-prop",
         "cadastre_floors": "immo-edif-hab-segons-num-plantes-sobre-rasant",
-        "household_crowding": "habit-ppal-segons-nombre-pers-viuen",
+        "household_crowding": "pad_dom_mdbas_n-persones",
         "household_nationality": "pad_dom_mdbas_nacionalitat",
         "household_minors": "pad_dom_mdbas_edat-0018",
         "household_women": "pad_dom_mdbas_dones",
-        "tourism_intensity": "afectacions-turistiques",
+        "tourism_intensity": "intensitat-activitat-turistica",
         "tourism_hut": "habitatges-us-turistic",
         "environment_noise_map": "capacitat-mapa-estrategic-soroll",
         "geo_districts_neighborhoods": "districtes-barris",
@@ -387,11 +387,16 @@ class OpenDataBCNExtractor(BaseExtractor):
                 coverage_metadata["missing_years"] = missing_years
                 coverage_metadata["coverage_percentage"] = len(found_years & requested_years) / len(requested_years) * 100
             
-            coverage_metadata["success"] = True
-            coverage_metadata["records"] = len(df_combined)
-            coverage_metadata["years_found"] = sorted(found_years)
+            # Guardar datos raw combinados
+            self._save_raw_data(
+                df_combined,
+                f"opendatabcn_{dataset_id}",
+                'csv',
+                year_start=year_start,
+                year_end=year_end
+            )
             
-            logger.info(f"Dataset histórico {dataset_id} descargado: {len(df_combined)} registros, años {sorted(found_years)}")
+            logger.info(f"Dataset histórico {dataset_id} descargado y guardado: {len(df_combined)} registros, años {sorted(found_years)}")
             return df_combined, coverage_metadata
             
         except Exception as e:

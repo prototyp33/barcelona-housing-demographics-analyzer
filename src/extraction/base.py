@@ -266,8 +266,9 @@ class BaseExtractor:
         
         # Mapeo de patrones a tipos
         type_patterns = {
-            "demographics": ["demographic", "poblacion", "pad_mdb", "pad_mdbas"],
-            "demographics_ampliada": ["lloc-naix", "edat-q", "nacionalitat"],
+            "demographics": ["demographic", "poblacion", "pad_mdbas_sexe", "est-padro-edat"],
+            "demographics_ampliada": ["lloc-naix", "edat-q_sexe", "nacionalitat-contintent"],
+            "households": ["pad_dom", "hogares", "household"],
             "prices_venta": ["venta", "compravenda", "habitatges"],
             "prices_alquiler": ["alquiler", "lloguer", "rent"],
             "renta": ["renta", "renda", "income"],

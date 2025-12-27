@@ -340,6 +340,63 @@ def detect_regulation_changes(
     return alerts
 
 
+def detect_investment_opportunities(
+    barrio_id: int,
+    db_path: Optional[Path] = None
+) -> List[Alert]:
+    """
+    Detecta si un barrio ha entrado en el 'Sweet Spot' de inversión.
+    """
+    from ..app.config import VIVIENDA_TIPO_M2
+    from ..app.data_loader import load_investment_data
+    
+    alerts = []
+    
+    try:
+        # Cargar datos de inversión para el año más reciente
+        # Nota: Usamos el cargador de la app para coherencia de fórmulas
+        df = load_investment_data(2023) # Año hardcodeado por ahora o dinámico
+        if df.empty:
+            return alerts
+            
+        median_yield = df['yield_bruto_pct'].median()
+        median_price = df['avg_precio_m2'].median()
+        
+        # Filtrar el barrio actual
+        barrio_data = df[df['barrio_id'] == barrio_id]
+        if barrio_data.empty:
+            return alerts
+            
+        row = barrio_data.iloc[0]
+        is_sweet_spot = row['yield_bruto_pct'] >= median_yield and row['avg_precio_m2'] <= median_price
+        
+        if is_sweet_spot:
+            alert = create_alert(
+                alert_type="oportunidad_sweet_spot",
+                barrio_id=barrio_id,
+                priority=AlertPriority.HIGH,
+                title="🎯 ¡Oportunidad 'Sweet Spot' detectada!",
+                message=(
+                    f"El barrio {row['barrio_nombre']} presenta una combinación ideal: "
+                    f"Rentabilidad superior a la media ({row['yield_bruto_pct']:.2f}%) "
+                    f"y precio por debajo de la media ({row['avg_precio_m2']:,.0f} €/m²)."
+                ),
+                details={
+                    "yield": row['yield_bruto_pct'],
+                    "precio_m2": row['avg_precio_m2'],
+                    "median_yield": median_yield,
+                    "median_price": median_price,
+                    "score_gentrificacion": row.get('score_gentrificacion', 0)
+                }
+            )
+            alerts.append(alert)
+            
+    except Exception as e:
+        logger.error("Error detectando oportunidades de inversión: %s", e)
+        
+    return alerts
+
+
 def detect_all_changes(
     barrio_id: int,
     db_path: Optional[Path] = None
@@ -367,6 +424,9 @@ def detect_all_changes(
     
     # Detectar cambios en regulación
     all_alerts.extend(detect_regulation_changes(barrio_id, db_path=db_path))
+    
+    # Detectar oportunidades de inversión (NUEVO)
+    all_alerts.extend(detect_investment_opportunities(barrio_id, db_path=db_path))
     
     return all_alerts
 
