@@ -26,6 +26,7 @@ from src.app.data_loader import (
     load_price_trends,
     load_available_years,
 )
+from src.app.utils import format_smart_currency, get_noise_level_color, PROFESSIONAL_COLORS
 from src.app.styles import render_responsive_kpi_grid
 
 logger = logging.getLogger(__name__)
@@ -57,10 +58,7 @@ def _format_trend_icon(trend_value: Optional[float]) -> tuple[str, str]:
 
 def render_critical_kpis(year: int = 2024) -> None:
     """
-    Renderiza los 4 KPIs críticos del Market Cockpit.
-    
-    Args:
-        year: Año a mostrar.
+    Renderiza los 4 KPIs críticos del Market Cockpit alineados con el reporte profesional.
     """
     kpis = load_critical_kpis(year)
     
@@ -80,13 +78,13 @@ def render_critical_kpis(year: int = 2024) -> None:
     crimen_data = kpis.get("criminalidad", {})
     crimen_value = crimen_data.get("value")
     crimen_trend = crimen_data.get("trend")
-    crimen_icon, crimen_color = _format_trend_icon(-crimen_trend if crimen_trend else None)  # Inverso: menos es mejor
+    crimen_icon, crimen_color = _format_trend_icon(-crimen_trend if crimen_trend else None)
     
     # Ruido
     ruido_data = kpis.get("ruido", {})
     ruido_value = ruido_data.get("value")
     ruido_trend = ruido_data.get("trend")
-    ruido_icon, ruido_color = _format_trend_icon(-ruido_trend if ruido_trend else None)  # Inverso: menos es mejor
+    ruido_icon, ruido_color = _format_trend_icon(-ruido_trend if ruido_trend else None)
     
     kpi_data = [
         {
@@ -112,10 +110,10 @@ def render_critical_kpis(year: int = 2024) -> None:
         },
         {
             "title": "🔊 Ruido Ambiente",
-            "value": f"{ruido_value:.1f}%" if ruido_value is not None else "N/A",
+            "value": f"{ruido_value:.1f} dB" if ruido_value is not None else "N/A",
             "style": "white",
-            "delta": f"{ruido_icon} {abs(ruido_trend):.1f}%" if ruido_trend is not None else "Sin datos",
-            "delta_color": ruido_color,
+            "delta": f"{ruido_icon} {abs(ruido_trend):.1f} dB" if ruido_trend is not None else "Sin datos",
+            "delta_color": get_noise_level_color(ruido_value) if ruido_value is not None else "normal",
         },
     ]
     

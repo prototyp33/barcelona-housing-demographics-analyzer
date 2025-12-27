@@ -184,7 +184,7 @@ def extract_all_sources(
         Tupla con (diccionario de DataFrames por fuente, metadata de cobertura)
     """
     if sources is None:
-        sources = ["ine", "opendatabcn", "idealista", "portaldades", "generalitat"]
+        sources = ["ine", "opendatabcn", "idealista", "portaldades", "generalitat", "opendatabcn_advanced"]
     
     # Configurar directorio de salida
     if output_dir is None:
@@ -325,6 +325,49 @@ def extract_all_sources(
             if "opendatabcn_housing" not in results:
                 results["opendatabcn_housing"] = pd.DataFrame()
             coverage_metadata["sources_failed"].append("opendatabcn")
+            if not continue_on_error:
+                raise
+
+    # Open Data BCN Advanced
+    if "opendatabcn_advanced" in sources:
+        try:
+            logger.info("=== Extrayendo datos Avanzados de Open Data BCN ===")
+            bcn_extractor = OpenDataBCNExtractor(output_dir=output_dir)
+            
+            advanced_keys = [
+                "income_gross_household", "income_gini", "income_p80_p20",
+                "cadastre_year_const", "cadastre_owner_type", "cadastre_avg_surface",
+                "cadastre_owner_nationality", "cadastre_floors",
+                "household_crowding", "household_nationality", "household_minors", "household_women",
+                "tourism_intensity"
+            ]
+            
+            for key in advanced_keys:
+                dataset_id = bcn_extractor.DATASETS.get(key)
+                if not dataset_id:
+                    continue
+                
+                logger.info(f"Extrayendo dataset avanzado: {key} ({dataset_id})")
+                try:
+                    df, metadata = bcn_extractor.download_dataset_historical(
+                        dataset_id, year_start, year_end
+                    )
+                    results[f"opendatabcn_{key}"] = df if df is not None else pd.DataFrame()
+                    coverage_metadata["coverage_by_source"][f"opendatabcn_{key}"] = metadata
+                    
+                    if df is not None and not df.empty:
+                        coverage_metadata["sources_success"].append(f"opendatabcn_{key}")
+                    else:
+                        coverage_metadata["sources_failed"].append(f"opendatabcn_{key}")
+                except Exception as e:
+                    logger.error(f"Error extrayendo {key} de Open Data BCN: {e}")
+                    results[f"opendatabcn_{key}"] = pd.DataFrame()
+                    coverage_metadata["coverage_by_source"][f"opendatabcn_{key}"] = {"error": str(e)}
+                    coverage_metadata["sources_failed"].append(f"opendatabcn_{key}")
+                    
+        except Exception as e:
+            logger.error(f"Error en extracción avanzada de Open Data BCN: {e}")
+            coverage_metadata["sources_failed"].append("opendatabcn_advanced")
             if not continue_on_error:
                 raise
     

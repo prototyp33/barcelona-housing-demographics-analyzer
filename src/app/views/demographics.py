@@ -315,17 +315,47 @@ def render_aging_ranking(year: int = 2022, top_n: int = 10) -> None:
         )
 
 
-def render(year: int = 2022) -> None:
+def render_gentrification_analysis(year: int = 2023) -> None:
     """
-    Renderiza la vista completa de Demografía (V1.1).
+    Renderiza análisis de gentrificación cruzado con educación.
+    """
+    from src.app.data_loader import load_gentrification_risk_metrics
+    df = load_gentrification_risk_metrics(year)
     
-    Args:
-        year: Año seleccionado
+    if df.empty:
+        return
+
+    st.subheader("🚀 Dinámicas de Transformación (Gentrificación)")
+    st.caption("Relación entre el nivel educativo superior y el riesgo de gentrificación.")
+
+    # Scatter: % Universitarios vs Score Gentrificación
+    fig = px.scatter(
+        df,
+        x="pct_universitarios",
+        y="score_gentrificacion",
+        size="var_precio_3a",
+        color="score_gentrificacion",
+        color_continuous_scale="Purples",
+        hover_name="barrio_id", # En un caso real, traeríamos el nombre
+        labels={
+            "pct_universitarios": "% Población Universitaria",
+            "score_gentrificacion": "Índice Gentrificación",
+            "var_precio_3a": "Δ Precio 3A"
+        }
+    )
+    apply_plotly_theme(fig)
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True, key="scatter_educ_gentrif")
+
+
+def render(year: int = 2023) -> None:
     """
-    st.header("Radiografía Demográfica")
+    Renderiza la vista completa de Demografía mejorada.
+    """
+    st.header("Radiografía Demográfica y Social")
     st.markdown(
-        "Análisis profundo de la estructura demográfica de Barcelona por barrio. "
-        "Explora cómo la edad de la población se relaciona con el precio de la vivienda."
+        "Análisis de la estructura social de Barcelona. "
+        "Explora el envejecimiento y los motores de transformación urbana."
     )
     
     # KPIs con gradientes
@@ -333,45 +363,13 @@ def render(year: int = 2022) -> None:
     
     st.divider()
     
-    # Layout principal: 70% izquierda, 30% derecha
     col_main, col_sidebar = st.columns([0.7, 0.3])
     
     with col_main:
-        # Row 1: Correlación Precio vs Edad
         render_price_vs_age_correlation(year)
-        
         st.divider()
-        
-        # Row 2: Mapa de Envejecimiento
-        render_aging_map(year)
+        render_gentrification_analysis(year)
     
     with col_sidebar:
-        # Ranking de Envejecimiento
         render_aging_ranking(year, top_n=15)
-        
-        st.divider()
-        
-        info_html = dedent(
-            """
-            <details class="bh-expander">
-              <summary>Sobre el Índice de Envejecimiento</summary>
-              <div class="bh-expander-content">
-                <p><strong>Fórmula:</strong> (Población ≥65 años / Población &lt;15 años) × 100</p>
-                <h3>Interpretación</h3>
-                <ul>
-                  <li><strong>&lt; 100:</strong> Más jóvenes que mayores (población rejuvenecedora).</li>
-                  <li><strong>= 100:</strong> Equilibrio demográfico.</li>
-                  <li><strong>&gt; 100:</strong> Predominio de población mayor (envejecimiento).</li>
-                  <li><strong>&gt; 200:</strong> Envejecimiento crítico.</li>
-                </ul>
-                <h3>Limitaciones</h3>
-                <ul>
-                  <li>Los datos de edad se propagan desde 2025 a años históricos.</li>
-                  <li>El índice no captura migración reciente.</li>
-                </ul>
-              </div>
-            </details>
-            """
-        )
-        st.markdown(info_html, unsafe_allow_html=True)
 

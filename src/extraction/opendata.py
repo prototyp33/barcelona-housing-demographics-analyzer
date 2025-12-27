@@ -25,7 +25,29 @@ class OpenDataBCNExtractor(BaseExtractor):
         "demographics": "pad_mdbas_sexe",  # Población por sexo y barrio
         "demographics_age": "est-padro-edat-any-a-any",  # Población por edad
         "housing_venta": "habitatges-2na-ma",  # Precios de venta (confirmado)
-        "housing_alquiler": "est-mercat-immobiliari-lloguer-mitja-mensual",  # Precios de alquiler
+        "housing_alquiler": "est-lloguer-mitja-mensual",  # Precios de alquiler (reporte técnico)
+        "housing_alquiler_trimestral": "est-lloguer-preu-trim",  # Trimestral
+        # Nuevos datasets recomendados
+        "housing_venta_evolucion": "h2mave-totalt3b",
+        "housing_venta_anual": "h2mave-anualt3b",
+        "income_gross_household": "atles-renda-bruta-per-llar",
+        "income_gini": "atles-renda-index-gini",
+        "income_p80_p20": "atles-renda-p80-p20-distribucio",
+        "cadastre_year_const": "est-cadastre-habitatges-any-const",
+        "cadastre_owner_type": "est-cadastre-carrecs-tipus-propietari",
+        "cadastre_avg_surface": "est-cadastre-habitatges-sup-mitjana",
+        "cadastre_owner_nationality": "est-cadastre-locals-prop",
+        "cadastre_floors": "immo-edif-hab-segons-num-plantes-sobre-rasant",
+        "household_crowding": "habit-ppal-segons-nombre-pers-viuen",
+        "household_nationality": "pad_dom_mdbas_nacionalitat",
+        "household_minors": "pad_dom_mdbas_edat-0018",
+        "household_women": "pad_dom_mdbas_dones",
+        "tourism_intensity": "afectacions-turistiques",
+        "tourism_hut": "habitatges-us-turistic",
+        "environment_noise_map": "capacitat-mapa-estrategic-soroll",
+        "geo_districts_neighborhoods": "districtes-barris",
+        "geo_streets": "carrerer",
+        "construction_licenses": "llicencies-obres-majors",
         # Mantener IDs antiguos para compatibilidad
         "demographics_old": "demografia-per-barris",
         "housing_old": "habitatge-per-barris",
@@ -144,14 +166,66 @@ class OpenDataBCNExtractor(BaseExtractor):
             format_type = resource.get('format', '').lower()
             
             if 'csv' in format_type:
-                df = pd.read_csv(io.StringIO(response.text), encoding='utf-8')
+                # Detectar encoding del CSV (puede ser UTF-16, UTF-8, etc.)
+                raw_data = response.content
+                detected = chardet.detect(raw_data)
+                detected_encoding = detected.get('encoding', 'utf-8')
+                logger.debug(f"Encoding detectado para CSV: {detected_encoding} (confianza: {detected.get('confidence', 0):.2f})")
+                
+                # Intentar leer CSV con diferentes encodings y manejo de errores
+                df = None
+                encodings_to_try = [detected_encoding, 'utf-16', 'utf-8', 'latin-1', 'iso-8859-1']
+                
+                for encoding in encodings_to_try:
+                    try:
+                        # Usar BytesIO para mejor manejo de encoding
+                        df = pd.read_csv(
+                            io.BytesIO(raw_data),
+                            encoding=encoding,
+                            on_bad_lines='skip',  # pandas >= 1.3.0
+                            engine='python'  # Más tolerante con errores
+                        )
+                        if not df.empty:
+                            logger.info(f"CSV leído exitosamente con encoding: {encoding}")
+                            break
+                    except (TypeError, UnicodeDecodeError, pd.errors.ParserError) as e:
+                        # Intentar con parámetros alternativos para versiones antiguas de pandas
+                        try:
+                            df = pd.read_csv(
+                                io.BytesIO(raw_data),
+                                encoding=encoding,
+                                error_bad_lines=False,  # pandas < 1.3.0
+                                warn_bad_lines=False,
+                                engine='python'
+                            )
+                            if not df.empty:
+                                logger.info(f"CSV leído exitosamente con encoding: {encoding} (modo compatibilidad)")
+                                break
+                        except Exception:
+                            continue
+                
+                if df is None or df.empty:
+                    logger.warning("No se pudo leer el CSV con ningún encoding, intentando último recurso...")
+                    try:
+                        df = pd.read_csv(io.BytesIO(raw_data), encoding='utf-8', engine='python')
+                    except Exception as e:
+                        logger.error(f"Error final leyendo CSV: {e}")
+                        raise
             elif 'json' in format_type:
                 df = pd.json_normalize(response.json())
             elif 'xlsx' in format_type or 'excel' in format_type:
                 df = pd.read_excel(io.BytesIO(response.content))
             else:
                 logger.warning(f"Formato {format_type} no soportado, intentando CSV")
-                df = pd.read_csv(io.StringIO(response.text), encoding='utf-8')
+                try:
+                    df = pd.read_csv(
+                        io.StringIO(response.text),
+                        encoding='utf-8',
+                        on_bad_lines='skip',
+                        engine='python'
+                    )
+                except TypeError:
+                    df = pd.read_csv(io.StringIO(response.text), encoding='utf-8')
             
             # Filtrar por años si se especifica
             original_count = len(df)
@@ -442,22 +516,86 @@ class OpenDataBCNExtractor(BaseExtractor):
             logger.debug(traceback.format_exc())
             return {}
     
-    def search_datasets_by_keyword(self, keyword: str) -> List[str]:
+    def search_datasets_by_keyword(self, keyword: str, limit: int = 20) -> List[str]:
         """
-        Busca datasets en Open Data BCN por palabra clave.
+        Busca datasets en Open Data BCN por palabra clave usando la API de búsqueda de CKAN.
+        
+        Esta es una versión optimizada que usa package_search en lugar de iterar
+        sobre todos los datasets.
         
         Args:
             keyword: Palabra clave para buscar (ej: "alquiler", "lloguer", "vivienda")
+            limit: Número máximo de resultados a retornar (default: 20)
             
         Returns:
             Lista de IDs de datasets encontrados
         """
-        logger.info(f"Buscando datasets con palabra clave: '{keyword}'")
+        logger.info(f"Buscando datasets con palabra clave: '{keyword}' (limit: {limit})")
+        
+        matching_datasets = []
+        
+        try:
+            # Usar la API de búsqueda de CKAN (mucho más eficiente)
+            self._rate_limit()
+            url = f"{self.API_URL}/package_search"
+            
+            # Buscar en título, descripción y tags
+            params = {
+                "q": keyword,
+                "rows": limit,
+                "start": 0,
+            }
+            
+            response = self.session.get(url, params=params, timeout=30)
+            
+            if self._validate_response(response):
+                data = response.json()
+                results = data.get("result", {}).get("results", [])
+                
+                for result in results:
+                    dataset_id = result.get("name") or result.get("id")
+                    if dataset_id:
+                        matching_datasets.append(dataset_id)
+                        title = result.get("title", "Sin título")
+                        logger.info(f"  Encontrado: {dataset_id} - {title}")
+                
+                logger.info(f"Total encontrados: {len(matching_datasets)} datasets")
+            else:
+                logger.warning(f"Error en búsqueda de CKAN para '{keyword}'")
+                # Fallback: método anterior (más lento pero funciona)
+                return self._search_datasets_fallback(keyword, limit)
+                
+        except Exception as e:
+            logger.warning(f"Error en búsqueda optimizada: {e}")
+            logger.info("Usando método de búsqueda alternativo...")
+            # Fallback: método anterior
+            return self._search_datasets_fallback(keyword, limit)
+        
+        return matching_datasets
+    
+    def _search_datasets_fallback(self, keyword: str, limit: int = 20) -> List[str]:
+        """
+        Método de búsqueda alternativo (más lento) cuando la API de búsqueda falla.
+        
+        Args:
+            keyword: Palabra clave para buscar
+            limit: Número máximo de resultados
+            
+        Returns:
+            Lista de IDs de datasets encontrados
+        """
+        logger.info(f"Usando búsqueda alternativa para: '{keyword}'")
         
         all_datasets = self.get_dataset_list()
         matching_datasets = []
         
-        for dataset_id in all_datasets:
+        # Limitar búsqueda a primeros N datasets para mejorar rendimiento
+        search_limit = min(len(all_datasets), limit * 10)  # Buscar en más datasets de los que queremos
+        
+        for i, dataset_id in enumerate(all_datasets[:search_limit]):
+            if len(matching_datasets) >= limit:
+                break
+                
             try:
                 info = self.get_dataset_info(dataset_id)
                 if info:

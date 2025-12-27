@@ -37,6 +37,10 @@ VALID_TABLES: FrozenSet[str] = frozenset(
         "fact_desempleo",
         "fact_hut",
         "fact_visados",
+        "fact_renta_avanzada",
+        "fact_catastro_avanzado",
+        "fact_hogares_avanzado",
+        "fact_turismo_intensidad",
         "dim_barrios_extended",
         "fact_airbnb",
         "fact_control_alquiler",
@@ -689,6 +693,78 @@ CREATE_TABLE_STATEMENTS = (
         status TEXT NOT NULL,
         parameters TEXT
     );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_renta_avanzada (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        renta_bruta_llar REAL,
+        indice_gini REAL,
+        ratio_p80_p20 REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn_atles_renda',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_renta_avanzada_unique ON fact_renta_avanzada (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_catastro_avanzado (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        num_propietarios_fisica INTEGER,
+        num_propietarios_juridica INTEGER,
+        pct_propietarios_extranjeros REAL,
+        superficie_media_m2 REAL,
+        num_plantas_avg REAL,
+        antiguedad_media_bloque REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn_cadastre',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_catastro_avanzado_unique ON fact_catastro_avanzado (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_hogares_avanzado (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        promedio_personas_por_hogar REAL,
+        pct_hogares_unipersonales REAL,
+        num_hogares_con_menores INTEGER,
+        pct_hogares_nacionalidad_extranjera REAL,
+        pct_presencia_mujeres REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn_padro',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_hogares_avanzado_unique ON fact_hogares_avanzado (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_turismo_intensidad (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        indice_intensidad_turistica REAL,
+        num_establecimientos_turisticos INTEGER,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendata_bcn_turisme',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_turismo_intensidad_unique ON fact_turismo_intensidad (barrio_id, anio);
     """,
 )
 

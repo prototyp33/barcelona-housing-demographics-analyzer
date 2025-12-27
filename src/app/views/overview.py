@@ -14,12 +14,13 @@ import streamlit as st
 
 from src.app.config import COLORS, COLOR_SCALES
 from src.app.data_loader import load_kpis, load_precios, load_available_years
+from src.app.utils import format_smart_currency
 from src.app.styles import render_responsive_kpi_grid, apply_plotly_theme
 from src.app.components import render_empty_state
 
 
 def render_kpis() -> None:
-    """Renderiza las tarjetas de KPIs principales con estilo Premium."""
+    """Renderiza las tarjetas de KPIs principales con formato profesional."""
     kpis = load_kpis()
     
     metrics_data = [
@@ -37,13 +38,16 @@ def render_kpis() -> None:
             "delta": f"{kpis['año_min']}-{kpis['año_max']}",
         },
         {
-            "title": "Precio Medio 2022",
-            "value": f"€{kpis['precio_medio_2022']:,.0f}/m²",
+            "title": "Precio Medio (Venta)",
+            "value": kpis['precio_medio_2022'],
+            "is_currency": True,
+            "unit": "€/m²",
             "style": "cool",
         },
         {
-            "title": "Renta Media 2022",
-            "value": f"€{kpis['renta_media_2022']:,.0f}/año",
+            "title": "Renta Media Anual",
+            "value": kpis['renta_media_2022'],
+            "is_currency": True,
             "style": "white",
         },
     ]

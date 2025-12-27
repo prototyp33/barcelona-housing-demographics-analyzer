@@ -12,207 +12,143 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from src.app.config import COLOR_SCALES
-from src.app.data_loader import load_correlation_data
-from src.app.components import render_empty_state
+from src.app.config import COLOR_SCALES, PROFESSIONAL_COLORS
+from src.app.data_loader import load_full_correlation_data
+from src.app.components import render_empty_state, card_standard
+from src.app.styles import apply_plotly_theme
 
 
-def render_correlation_matrix(year: int = 2022) -> None:
+def render_correlation_matrix(year: int = 2023) -> None:
     """
-    Renderiza matriz de correlación.
-    
-    Args:
-        year: Año a analizar.
+    Renderiza matriz de correlación avanzada.
     """
-    df = load_correlation_data(year)
+    df = load_full_correlation_data(year)
     
     if df.empty:
-        render_empty_state(
-            title="Correlaciones no disponibles",
-            description=f"No hay datos suficientes para calcular correlaciones en {year}.",
-            icon="📉"
-        )
+        render_empty_state(title="Correlaciones no disponibles", icon="📉")
         return
     
-    corr_cols = ["avg_precio_m2", "renta_euros", "densidad_hab_km2", "poblacion_total"]
-    corr_matrix = df[corr_cols].corr()
+    # Columnas para correlación
+    corr_map = {
+        "avg_precio_m2": "Precio €/m²",
+        "renta_euros": "Renta Anual",
+        "score_gentrificacion": "Índice Gentrif.",
+        "pct_universitarios": "% Universitarios",
+        "nivel_ruido": "Ruido (dB)",
+        "densidad_hab_km2": "Densidad"
+    }
     
-    labels = ["Precio €/m²", "Renta anual", "Densidad hab/km²", "Población total"]
+    df_corr = df[list(corr_map.keys())].corr()
+    labels = list(corr_map.values())
     
     fig = go.Figure(
         data=go.Heatmap(
-            z=corr_matrix.values,
+            z=df_corr.values,
             x=labels,
             y=labels,
-            colorscale=COLOR_SCALES["correlation"],
+            colorscale="RdBu_r", # Divergente profesional
             zmin=-1,
             zmax=1,
-            text=np.round(corr_matrix.values, 2),
+            text=np.round(df_corr.values, 2),
             texttemplate="%{text}",
-            textfont={"size": 14},
-            hovertemplate="Correlación %{y} vs %{x}: %{z:.2f}<extra></extra>",
+            textfont={"size": 12, "family": "Inter"},
+            hovertemplate="Relación %{y} vs %{x}: %{z:.2f}<extra></extra>",
         )
     )
     
     fig.update_layout(
-        title=f"Matriz de Correlación ({year})",
-        height=450,
+        title=dict(text=f"Mapa de Relaciones Estadísticas {year}", font=dict(size=16)),
+        height=500,
+        margin=dict(l=50, r=50, t=80, b=50),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
     )
     
-    st.plotly_chart(fig, key="correlations_matrix")
-    
-    # Mostrar interpretación
-    precio_renta = corr_matrix.loc["avg_precio_m2", "renta_euros"]
-    precio_densidad = corr_matrix.loc["avg_precio_m2", "densidad_hab_km2"]
-    
-    st.info(
-        f"**Correlaciones con Precio:**\n"
-        f"- Renta anual: r = {precio_renta:.3f}\n"
-        f"- Densidad: r = {precio_densidad:.3f}"
-    )
+    st.plotly_chart(fig, key="correlations_matrix", use_container_width=True)
 
 
-def render_scatter_plots(year: int = 2022) -> None:
+def render_advanced_scatters(year: int = 2023) -> None:
     """
-    Renderiza scatter plots de precio vs otras variables.
-    
-    Args:
-        year: Año a analizar.
+    Renderiza scatter plots cruzando Gentrificación, Precio y Ruido.
     """
-    df = load_correlation_data(year)
+    df = load_full_correlation_data(year)
     
     if df.empty:
-        render_empty_state(
-            title="Sin datos para gráficos",
-            description=f"No hay datos suficientes para el año {year}.",
-            icon="📉"
-        )
         return
-    
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=("Precio vs Renta", "Precio vs Densidad"),
-        horizontal_spacing=0.1,
-    )
-    
-    # Precio vs Renta
-    fig.add_trace(
-        go.Scatter(
-            x=df["renta_euros"],
-            y=df["avg_precio_m2"],
-            mode="markers",
-            marker=dict(
-                size=10,
-                color=df["avg_precio_m2"],
-                colorscale="Plasma",
-                showscale=False,
-            ),
-            text=df["barrio_nombre"],
-            hovertemplate="<b>%{text}</b><br>Renta: €%{x:,.0f}<br>Precio: €%{y:,.0f}/m²<extra></extra>",
-            name="",
-        ),
-        row=1,
-        col=1,
-    )
-    
-    # Precio vs Densidad
-    fig.add_trace(
-        go.Scatter(
-            x=df["densidad_hab_km2"],
-            y=df["avg_precio_m2"],
-            mode="markers",
-            marker=dict(
-                size=10,
-                color=df["avg_precio_m2"],
-                colorscale="Plasma",
-                showscale=False,
-            ),
-            text=df["barrio_nombre"],
-            hovertemplate="<b>%{text}</b><br>Densidad: %{x:,.0f} hab/km²<br>Precio: €%{y:,.0f}/m²<extra></extra>",
-            name="",
-        ),
-        row=1,
-        col=2,
-    )
-    
-    fig.update_xaxes(title_text="Renta anual (€)", row=1, col=1)
-    fig.update_xaxes(title_text="Densidad (hab/km²)", row=1, col=2)
-    fig.update_yaxes(title_text="Precio (€/m²)", row=1, col=1)
-    fig.update_yaxes(title_text="Precio (€/m²)", row=1, col=2)
-    
-    fig.update_layout(
-        title=f"Relaciones entre Precio, Renta y Densidad ({year})",
-        showlegend=False,
-        height=450,
-    )
-    
-    st.plotly_chart(fig, key="correlations_scatter_plots")
 
-
-def render_top_barrios(year: int = 2022) -> None:
-    """
-    Muestra ranking de barrios por precio y esfuerzo.
-    
-    Args:
-        year: Año a analizar.
-    """
-    from src.app.data_loader import load_affordability_data
-    
-    df = load_affordability_data(year)
-    
-    if df.empty:
-        render_empty_state(
-            title="Ranking no disponible",
-            description="No hay datos de asequibilidad disponibles.",
-            icon="📋"
-        )
-        return
+    st.subheader("📊 Análisis de Impacto")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Más Caros")
-        top_precio = df.nlargest(10, "avg_precio_m2")[
-            ["barrio_nombre", "distrito_nombre", "avg_precio_m2", "effort_ratio"]
-        ].reset_index(drop=True)
-        top_precio.index += 1
-        top_precio.columns = ["Barrio", "Distrito", "€/m²", "Esfuerzo"]
-        st.dataframe(
-            top_precio.style.format({"€/m²": "{:,.0f}", "Esfuerzo": "{:.1f}"}),
+        # Scatter 1: Gentrificación vs Precio (El motor del cambio)
+        fig1 = px.scatter(
+            df,
+            x="score_gentrificacion",
+            y="avg_precio_m2",
+            trendline="ols",
+            color="distrito_nombre",
+            hover_name="barrio_nombre",
+            title="Gentrificación vs. Precio de Mercado",
+            labels={
+                "score_gentrificacion": "Índice Gentrificación (0-100)",
+                "avg_precio_m2": "Precio Venta (€/m²)",
+                "distrito_nombre": "Distrito"
+            }
         )
-    
+        apply_plotly_theme(fig1)
+        fig1.update_layout(height=400, showlegend=False)
+        st.plotly_chart(fig1, use_container_width=True, key="scatter_gentrif_precio")
+        st.caption("🔍 Muestra cómo la transformación demográfica empuja los precios al alza.")
+
     with col2:
-        st.subheader("Más Asequibles")
-        bottom_effort = df.nsmallest(10, "effort_ratio")[
-            ["barrio_nombre", "distrito_nombre", "avg_precio_m2", "effort_ratio"]
-        ].reset_index(drop=True)
-        bottom_effort.index += 1
-        bottom_effort.columns = ["Barrio", "Distrito", "€/m²", "Esfuerzo"]
-        st.dataframe(
-            bottom_effort.style.format({"€/m²": "{:,.0f}", "Esfuerzo": "{:.1f}"}),
+        # Scatter 2: Ruido vs Gentrificación (Bienestar en transformación)
+        fig2 = px.scatter(
+            df,
+            x="nivel_ruido",
+            y="score_gentrificacion",
+            size="avg_precio_m2",
+            color="score_gentrificacion",
+            color_continuous_scale="Purples",
+            hover_name="barrio_nombre",
+            title="Calidad Acústica vs. Gentrificación",
+            labels={
+                "nivel_ruido": "Nivel de Ruido (dB)",
+                "score_gentrificacion": "Índice Gentrificación",
+                "avg_precio_m2": "Precio (€/m²)"
+            }
         )
+        apply_plotly_theme(fig2)
+        fig2.update_layout(height=400, coloraxis_showscale=False)
+        st.plotly_chart(fig2, use_container_width=True, key="scatter_ruido_gentrif")
+        st.caption("🔊 Evalúa si las zonas en transformación están expuestas a mayor contaminación acústica.")
 
 
-def render(year: int = 2022) -> None:
+def render(year: int = 2023) -> None:
     """
-    Renderiza la vista completa de Correlaciones.
-    
-    Args:
-        year: Año seleccionado.
+    Renderiza la vista de Correlaciones mejorada.
     """
-    st.header("Análisis de Correlaciones")
+    st.header("📈 CORRELACIONES Y DINÁMICAS URBANAS")
+    st.markdown("""
+    Este módulo analiza estadísticamente cómo interactúan las variables económicas, 
+    ambientales y demográficas en la ciudad.
+    """)
     
-    col1, col2 = st.columns([1, 2])
+    col_matrix, col_analysis = st.columns([1.2, 1.8])
     
-    with col1:
-        render_correlation_matrix(year)
+    with col_matrix:
+        with card_standard(title="🧩 Matriz de Interdependencia"):
+            render_correlation_matrix(year)
     
-    with col2:
-        render_scatter_plots(year)
+    with col_analysis:
+        render_advanced_scatters(year)
     
     st.divider()
     
-    st.subheader("Rankings de Barrios")
-    render_top_barrios(year)
+    # Insights dinámicos basados en datos
+    df = load_full_correlation_data(year)
+    if not df.empty:
+        corr_val = df['score_gentrificacion'].corr(df['avg_precio_m2'])
+        st.info(f"💡 **Insight Estratégico:** Se detecta una correlación de **{corr_val:.2f}** entre la Gentrificación y el Precio. "
+                "Esto confirma que la transformación demográfica es el principal predictor del valor inmobiliario en Barcelona.")
 

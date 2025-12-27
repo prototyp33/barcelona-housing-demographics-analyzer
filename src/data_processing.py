@@ -20,7 +20,13 @@ from src.etl.transformations.enrichment import (
     prepare_idealista_oferta,
     prepare_portaldades_precios,
 )
-from src.etl.transformations.market import prepare_fact_precios, prepare_renta_barrio
+from .etl.transformations.market import prepare_fact_precios, prepare_renta_barrio
+from .etl.transformations.advanced_analysis import (
+    prepare_fact_renta_avanzada,
+    prepare_fact_catastro_avanzado,
+    prepare_fact_hogares_avanzado,
+    prepare_fact_turismo_intensidad,
+)
 
 __all__ = [
     # Dimensiones
@@ -35,6 +41,11 @@ __all__ = [
     # Enriquecimientos de mercado
     "prepare_portaldades_precios",
     "prepare_idealista_oferta",
+    # Análisis avanzado
+    "prepare_fact_renta_avanzada",
+    "prepare_fact_catastro_avanzado",
+    "prepare_fact_hogares_avanzado",
+    "prepare_fact_turismo_intensidad",
 ]
 
 

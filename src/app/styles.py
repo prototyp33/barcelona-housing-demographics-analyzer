@@ -13,15 +13,16 @@ from textwrap import dedent
 import streamlit as st
 
 
-# Tokens de Color del Design System
+# Tokens de Color del Design System - Alineados con Reporte Profesional
 COLOR_TOKENS = {
     "bg_canvas": "#F4F5F7",
     "bg_card": "#FFFFFF",
     "text_primary": "#1A1A1A",
     "text_secondary": "#8E92BC",
-    "accent_blue": "#2F80ED",
-    "accent_red": "#EB5757",
-    "accent_green": "#27AE60",
+    "accent_blue": "#005EB8",  # Azul Barcelona (Alineado)
+    "accent_red": "#EF4444",   # Rojo Profesional (Alineado)
+    "accent_green": "#10B981", # Verde Profesional (Alineado)
+    "accent_yellow": "#F59E0B", # Amarillo Profesional (Alineado)
     "border_radius": "24px",
     "shadow_elevation_1": "0px 10px 40px rgba(29, 22, 23, 0.1)",
 }
@@ -556,29 +557,19 @@ def render_kpi_card(
     unit: str | None = None,
     icon: str | None = None,
     render: bool = True,
+    is_currency: bool = False,
 ) -> str:
     """
-    Renderiza una tarjeta KPI - VERSIÓN REFINADA
-
-    Mejoras:
-    - Formateo inteligente de números grandes (K, M)
-    - Unidades separadas del valor
-    - Íconos opcionales
-    - Mejor tipografía y espaciado
-
-    Args:
-        title: Título de la métrica
-        value: Valor a mostrar
-        style: "white", "warm", o "cool"
-        delta: Texto opcional para la etiqueta/badge
-        delta_color: "green" o "red"
-        unit: Unidad (ej: "€/m²", "%", "años")
-        icon: Emoji o ícono opcional
-        render: Si True, imprime; si False, retorna HTML
+    Renderiza una tarjeta KPI alineada con el reporte profesional.
     """
+    from src.app.utils import format_smart_currency
 
-    # Formateo inteligente de números
-    if isinstance(value, (int, float)):
+    # Formateo inteligente
+    if is_currency and isinstance(value, (int, float)):
+        value_str = format_smart_currency(value).replace(' €', '')
+        if unit is None:
+            unit = "€"
+    elif isinstance(value, (int, float)):
         if value >= 1_000_000:
             value_str = f"{value/1_000_000:.1f}M"
         elif value >= 1_000:
@@ -677,12 +668,12 @@ def render_kpi_card(
     return html
 
 
-def render_responsive_kpi_grid(metrics_data: list[dict[str, str]]) -> None:
+def render_responsive_kpi_grid(metrics_data: list[dict[str, Any]]) -> None:
     """
     Renderiza un grid responsive de tarjetas KPI usando CSS Grid.
 
     Args:
-        metrics_data: lista de diccionarios con llaves title, value, style, delta, delta_color
+        metrics_data: lista de diccionarios con llaves title, value, style, delta, delta_color, is_currency
     """
     cards_html: list[str] = []
     for metric in metrics_data:
@@ -693,6 +684,8 @@ def render_responsive_kpi_grid(metrics_data: list[dict[str, str]]) -> None:
                 style=metric.get("style", "white"),
                 delta=metric.get("delta"),
                 delta_color=metric.get("delta_color", "green"),
+                unit=metric.get("unit"),
+                is_currency=metric.get("is_currency", False),
                 render=False,
             )
         )

@@ -8,8 +8,12 @@ y su relación con factores demográficos.
 from __future__ import annotations
 
 import streamlit as st
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2, DB_PATH
+from src.app.utils import format_smart_currency
 from src.app.data_loader import load_distritos, load_available_years, load_kpis, load_precios
 from src.app.components import card_standard, card_chart, card_snapshot, card_metric, render_skeleton_kpi, render_breadcrumbs
 from src.app.styles import inject_global_css, render_responsive_kpi_grid, render_ranking_item
@@ -24,6 +28,7 @@ from src.app.views import (
     alerts,
     recommendations,
     market_cockpit,
+    investment_analysis,
 )
 
 
@@ -96,6 +101,27 @@ def render_sidebar() -> tuple[int, str | None, str]:
             st.caption("v2.1 - Cockpit Release")
             
             st.markdown("---")
+            
+            # Botón de Descarga del Reporte Ejecutivo HTML
+            try:
+                # Buscar el reporte más reciente (ej. 2024)
+                report_files = list((PROJECT_ROOT / "docs" / "reports").glob("stakeholder_report_*.html"))
+                if report_files:
+                    latest_report = sorted(report_files)[-1]
+                    with open(latest_report, "rb") as fr:
+                        st.download_button(
+                            label="📥 Descargar Reporte Ejecutivo",
+                            data=fr,
+                            file_name=latest_report.name,
+                            mime="text/html",
+                            use_container_width=True,
+                            help="Descarga el último reporte ejecutivo generado en formato HTML (interactivo/offline)."
+                        )
+                else:
+                    st.info("Reporte ejecutivo no encontrado.")
+            except Exception:
+                pass
+
             if DB_PATH.exists():
                 with open(DB_PATH, "rb") as fp:
                     st.download_button(
@@ -251,9 +277,10 @@ def main() -> None:
     render_breadcrumbs(crumbs)
     
     # Navegación principal con tabs según Wireframe 1
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab_inv, tab3, tab4, tab5 = st.tabs([
         "🏘️ Market",
         "📊 Insights",
+        "💰 Inversión",
         "🚨 Alertas",
         "💡 Recomendaciones",
         "📄 Reportes",
@@ -265,6 +292,9 @@ def main() -> None:
     
     with tab2:
         advanced_analytics.render(year=selected_year)
+
+    with tab_inv:
+        investment_analysis.render(year=selected_year)
     
     with tab3:
         alerts.render(year=selected_year)
@@ -273,11 +303,39 @@ def main() -> None:
         recommendations.render(year=selected_year)
     
     with tab5:
-        st.header("📝 Reportes")
+        st.header("📝 Reportes Ejecutivos")
         st.write(
-            "Genera reportes PDF (Resumen Ejecutivo, Detalle de Barrio, Reporte Trimestral). "
-            "Ejecuta el script `python scripts/generate_reports.py --type executive_summary` para generar."
+            "En esta sección puedes acceder a los reportes de inteligencia de mercado generados. "
+            "Estos reportes son snapshots profesionales diseñados para stakeholders."
         )
+        
+        col_rep1, col_rep2 = st.columns(2)
+        
+        with col_rep1:
+            st.subheader("Reporte de Mercado (Último)")
+            try:
+                report_files = list((PROJECT_ROOT / "docs" / "reports").glob("stakeholder_report_*.html"))
+                if report_files:
+                    latest_report = sorted(report_files)[-1]
+                    st.success(f"✅ Reporte disponible: {latest_report.name}")
+                    with open(latest_report, "rb") as f:
+                        st.download_button(
+                            label="Descargar Reporte HTML (Snapshot)",
+                            data=f,
+                            file_name=latest_report.name,
+                            mime="text/html",
+                            use_container_width=True
+                        )
+                else:
+                    st.warning("⚠️ No se han encontrado reportes generados.")
+            except Exception as e:
+                st.error(f"Error al localizar reportes: {e}")
+
+        with col_rep2:
+            st.subheader("Generación de Reportes")
+            st.info("Para generar un nuevo reporte actualizado con los datos más recientes, ejecuta:")
+            st.code("python scripts/generate_stakeholder_report.py")
+            st.write("Esto creará un nuevo archivo en `docs/reports/` con el año de datos detectado.")
     
     # Tabs secundarios (legacy - mantener para compatibilidad)
     st.markdown("---")

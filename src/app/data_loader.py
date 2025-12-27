@@ -50,7 +50,7 @@ def load_barrios() -> pd.DataFrame:
     try:
         df = pd.read_sql(
             """
-            SELECT 
+            SELECT DISTINCT
                 barrio_id,
                 barrio_nombre,
                 barrio_nombre_normalizado,
@@ -62,6 +62,7 @@ def load_barrios() -> pd.DataFrame:
             """,
             conn,
         )
+        df = df.drop_duplicates(subset=['barrio_id'])
     finally:
         conn.close()
     return df
@@ -120,38 +121,70 @@ def load_distritos() -> list[str]:
 @st.cache_data(ttl=3600)
 def load_precios(year: int, distrito: Optional[str] = None) -> pd.DataFrame:
     """
-    Carga precios de vivienda para un año específico.
+    Carga precios de vivienda consolidados (fact_precios + Idealista).
     
     Args:
         year: Año a consultar.
         distrito: Filtro opcional por distrito.
     
     Returns:
-        DataFrame con barrio_id, avg_precio_m2_venta, avg_precio_alquiler.
+        DataFrame consolidado y deduplicado.
     """
     conn = get_connection()
     try:
-        query = """
+        # 1. Cargar fact_precios
+        query_off = """
         SELECT 
-            p.barrio_id,
-            b.barrio_nombre,
-            b.distrito_nombre,
-            b.geometry_json,
-            AVG(p.precio_m2_venta) AS avg_precio_m2,
-            AVG(p.precio_mes_alquiler) AS avg_alquiler
+            p.barrio_id, b.barrio_nombre, b.distrito_nombre, b.geometry_json,
+            p.precio_m2_venta, p.precio_mes_alquiler
         FROM fact_precios p
         JOIN dim_barrios b ON p.barrio_id = b.barrio_id
         WHERE p.anio = ?
         """
-        params = [year]
+        df_off = pd.read_sql(query_off, conn, params=[year])
         
+        # 2. Cargar fact_oferta_idealista (si existe)
+        df_id = pd.DataFrame()
+        try:
+            query_id = """
+            SELECT 
+                f.barrio_id, b.barrio_nombre, b.distrito_nombre, b.geometry_json,
+                CASE WHEN f.operacion = 'sale' THEN f.precio_m2_medio END as precio_m2_venta,
+                CASE WHEN f.operacion = 'rent' THEN f.precio_medio END as precio_mes_alquiler
+            FROM fact_oferta_idealista f
+            JOIN dim_barrios b ON f.barrio_id = b.barrio_id
+            WHERE f.anio = ?
+            """
+            df_id = pd.read_sql(query_id, conn, params=[year])
+        except Exception:
+            pass
+
+        # 3. Consolidar
+        dfs = [df for df in [df_off, df_id] if not df.empty]
+        if not dfs:
+            return pd.DataFrame()
+            
+        df = pd.concat(dfs).groupby('barrio_id').agg({
+            'barrio_nombre': 'first',
+            'distrito_nombre': 'first',
+            'geometry_json': 'first',
+            'precio_m2_venta': 'max',
+            'precio_mes_alquiler': 'max'
+        }).reset_index()
+        
+        # Renombrar para compatibilidad con vistas existentes
+        df = df.rename(columns={
+            'precio_m2_venta': 'avg_precio_m2',
+            'precio_mes_alquiler': 'avg_alquiler'
+        })
+        
+        # 4. Filtrar por distrito si aplica
         if distrito:
-            query += " AND b.distrito_nombre = ?"
-            params.append(distrito)
+            df = df[df['distrito_nombre'] == distrito]
+            
+        # 5. Deduplicar final por seguridad
+        df = df.drop_duplicates(subset=['barrio_id'])
         
-        query += " GROUP BY p.barrio_id, b.barrio_nombre, b.distrito_nombre, b.geometry_json"
-        
-        df = pd.read_sql(query, conn, params=params)
     finally:
         conn.close()
     return df
@@ -226,7 +259,7 @@ def load_demografia(year: int) -> pd.DataFrame:
 @st.cache_data(ttl=3600)
 def load_affordability_data(year: int = 2022) -> pd.DataFrame:
     """
-    Carga datos combinados para análisis de esfuerzo de compra.
+    Carga datos combinados para análisis de esfuerzo de compra usando precios consolidados.
     
     Args:
         year: Año para precios (renta siempre es 2022).
@@ -234,94 +267,58 @@ def load_affordability_data(year: int = 2022) -> pd.DataFrame:
     Returns:
         DataFrame con precio, renta y effort_ratio por barrio.
     """
-    conn = get_connection()
-    try:
-        df = pd.read_sql(
-            f"""
-            SELECT 
-                b.barrio_id,
-                b.barrio_nombre,
-                b.distrito_nombre,
-                b.geometry_json,
-                p.avg_precio_m2,
-                r.renta_euros,
-                (p.avg_precio_m2 * {VIVIENDA_TIPO_M2}) / r.renta_euros AS effort_ratio
-            FROM dim_barrios b
-            LEFT JOIN (
-                SELECT barrio_id, AVG(precio_m2_venta) AS avg_precio_m2
-                FROM fact_precios
-                WHERE anio = ? AND precio_m2_venta IS NOT NULL
-                GROUP BY barrio_id
-            ) p ON b.barrio_id = p.barrio_id
-            LEFT JOIN (
-                SELECT barrio_id, renta_euros
-                FROM fact_renta WHERE anio = 2022
-            ) r ON b.barrio_id = r.barrio_id
-            WHERE b.geometry_json IS NOT NULL
-              AND p.avg_precio_m2 IS NOT NULL
-              AND r.renta_euros IS NOT NULL
-            """,
-            conn,
-            params=[year],
-        )
-    finally:
-        conn.close()
+    # 1. Cargar precios consolidados
+    df_precios = load_precios(year)
+    if df_precios.empty:
+        return pd.DataFrame()
+        
+    # 2. Cargar renta
+    df_renta = load_renta(2022)
+    
+    # 3. Combinar
+    df = df_precios.merge(df_renta, on='barrio_id', how='inner')
+    
+    # 4. Calcular ratio
+    df['effort_ratio'] = (df['avg_precio_m2'] * VIVIENDA_TIPO_M2) / df['renta_euros']
+    
+    # Filtrar nulos
+    df = df[df['effort_ratio'].notna()]
+    
     return df
 
 
 @st.cache_data(ttl=3600)
 def load_temporal_comparison(year_start: int = 2015, year_end: int = 2022) -> pd.DataFrame:
     """
-    Carga comparación temporal de precios y esfuerzo de compra.
-    
-    Args:
-        year_start: Año inicial.
-        year_end: Año final.
-    
-    Returns:
-        DataFrame con cambios temporales por barrio.
+    Carga comparación temporal de precios usando precios consolidados.
     """
-    conn = get_connection()
-    try:
-        df = pd.read_sql(
-            f"""
-            SELECT 
-                b.barrio_id,
-                b.barrio_nombre,
-                b.distrito_nombre,
-                p_start.avg_precio_m2 AS precio_start,
-                p_end.avg_precio_m2 AS precio_end,
-                r.renta_euros,
-                (p_start.avg_precio_m2 * {VIVIENDA_TIPO_M2}) / r.renta_euros AS effort_start,
-                (p_end.avg_precio_m2 * {VIVIENDA_TIPO_M2}) / r.renta_euros AS effort_end
-            FROM dim_barrios b
-            LEFT JOIN (
-                SELECT barrio_id, AVG(precio_m2_venta) AS avg_precio_m2
-                FROM fact_precios
-                WHERE anio = ? AND precio_m2_venta IS NOT NULL
-                GROUP BY barrio_id
-            ) p_start ON b.barrio_id = p_start.barrio_id
-            LEFT JOIN (
-                SELECT barrio_id, AVG(precio_m2_venta) AS avg_precio_m2
-                FROM fact_precios
-                WHERE anio = ? AND precio_m2_venta IS NOT NULL
-                GROUP BY barrio_id
-            ) p_end ON b.barrio_id = p_end.barrio_id
-            LEFT JOIN (
-                SELECT barrio_id, renta_euros
-                FROM fact_renta WHERE anio = 2022
-            ) r ON b.barrio_id = r.barrio_id
-            WHERE p_start.avg_precio_m2 IS NOT NULL
-              AND p_end.avg_precio_m2 IS NOT NULL
-              AND r.renta_euros IS NOT NULL
-            """,
-            conn,
-            params=[year_start, year_end],
-        )
-        df["precio_change_pct"] = ((df["precio_end"] - df["precio_start"]) / df["precio_start"]) * 100
-        df["effort_change"] = df["effort_end"] - df["effort_start"]
-    finally:
-        conn.close()
+    # 1. Cargar precios inicio y fin
+    df_start = load_precios(year_start)
+    df_end = load_precios(year_end)
+    
+    if df_start.empty or df_end.empty:
+        return pd.DataFrame()
+        
+    # 2. Renombrar columnas para el merge
+    df_start = df_start[['barrio_id', 'barrio_nombre', 'distrito_nombre', 'avg_precio_m2']].rename(columns={'avg_precio_m2': 'precio_start'})
+    df_end = df_end[['barrio_id', 'avg_precio_m2']].rename(columns={'avg_precio_m2': 'precio_end'})
+    
+    # 3. Merge
+    df = df_start.merge(df_end, on='barrio_id', how='inner')
+    
+    # 4. Cargar renta y calcular esfuerzo
+    df_renta = load_renta(2022)
+    df = df.merge(df_renta, on='barrio_id', how='inner')
+    
+    df["effort_start"] = (df["precio_start"] * VIVIENDA_TIPO_M2) / df["renta_euros"]
+    df["effort_end"] = (df["precio_end"] * VIVIENDA_TIPO_M2) / df["renta_euros"]
+    
+    df["precio_change_pct"] = ((df["precio_end"] - df["precio_start"]) / df["precio_start"]) * 100
+    df["effort_change"] = df["effort_end"] - df["effort_start"]
+    
+    # Alias para compatibilidad con mapa
+    df["var_precio_pct"] = df["precio_change_pct"]
+    
     return df
 
 
@@ -735,7 +732,135 @@ def load_affordability_summary(year: int = 2024) -> dict:
         conn.close()
 
 
-def build_geojson(df: pd.DataFrame) -> dict:
+@st.cache_data(ttl=3600)
+def load_quality_of_life_data(year: int = 2022) -> pd.DataFrame:
+    """
+    Carga datos de calidad de vida (ruido y zonas verdes) para el mapa.
+    """
+    conn = get_connection()
+    try:
+        query = """
+        SELECT 
+            b.barrio_id, b.barrio_nombre, b.distrito_nombre, b.geometry_json,
+            COALESCE(r.nivel_lden_medio, 0) as nivel_ruido,
+            COALESCE(m.superficie_zonas_verdes_m2, 0) as m2_zonas_verdes,
+            COALESCE(m.num_arboles, 0) as num_arboles
+        FROM dim_barrios b
+        LEFT JOIN fact_ruido r ON b.barrio_id = r.barrio_id AND r.anio = (SELECT MAX(anio) FROM fact_ruido)
+        LEFT JOIN fact_medio_ambiente m ON b.barrio_id = m.barrio_id AND m.anio = (SELECT MAX(anio) FROM fact_medio_ambiente)
+        """
+        df = pd.read_sql(query, conn)
+        
+        # Proxy para zonas verdes (vectorizado) si m2_zonas_verdes es 0
+        df['m2_zonas_verdes'] = df['m2_zonas_verdes'].where(df['m2_zonas_verdes'] > 0, df['num_arboles'] * 15)
+        
+        # Deduplicar
+        df = df.drop_duplicates(subset=['barrio_id'])
+        
+    finally:
+        conn.close()
+    return df
+
+
+@st.cache_data(ttl=3600)
+def load_gentrification_risk_metrics(year: int = 2023) -> pd.DataFrame:
+    """
+    Carga métricas de riesgo de gentrificación (estudios universitarios, variación de precios).
+    """
+    conn = get_connection()
+    try:
+        # Intentar cargar desde vista avanzada si existe
+        query = """
+        SELECT 
+            b.barrio_id, b.barrio_nombre,
+            COALESCE(e.pct_universitarios, 0) as pct_universitarios,
+            COALESCE(d.porc_inmigracion, 0) as porc_inmigracion,
+            COALESCE(d.densidad_hab_km2, 0) as densidad
+        FROM dim_barrios b
+        LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id AND e.year = (SELECT MAX(year) FROM fact_educacion)
+        LEFT JOIN fact_demografia d ON b.barrio_id = d.barrio_id AND d.anio = (SELECT MAX(anio) FROM fact_demografia)
+        """
+        df_risk = pd.read_sql(query, conn)
+        
+        # Calcular variación de precios a 3 años (Lead Indicator de gentrificación)
+        query_prices = f"""
+        SELECT barrio_id, anio, precio_m2_venta
+        FROM fact_precios
+        WHERE anio IN ({year}, {year-3})
+        """
+        df_p = pd.read_sql(query_prices, conn)
+        if not df_p.empty and year in df_p['anio'].values:
+            df_pivot = df_p.pivot(index='barrio_id', columns='anio', values='precio_m2_venta')
+            if year-3 in df_pivot.columns:
+                df_pivot['var_precio_3a'] = ((df_pivot[year] - df_pivot[year-3]) / df_pivot[year-3]) * 100
+                df_risk = df_risk.merge(df_pivot[['var_precio_3a']], on='barrio_id', how='left')
+        
+        if 'var_precio_3a' not in df_risk.columns:
+            df_risk['var_precio_3a'] = 0.0
+
+        # Score Compuesto de Gentrificación (0-100)
+        def normalize(s):
+            return (s - s.min()) / (s.max() - s.min()) * 100 if (s.max() - s.min()) > 0 else 0
+
+        df_risk['score_gentrificacion'] = (
+            normalize(df_risk['pct_universitarios']) * 0.4 +
+            normalize(df_risk['var_precio_3a']) * 0.4 +
+            normalize(df_risk['porc_inmigracion']) * 0.2
+        )
+        
+        return df_risk[['barrio_id', 'score_gentrificacion', 'pct_universitarios', 'var_precio_3a']]
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=3600)
+def load_investment_data(year: int = 2023) -> pd.DataFrame:
+    """
+    Carga datos para análisis de inversión integrando riesgo de gentrificación.
+    """
+    df = load_precios(year)
+    if df.empty:
+        return pd.DataFrame()
+    
+    # Calcular Yield Bruto Anual
+    df['yield_bruto_pct'] = (df['avg_alquiler'] * 12 / (df['avg_precio_m2'] * VIVIENDA_TIPO_M2)) * 100
+    
+    # Simular Score de Liquidez
+    df['score_liquidez'] = 5.0
+    
+    # Integrar Riesgo de Gentrificación
+    df_risk = load_gentrification_risk_metrics(year)
+    df = df.merge(df_risk, on='barrio_id', how='left')
+    
+    # Filtrar barrios sin datos de yield
+    df = df[df['yield_bruto_pct'].notna() & (df['yield_bruto_pct'] > 0)]
+    
+    return df
+
+
+@st.cache_data(ttl=3600)
+def load_full_correlation_data(year: int = 2023) -> pd.DataFrame:
+    """
+    Carga un dataset completo para análisis de correlación avanzado.
+    Incluye: Precios, Renta, Densidad, Gentrificación y Ruido.
+    """
+    # 1. Precios y Renta (Base)
+    df = load_correlation_data(year)
+    if df.empty:
+        return pd.DataFrame()
+        
+    # 2. Gentrificación
+    df_risk = load_gentrification_risk_metrics(year)
+    df = df.merge(df_risk[['barrio_id', 'score_gentrificacion', 'pct_universitarios']], on='barrio_id', how='left')
+    
+    # 3. Calidad de Vida (Ruido)
+    df_qol = load_quality_of_life_data(year)
+    df = df.merge(df_qol[['barrio_id', 'nivel_ruido', 'm2_zonas_verdes']], on='barrio_id', how='left')
+    
+    # Rellenar nulos con medianas para no romper correlación
+    df = df.fillna(df.median(numeric_only=True))
+    
+    return df
     """
     Construye un FeatureCollection GeoJSON desde un DataFrame.
     
@@ -768,42 +893,34 @@ def build_geojson(df: pd.DataFrame) -> dict:
 @st.cache_data(ttl=3600)
 def load_price_trends(distritos: Optional[list[str]] = None) -> pd.DataFrame:
     """
-    Carga la evolución temporal de precios.
-    
-    Args:
-        distritos: Lista opcional de distritos para filtrar.
-    
-    Returns:
-        DataFrame con anyo, barrio_nombre, precio_venta_m2, precio_alquiler_m2.
+    Carga la evolución temporal de precios usando precios consolidados.
     """
-    conn = get_connection()
-    try:
-        query = """
-        SELECT 
-            p.anio,
-            b.barrio_nombre,
-            b.distrito_nombre,
-            AVG(p.precio_m2_venta) as precio_venta_m2,
-            AVG(p.precio_mes_alquiler) as precio_alquiler_m2
-        FROM fact_precios p
-        JOIN dim_barrios b ON p.barrio_id = b.barrio_id
-        WHERE (p.precio_m2_venta IS NOT NULL OR p.precio_mes_alquiler IS NOT NULL)
-        """
-        params = []
-        
-        if distritos:
-            placeholders = ",".join(["?"] * len(distritos))
-            query += f" AND b.distrito_nombre IN ({placeholders})"
-            params.extend(distritos)
+    years_info = load_available_years()
+    min_year = years_info["fact_precios"]["min"] or 2015
+    max_year = years_info["fact_precios"]["max"] or 2022
+    
+    all_data = []
+    for year in range(min_year, max_year + 1):
+        df_year = load_precios(year)
+        if not df_year.empty:
+            df_year['anyo'] = year
+            all_data.append(df_year)
             
-        query += " GROUP BY p.anio, b.barrio_nombre, b.distrito_nombre ORDER BY p.anio"
+    if not all_data:
+        return pd.DataFrame()
         
-        df = pd.read_sql(query, conn, params=params)
-        # Renombrar para mantener compatibilidad con el resto del app
-        df = df.rename(columns={"anio": "anyo"})
-    finally:
-        conn.close()
-    return df
+    df = pd.concat(all_data)
+    
+    if distritos:
+        df = df[df['distrito_nombre'].isin(distritos)]
+        
+    # Agrupar para obtener tendencia
+    df_trends = df.groupby(['anyo', 'barrio_nombre', 'distrito_nombre']).agg({
+        'avg_precio_m2': 'mean',
+        'avg_alquiler': 'mean'
+    }).reset_index()
+    
+    return df_trends.rename(columns={'avg_precio_m2': 'precio_venta_m2', 'avg_alquiler': 'precio_alquiler_m2'})
 
 
 @st.cache_data(ttl=3600)

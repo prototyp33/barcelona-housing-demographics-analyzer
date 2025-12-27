@@ -400,8 +400,22 @@ def validate_all_fact_tables(
     fact_presion_turistica: Optional[pd.DataFrame] = None,
     fact_seguridad: Optional[pd.DataFrame] = None,
     fact_ruido: Optional[pd.DataFrame] = None,
+    fact_educacion: Optional[pd.DataFrame] = None,
+    fact_movilidad: Optional[pd.DataFrame] = None,
+    fact_vivienda_publica: Optional[pd.DataFrame] = None,
+    fact_renta_avanzada: Optional[pd.DataFrame] = None,
+    fact_catastro_avanzado: Optional[pd.DataFrame] = None,
+    fact_hogares_avanzado: Optional[pd.DataFrame] = None,
+    fact_turismo_intensidad: Optional[pd.DataFrame] = None,
     strategy: Union[str, FKValidationStrategy] = FKValidationStrategy.FILTER,
 ) -> Tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
@@ -431,6 +445,9 @@ def validate_all_fact_tables(
         fact_presion_turistica: DataFrame de presión turística (opcional).
         fact_seguridad: DataFrame de seguridad (opcional).
         fact_ruido: DataFrame de ruido (opcional).
+        fact_educacion: DataFrame de educación (opcional).
+        fact_movilidad: DataFrame de movilidad (opcional).
+        fact_vivienda_publica: DataFrame de vivienda pública (opcional).
         strategy: Estrategia de validación a aplicar.
 
         Returns:
@@ -569,6 +586,90 @@ def validate_all_fact_tables(
         )
         results.append(result)
 
+    # Validar fact_educacion
+    if fact_educacion is not None and not fact_educacion.empty:
+        fact_educacion, result = validate_foreign_keys(
+            df=fact_educacion,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_educacion",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_movilidad
+    if fact_movilidad is not None and not fact_movilidad.empty:
+        fact_movilidad, result = validate_foreign_keys(
+            df=fact_movilidad,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_movilidad",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_vivienda_publica
+    if fact_vivienda_publica is not None and not fact_vivienda_publica.empty:
+        fact_vivienda_publica, result = validate_foreign_keys(
+            df=fact_vivienda_publica,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_vivienda_publica",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_renta_avanzada
+    if fact_renta_avanzada is not None and not fact_renta_avanzada.empty:
+        fact_renta_avanzada, result = validate_foreign_keys(
+            df=fact_renta_avanzada,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_renta_avanzada",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_catastro_avanzado
+    if fact_catastro_avanzado is not None and not fact_catastro_avanzado.empty:
+        fact_catastro_avanzado, result = validate_foreign_keys(
+            df=fact_catastro_avanzado,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_catastro_avanzado",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_hogares_avanzado
+    if fact_hogares_avanzado is not None and not fact_hogares_avanzado.empty:
+        fact_hogares_avanzado, result = validate_foreign_keys(
+            df=fact_hogares_avanzado,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_hogares_avanzado",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_turismo_intensidad
+    if fact_turismo_intensidad is not None and not fact_turismo_intensidad.empty:
+        fact_turismo_intensidad, result = validate_foreign_keys(
+            df=fact_turismo_intensidad,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_turismo_intensidad",
+            strategy=strategy,
+        )
+        results.append(result)
+
     # Resumen de validación
     if results:
         total_invalid = sum(r.invalid_records for r in results)
@@ -597,6 +698,13 @@ def validate_all_fact_tables(
         fact_presion_turistica,
         fact_seguridad,
         fact_ruido,
+        fact_educacion,
+        fact_movilidad,
+        fact_vivienda_publica,
+        fact_renta_avanzada,
+        fact_catastro_avanzado,
+        fact_hogares_avanzado,
+        fact_turismo_intensidad,
         results,
     )
 

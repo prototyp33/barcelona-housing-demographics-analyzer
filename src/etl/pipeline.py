@@ -20,11 +20,18 @@ from ..database_setup import (
 )
 from ..database_views import create_analytical_views
 from .migrations import migrate_dim_barrios_if_needed
+from ..data_processing import (
+    prepare_fact_renta_avanzada,
+    prepare_fact_catastro_avanzado,
+    prepare_fact_hogares_avanzado,
+    prepare_fact_turismo_intensidad
+)
 from .validators import (
     FKValidationStrategy,
     handle_source_error,
     validate_all_fact_tables,
 )
+from ..extraction.opendata import OpenDataBCNExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +319,50 @@ def run_etl(
                 portaldades_dir, "*b37xv8wcjh*.csv"
             )
 
+        # Descubrimiento de archivos avanzados
+        renta_avanzada_files = {}
+        catastro_avanzado_files = {}
+        hogares_avanzado_files = {}
+        turismo_intensidad_files = {}
+        
+        # Mapeo de grupos a sus keys
+        advanced_groups = {
+            "renta": ["income_gross_household", "income_gini", "income_p80_p20"],
+            "catastro": ["cadastre_year_const", "cadastre_owner_type", "cadastre_avg_surface", "cadastre_owner_nationality", "cadastre_floors"],
+            "hogares": ["household_crowding", "household_nationality", "household_minors", "household_women"],
+            "turismo": ["tourism_intensity", "tourism_hut"]
+        }
+        
+        group_to_target = {
+            "renta": renta_avanzada_files,
+            "catastro": catastro_avanzado_files,
+            "hogares": hogares_avanzado_files,
+            "turismo": turismo_intensidad_files
+        }
+        
+        datasets_mapping = OpenDataBCNExtractor.DATASETS
+        
+        for group_name, keys in advanced_groups.items():
+            target_dict = group_to_target[group_name]
+            for key in keys:
+                dataset_id = datasets_mapping.get(key)
+                if not dataset_id:
+                    continue
+                    
+                path = None
+                if use_manifest:
+                    path = _get_latest_file_from_manifest(manifest, raw_base_dir, key, source="opendatabcn")
+                
+                if path is None:
+                    # Fallback: buscar por ID del dataset en el nombre del archivo
+                    path = _find_latest_file(RAW_OPENDATABCN_DIR, f"*{dataset_id}*.csv")
+                
+                if path:
+                    logger.info(f"Cargando dataset avanzado '{key}' desde: {path.name}")
+                    target_dict[key] = _safe_read_csv(path)
+                else:
+                    logger.debug(f"No se encontró archivo para dataset avanzado '{key}' (ID: {dataset_id})")
+        
         if demographics_path is None:
             raise FileNotFoundError(
                 "No se encontró un archivo de demografía en data/raw/opendatabcn"
@@ -473,6 +524,9 @@ def run_etl(
         fact_presion_turistica = None
         fact_seguridad = None
         fact_ruido = None
+        fact_educacion = None
+        fact_movilidad = None
+        fact_vivienda_publica = None
         # Intentar primero regulacion_dir, luego portaldades_dir, luego raw_base_dir
         regulacion_data_dir = None
         
@@ -791,6 +845,13 @@ def run_etl(
         else:
             logger.debug("No se encontraron datos de Idealista (opcional, requiere API credentials)")
 
+        # Procesar datasets avanzados
+        logger.info("Procesando datasets avanzados...")
+        fact_renta_avanzada = prepare_fact_renta_avanzada(renta_avanzada_files, dim_barrios, reference_time) if renta_avanzada_files else None
+        fact_catastro_avanzado = prepare_fact_catastro_avanzado(catastro_avanzado_files, dim_barrios, reference_time) if catastro_avanzado_files else None
+        fact_hogares_avanzado = prepare_fact_hogares_avanzado(hogares_avanzado_files, dim_barrios, reference_time) if hogares_avanzado_files else None
+        fact_turismo_intensidad = prepare_fact_turismo_intensidad(turismo_intensidad_files, dim_barrios, reference_time) if turismo_intensidad_files else None
+
         # === VALIDACIÓN DE INTEGRIDAD REFERENCIAL ===
         # Validar todas las fact tables antes de insertar en SQLite
         logger.info("=== Validando integridad referencial ===")
@@ -804,6 +865,13 @@ def run_etl(
             fact_presion_turistica,
             fact_seguridad,
             fact_ruido,
+            fact_educacion,
+            fact_movilidad,
+            fact_vivienda_publica,
+            fact_renta_avanzada,
+            fact_catastro_avanzado,
+            fact_hogares_avanzado,
+            fact_turismo_intensidad,
             fk_validation_results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
@@ -816,7 +884,14 @@ def run_etl(
             fact_presion_turistica=fact_presion_turistica,
             fact_seguridad=fact_seguridad,
             fact_ruido=fact_ruido,
-            strategy=FKValidationStrategy.FILTER,  # Filtra registros con FK inválidos
+            fact_educacion=fact_educacion,
+            fact_movilidad=fact_movilidad,
+            fact_vivienda_publica=fact_vivienda_publica,
+            fact_renta_avanzada=fact_renta_avanzada,
+            fact_catastro_avanzado=fact_catastro_avanzado,
+            fact_hogares_avanzado=fact_hogares_avanzado,
+            fact_turismo_intensidad=fact_turismo_intensidad,
+            strategy=FKValidationStrategy.FILTER,
         )
         
         # Registrar estadísticas de validación
@@ -889,6 +964,14 @@ def run_etl(
         if fact_regulacion is not None:
             tables_to_truncate.append("fact_regulacion")
         tables_to_truncate.append("fact_precios")
+        if fact_renta_avanzada is not None:
+            tables_to_truncate.append("fact_renta_avanzada")
+        if fact_catastro_avanzado is not None:
+            tables_to_truncate.append("fact_catastro_avanzado")
+        if fact_hogares_avanzado is not None:
+            tables_to_truncate.append("fact_hogares_avanzado")
+        if fact_turismo_intensidad is not None:
+            tables_to_truncate.append("fact_turismo_intensidad")
         # dim_barrios se trunca al final porque otras tablas tienen foreign keys hacia ella
         tables_to_truncate.append("dim_barrios")
         
@@ -1010,6 +1093,23 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
+
+        # Cargar datasets avanzados
+        if fact_renta_avanzada is not None and not fact_renta_avanzada.empty:
+            logger.info("Cargando tabla de hechos de renta avanzada")
+            fact_renta_avanzada.to_sql("fact_renta_avanzada", conn, if_exists="append", index=False)
+            
+        if fact_catastro_avanzado is not None and not fact_catastro_avanzado.empty:
+            logger.info("Cargando tabla de hechos de catastro avanzado")
+            fact_catastro_avanzado.to_sql("fact_catastro_avanzado", conn, if_exists="append", index=False)
+            
+        if fact_hogares_avanzado is not None and not fact_hogares_avanzado.empty:
+            logger.info("Cargando tabla de hechos de hogares avanzado")
+            fact_hogares_avanzado.to_sql("fact_hogares_avanzado", conn, if_exists="append", index=False)
+            
+        if fact_turismo_intensidad is not None and not fact_turismo_intensidad.empty:
+            logger.info("Cargando tabla de hechos de intensidad turística")
+            fact_turismo_intensidad.to_sql("fact_turismo_intensidad", conn, if_exists="append", index=False)
 
         # Crear vistas analíticas después de cargar los datos
         try:

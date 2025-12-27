@@ -27,6 +27,9 @@ from .generalitat_extractor import GeneralitatExtractor
 from .airbnb_extractor import AirbnbExtractor
 from .icgc_extractor import ICGCExtractor
 from .ruido_extractor import RuidoExtractor
+from .educacion_extractor import EducacionExtractor
+from .movilidad_extractor import BicingExtractor, ATMExtractor
+from .vivienda_publica_extractor import ViviendaPublicaExtractor
 from .orchestrator import extract_all_sources, write_extraction_summary
 
 __all__ = [
@@ -49,6 +52,10 @@ __all__ = [
     "AirbnbExtractor",
     "ICGCExtractor",
     "RuidoExtractor",
+    "EducacionExtractor",
+    "BicingExtractor",
+    "ATMExtractor",
+    "ViviendaPublicaExtractor",
     # Orchestration
     "extract_all_sources",
     "write_extraction_summary",
