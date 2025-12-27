@@ -4,31 +4,35 @@
 
 La base de datos sigue un modelo **dimensional (star schema)** con:
 
-- **1 tabla de dimensión principal**: `dim_barrios` (73 barrios de Barcelona)
+- **2 tablas de dimensión**: `dim_barrios` y `dim_barrios_extended` (Maestra ampliada con KPIs)
 - **1 tabla de dimensión temporal**: `dim_tiempo` (períodos anuales y trimestrales)
-- **16 tablas de hechos** (`fact_*`): Métricas por barrio y período
+- **8/24 tablas de hechos/vistas** (`fact_*`): Estructura v2.0 Foundation con retrocompatibilidad
 - **1 tabla de auditoría**: `etl_runs` (registro de ejecuciones ETL)
 
 ## Diagrama ERD (Entity Relationship Diagram)
 
 ```mermaid
 erDiagram
+    dim_barrios ||--|| dim_barrios_extended : "extended by"
     dim_barrios ||--o{ fact_precios : "has"
     dim_barrios ||--o{ fact_demografia : "has"
-    dim_barrios ||--o{ fact_demografia_ampliada : "has"
     dim_barrios ||--o{ fact_renta : "has"
-    dim_barrios ||--o{ fact_oferta_idealista : "has"
-    dim_barrios ||--o{ fact_regulacion : "has"
-    dim_barrios ||--o{ fact_presion_turistica : "has"
-    dim_barrios ||--o{ fact_seguridad : "has"
-    dim_barrios ||--o{ fact_soroll : "has"
-    dim_barrios ||--o{ fact_calidad_aire : "has"
     dim_barrios ||--o{ fact_educacion : "has"
+    dim_barrios ||--o{ fact_presion_turistica : "has"
+    dim_barrios ||--o{ fact_hut : "has"
+    dim_barrios ||--o{ fact_visados : "has"
+    dim_barrios ||--o{ fact_desempleo : "has"
     dim_barrios ||--o{ fact_movilidad : "has"
-    dim_barrios ||--o{ fact_vivienda_publica : "has"
-    dim_barrios ||--o{ fact_servicios_salud : "has"
+    dim_barrios ||--o{ fact_regulacion : "has"
     dim_barrios ||--o{ fact_comercio : "has"
-    dim_barrios ||--o{ fact_housing_master : "has"
+    dim_barrios ||--o{ fact_servicios_salud : "has"
+    dim_barrios ||--o{ fact_seguridad : "has"
+    dim_barrios ||--o{ fact_medio_ambiente : "has"
+
+    fact_airbnb ..> fact_presion_turistica : "view"
+    fact_control_alquiler ..> fact_regulacion : "view"
+    fact_accesibilidad ..> fact_movilidad : "view"
+    fact_centralidad ..> fact_comercio : "view"
 
     dim_barrios {
         INTEGER barrio_id PK
@@ -38,6 +42,20 @@ erDiagram
         TEXT geometry_json
         INTEGER distrito_id
         TEXT distrito_nombre
+    }
+
+    dim_barrios_extended {
+        INTEGER barrio_id PK
+        TEXT barrio_nombre
+        TEXT distrito_nombre
+        REAL indice_gentrificacion_relativo
+        REAL indice_vulnerabilidad_socioeconomica
+        TEXT clase_social_predominante
+        TEXT perfil_demografico_resumen
+        REAL precio_m2_venta_actual
+        REAL variacion_precio_12m
+        REAL densidad_comercial_kpi
+        TEXT etl_updated_at
     }
 
     dim_tiempo {
@@ -769,7 +787,57 @@ ON fact_soroll (barrio_id, anio);
 
 **Fuentes**: Mapa Estratègic de Soroll de Barcelona
 
-### 14. `fact_movilidad`
+### 14. `fact_desempleo` [NUEVO v2.0]
+
+**Descripción**: Datos de desempleo por barrio.
+
+**Campos clave**:
+
+- `num_desempleados`: Número total de personas desempleadas.
+- `tasa_desempleo_estimada`: Tasa de desempleo calculada sobre la población activa estimada.
+
+### 15. `fact_hut` [NUEVO v2.0]
+
+**Descripción**: Viviendas de Uso Turístico con licencia oficial.
+
+**Campos clave**:
+
+- `num_licencias_vut`: Número total de licencias HUT activas.
+- `densidad_vut_por_100_viviendas`: Ratio de presión turística oficial.
+
+### 16. `fact_visados` [NUEVO v2.0]
+
+**Descripción**: Visados de obra nueva y rehabilitación mayor.
+
+**Campos clave**:
+
+- `num_visados_obra_nueva`: Número de proyectos aprobados.
+- `num_viviendas_proyectadas`: Total de unidades de vivienda nuevas.
+- `presupuesto_total_euros`: Inversión estimada en construcción.
+
+## Vistas de Capa de Fundación (v2.0 Foundation)
+
+Para asegurar la retrocompatibilidad y simplificar el análisis, se han creado las siguientes vistas:
+
+### `fact_airbnb`
+
+- **Origen**: `fact_presion_turistica`
+- **Propósito**: Estandarizar el acceso a métricas de Inside Airbnb.
+
+### `fact_control_alquiler`
+
+- **Origen**: `fact_regulacion`
+- **Propósito**: Alias para análisis de políticas de vivienda.
+
+### `fact_accesibilidad`
+
+- **Origen**: `fact_movilidad`
+- **Propósito**: Enfoque en transporte y tiempos de desplazamiento.
+
+### `fact_centralidad`
+
+- **Origen**: Agregación de `fact_comercio` + `fact_servicios_salud`
+- **Propósito**: Medir la densidad de servicios y centralidad del barrio.
 
 **Descripción**: Infraestructuras de transporte y movilidad por barrio.
 
