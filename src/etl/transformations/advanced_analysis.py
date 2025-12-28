@@ -271,39 +271,46 @@ def prepare_fact_hogares_avanzado(
             continue
             
         # 3. Asegurar Any y Codi_Barri son numéricos
+        # Si Any contiene fechas (ej: '2024-01-01'), extraer el año
+        if df['Any'].dtype == 'object':
+            # Intentar extraer año de fecha
+            df['Any'] = pd.to_datetime(df['Any'], errors='coerce').dt.year
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
 
         # 4. Procesamiento específico y agregación INMEDIATA
         if 'crowding' in key:
-            # Promedio de personas por hogar
-            value_col = [c for c in df.columns if 'persones' in c or 'valor' in c]
-            if value_col:
-                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
-                df = df.rename(columns={value_col[0]: 'promedio_personas_por_hogar'})
+            # Promedio de personas por hogar - usar columna Valor directamente
+            if 'Valor' in df.columns:
+                logger.info(f"  Antes de groupby: {len(df)} filas, NaN en Any: {df['Any'].isna().sum()}, NaN en Codi_Barri: {df['Codi_Barri'].isna().sum()}")
+                # Agrupar por número de personas y calcular promedio ponderado
+                df = df.groupby(['Any', 'Codi_Barri'])['Valor'].mean().reset_index()
+                df = df.rename(columns={'Valor': 'promedio_personas_por_hogar'})
+                logger.info(f"  Después de groupby: {len(df)} filas")
             else:
+                logger.warning(f"No se encontró columna Valor en {key}")
                 continue
                 
         elif 'minors' in key:
-            # Hogares con menores
-            value_col = [c for c in df.columns if 'valor' in c or 'nombre' in c]
-            if value_col:
-                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].sum().reset_index()
-                df = df.rename(columns={value_col[0]: 'num_hogares_con_menores'})
+            # Hogares con menores - sumar valores
+            if 'Valor' in df.columns:
+                df = df.groupby(['Any', 'Codi_Barri'])['Valor'].sum().reset_index()
+                df = df.rename(columns={'Valor': 'num_hogares_con_menores'})
             else:
+                logger.warning(f"No se encontró columna Valor en {key}")
                 continue
                 
         elif 'women' in key:
-            # Presencia de mujeres
-            value_col = [c for c in df.columns if 'dones' in c or 'valor' in c]
-            if value_col:
-                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
-                df = df.rename(columns={value_col[0]: 'pct_presencia_mujeres'})
+            # Presencia de mujeres - promedio
+            if 'Valor' in df.columns:
+                df = df.groupby(['Any', 'Codi_Barri'])['Valor'].mean().reset_index()
+                df = df.rename(columns={'Valor': 'pct_presencia_mujeres'})
             else:
+                logger.warning(f"No se encontró columna Valor en {key}")
                 continue
                 
         elif 'nationality' in key:
-            nac_col = 'nacionalitat' if 'nacionalitat' in df.columns else ('nacionalitat_domicili' if 'nacionalitat_domicili' in df.columns else None)
+            nac_col = 'nacionalitat_domicili' if 'nacionalitat_domicili' in df.columns else ('nacionalitat' if 'nacionalitat' in df.columns else None)
             if nac_col:
                 # Convertir a string para poder usar .str.contains
                 df[nac_col] = df[nac_col].astype(str)
@@ -313,22 +320,38 @@ def prepare_fact_hogares_avanzado(
                 df['pct_hogares_nacionalidad_extranjera'] = (df['num_ext'] / df['num_total']) * 100
                 df = df[['Any', 'Codi_Barri', 'pct_hogares_nacionalidad_extranjera']]
             else:
+                logger.warning(f"No se encontró columna de nacionalidad en {key}")
                 continue
         else:
             continue
         
-        if combined_df.empty: combined_df = df
+        logger.info(f"  Después de procesar {key}: df tiene {len(df)} filas, columnas: {list(df.columns)}")
+        
+        if combined_df.empty: 
+            combined_df = df
+            logger.info(f"  combined_df inicializado con {len(combined_df)} filas de {key}")
         else: 
+            logger.info(f"  Mergeando {key} ({len(df)} filas) con combined_df ({len(combined_df)} filas)")
             combined_df['Any'] = pd.to_numeric(combined_df['Any'], errors='coerce')
             combined_df['Codi_Barri'] = pd.to_numeric(combined_df['Codi_Barri'], errors='coerce')
             combined_df = pd.merge(combined_df, df, on=['Any', 'Codi_Barri'], how='outer')
+            logger.info(f"  Después del merge: combined_df tiene {len(combined_df)} filas")
 
-    if combined_df.empty: return pd.DataFrame()
+    if combined_df.empty: 
+        logger.warning("combined_df está vacío después de procesar todos los datasets")
+        return pd.DataFrame()
+
+    logger.info(f"combined_df antes de merge con dim_barrios: {len(combined_df)} filas, columnas: {list(combined_df.columns)}")
+    logger.info(f"Primeras filas de combined_df:\n{combined_df.head()}")
 
     # Mapear barrio_id
     combined_df['Codi_Barri'] = pd.to_numeric(combined_df['Codi_Barri'], errors='coerce')
     dim_barrios_clean = dim_barrios[['codi_barri', 'barrio_id']].copy()
     dim_barrios_clean['codi_barri_num'] = pd.to_numeric(dim_barrios_clean['codi_barri'], errors='coerce')
+    
+    logger.info(f"dim_barrios_clean: {len(dim_barrios_clean)} filas")
+    logger.info(f"Valores únicos de Codi_Barri en combined_df: {sorted(combined_df['Codi_Barri'].dropna().unique())[:10]}")
+    logger.info(f"Valores únicos de codi_barri_num en dim_barrios: {sorted(dim_barrios_clean['codi_barri_num'].dropna().unique())[:10]}")
     
     combined_df = pd.merge(
         combined_df, 
@@ -337,6 +360,9 @@ def prepare_fact_hogares_avanzado(
         right_on='codi_barri_num', 
         how='inner'
     )
+    
+    logger.info(f"combined_df después de merge: {len(combined_df)} filas")
+    
     combined_df = combined_df.rename(columns={'Any': 'anio'})
     combined_df['etl_loaded_at'] = reference_time.isoformat()
     
