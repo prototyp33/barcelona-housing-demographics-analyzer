@@ -142,3 +142,10 @@ defusedxml==0.7.1
 # Cliente SOAP para API oficial del Catastro (100% gratuita, sin API key)
 zeep==4.2.1  # Cliente SOAP para consultas oficiales del Catastro
 geopy
+
+# =============================================================================
+# Scientific Computing & Statistics (for EDA and Analysis)
+# =============================================================================
+scipy>=1.11.0
+scikit-learn>=1.3.0
+statsmodels>=0.14.0
