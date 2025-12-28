@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 
 from .utils import cleaner, logger
 
@@ -111,114 +112,215 @@ def prepare_fact_catastro_avanzado(
 ) -> pd.DataFrame:
     """
     Combina datasets de catastro en fact_catastro_avanzado.
+    
+    Datasets esperados:
+    - cadastre_owner_type: Tipos de propietarios (física/jurídica)
+    - cadastre_avg_surface: Superficie media
+    - cadastre_year_const: Año de construcción
+    - cadastre_owner_nationality: Nacionalidad de propietarios
     """
     combined_df = pd.DataFrame()
     
     for key, df in dfs.items():
         if df is None or df.empty:
+            logger.info(f"  Saltando {key}: vacío")
             continue
-            
+        
+        logger.info(f"  Procesando {key}: {len(df)} filas")
         df = df.copy()
         
-        # 1. Normalización agresiva
+        # 1. Normalización de columnas
         df.columns = [c.strip().lower() for c in df.columns]
+        
+        # 2. Renombrar columnas estándar
         rename_map = {
-            "any": "Any", "data_referencia": "Any", "año": "Any", "anio": "Any",
-            "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
-            "valor": "Valor"
+            "codi_barri": "Codi_Barri",
+            "any": "Any"
         }
         for col_old, col_new in rename_map.items():
             if col_old in df.columns:
                 df = df.rename(columns={col_old: col_new})
-
-        # 2. Asegurar Any y Codi_Barri son numéricos
+        
+        # 3. Asegurar tipos numéricos
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
-
-        # 3. Identificar métricas y agregar INMEDIATAMENTE
-        if 'owner_type' in key:
-            # Tipus_Propietari: 'Persona física', 'Persona jurídica'
-            tp_col = 'tipus_propietari' if 'tipus_propietari' in df.columns else None
-            if tp_col:
-                p_fisica = df[df[tp_col] == 'Persona física'].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_propietarios_fisica')
-                p_juridica = df[df[tp_col] == 'Persona jurídica'].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_propietarios_juridica')
+        
+        # 4. Procesamiento específico por tipo de dataset
+        if 'owner_type' in key or 'tipus-propietari' in key or 'carrecs' in key:
+            # Tipos de propietarios (física vs jurídica)
+            logger.info(f"    Tipo: Propietarios")
+            
+            # Buscar columna de tipo de propietario
+            tipo_col = None
+            for col in df.columns:
+                if 'tipus_propietari' in col or 'desc_tipus' in col:
+                    tipo_col = col
+                    break
+            
+            if tipo_col:
+                # Contar por tipo
+                fisica = df[df[tipo_col].str.contains('fÃ\xadsic|física|fisica', case=False, na=False)]
+                juridica = df[df[tipo_col].str.contains('jurídic|juridica', case=False, na=False)]
+                
+                p_fisica = fisica.groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_propietarios_fisica')
+                p_juridica = juridica.groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_propietarios_juridica')
+                
                 df = pd.merge(p_fisica, p_juridica, on=['Any', 'Codi_Barri'], how='outer').fillna(0)
+                logger.info(f"    Resultado: {len(df)} filas")
             else:
+                logger.warning(f"    No se encontró columna de tipo de propietario")
                 continue
-                
-        elif 'avg_surface' in key:
-            # Agregar por barrio
-            value_col = [c for c in df.columns if 'superficie' in c or 'valor' in c]
-            if value_col:
-                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
-                df = df.rename(columns={value_col[0]: 'superficie_media_m2'})
+        
+        elif 'avg_surface' in key or 'superficie' in key:
+            # Superficie media
+            logger.info(f"    Tipo: Superficie media")
+            
+            # Buscar columna de superficie
+            sup_col = None
+            for col in df.columns:
+                if 'sup' in col and 'm2' in col:
+                    sup_col = col
+                    break
+            
+            if sup_col:
+                # Convertir a numérico (puede tener separadores de miles)
+                df[sup_col] = pd.to_numeric(df[sup_col], errors='coerce')
+                df = df.groupby(['Any', 'Codi_Barri'])[sup_col].mean().reset_index()
+                df = df.rename(columns={sup_col: 'superficie_media_m2'})
+                logger.info(f"    Resultado: {len(df)} filas, media: {df['superficie_media_m2'].mean():.1f} m²")
             else:
+                logger.warning(f"    No se encontró columna de superficie")
                 continue
+        
+        elif 'year_const' in key or 'any-const' in key or 'any_construccio' in key:
+            # Año de construcción -> antigüedad
+            logger.info(f"    Tipo: Año de construcción")
+            
+            # Buscar columna de año de construcción
+            year_col = None
+            for col in df.columns:
+                if 'any_construccio' in col or 'construccio' in col:
+                    year_col = col
+                    break
+            
+            if year_col:
+                # Convertir rangos de años a valores numéricos
+                def parse_year(val):
+                    if pd.isna(val):
+                        return np.nan
+                    val_str = str(val)
+                    if '<' in val_str:
+                        return 1900  # Antes de 1901
+                    elif '-' in val_str:
+                        # Tomar el punto medio del rango
+                        parts = val_str.split('-')
+                        try:
+                            return (int(parts[0]) + int(parts[1])) / 2
+                        except:
+                            return np.nan
+                    else:
+                        try:
+                            return float(val)
+                        except:
+                            return np.nan
                 
-        elif 'floors' in key:
-            value_col = [c for c in df.columns if 'planta' in c or 'valor' in c]
-            if value_col:
-                df = df.groupby(['Any', 'Codi_Barri'])[value_col[0]].mean().reset_index()
-                df = df.rename(columns={value_col[0]: 'num_plantas_avg'})
-            else:
-                continue
-                
-        elif 'year_const' in key:
-            value_col = [c for c in df.columns if 'any' in c.lower() and c != 'Any']
-            if not value_col:
-                value_col = [c for c in df.columns if 'valor' in c]
-            if value_col:
-                # Calcular antigüedad (año actual - año construcción)
+                df['year_numeric'] = df[year_col].apply(parse_year)
                 current_year = 2024
-                df['antiguedad'] = current_year - pd.to_numeric(df[value_col[0]], errors='coerce')
-                df = df.groupby(['Any', 'Codi_Barri'])['antiguedad'].mean().reset_index()
-                df = df.rename(columns={'antiguedad': 'antiguedad_media_bloque'})
-            else:
-                continue
+                df['antiguedad'] = current_year - df['year_numeric']
                 
-        elif 'owner_nationality' in key:
-            # Ejemplo: % extranjeros
-            nac_col = 'nacionalitat' if 'nacionalitat' in df.columns else None
-            if nac_col:
-                extranjeros = df[df[nac_col].str.contains('Estrang', na=False, case=False)].groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_ext')
-                total = df.groupby(['Any', 'Codi_Barri']).size().reset_index(name='num_total')
-                df = pd.merge(extranjeros, total, on=['Any', 'Codi_Barri'], how='right').fillna(0)
-                df['pct_propietarios_extranjeros'] = (df['num_ext'] / df['num_total']) * 100
-                df = df[['Any', 'Codi_Barri', 'pct_propietarios_extranjeros']]
+                # Agregar por barrio (promedio ponderado por número de viviendas si existe)
+                if 'nombre' in df.columns:
+                    # Promedio ponderado
+                    df['weighted'] = df['antiguedad'] * df['nombre']
+                    grouped = df.groupby(['Any', 'Codi_Barri']).agg({
+                        'weighted': 'sum',
+                        'nombre': 'sum'
+                    }).reset_index()
+                    grouped['antiguedad_media_bloque'] = grouped['weighted'] / grouped['nombre']
+                    df = grouped[['Any', 'Codi_Barri', 'antiguedad_media_bloque']]
+                else:
+                    df = df.groupby(['Any', 'Codi_Barri'])['antiguedad'].mean().reset_index()
+                    df = df.rename(columns={'antiguedad': 'antiguedad_media_bloque'})
+                
+                logger.info(f"    Resultado: {len(df)} filas, antigüedad media: {df['antiguedad_media_bloque'].mean():.1f} años")
             else:
+                logger.warning(f"    No se encontró columna de año de construcción")
                 continue
+        
+        elif 'owner_nationality' in key or 'nacionalitat' in key or 'locals-prop' in key:
+            # Nacionalidad de propietarios
+            logger.info(f"    Tipo: Nacionalidad propietarios")
+            
+            # Buscar columna de tipo de propietario
+            tipo_col = None
+            for col in df.columns:
+                if 'tipus_propietari' in col or 'desc_tipus' in col:
+                    tipo_col = col
+                    break
+            
+            if tipo_col:
+                # Calcular % extranjeros
+                total = df.groupby(['Any', 'Codi_Barri']).size().reset_index(name='total')
+                extranjeros = df[df[tipo_col].str.contains('estrang|extranjera', case=False, na=False)]
+                ext_count = extranjeros.groupby(['Any', 'Codi_Barri']).size().reset_index(name='extranjeros')
+                
+                df = pd.merge(total, ext_count, on=['Any', 'Codi_Barri'], how='left').fillna(0)
+                df['pct_propietarios_extranjeros'] = (df['extranjeros'] / df['total']) * 100
+                df = df[['Any', 'Codi_Barri', 'pct_propietarios_extranjeros']]
+                logger.info(f"    Resultado: {len(df)} filas, % extranjeros: {df['pct_propietarios_extranjeros'].mean():.1f}%")
+            else:
+                logger.warning(f"    No se encontró columna de nacionalidad")
+                continue
+        
         else:
+            logger.warning(f"    Tipo de dataset no reconocido: {key}")
             continue
         
-        # Mergear
+        # 5. Mergear con combined_df
         if combined_df.empty:
             combined_df = df
+            logger.info(f"    combined_df inicializado: {len(combined_df)} filas")
         else:
+            logger.info(f"    Mergeando con combined_df ({len(combined_df)} filas)")
             combined_df['Any'] = pd.to_numeric(combined_df['Any'], errors='coerce')
             combined_df['Codi_Barri'] = pd.to_numeric(combined_df['Codi_Barri'], errors='coerce')
             combined_df = pd.merge(combined_df, df, on=['Any', 'Codi_Barri'], how='outer')
-
-    if combined_df.empty: return pd.DataFrame()
-
-    # Mapear barrio_id
+            logger.info(f"    Después del merge: {len(combined_df)} filas")
+    
+    if combined_df.empty:
+        logger.warning("combined_df está vacío después de procesar todos los datasets")
+        return pd.DataFrame()
+    
+    logger.info(f"Antes de mapear barrio_id: {len(combined_df)} filas")
+    logger.info(f"Columnas disponibles: {list(combined_df.columns)}")
+    
+    # 6. Mapear barrio_id
     combined_df['Codi_Barri'] = pd.to_numeric(combined_df['Codi_Barri'], errors='coerce')
     dim_barrios_clean = dim_barrios[['codi_barri', 'barrio_id']].copy()
     dim_barrios_clean['codi_barri_num'] = pd.to_numeric(dim_barrios_clean['codi_barri'], errors='coerce')
     
     combined_df = pd.merge(
-        combined_df, 
-        dim_barrios_clean[['codi_barri_num', 'barrio_id']], 
-        left_on='Codi_Barri', 
-        right_on='codi_barri_num', 
+        combined_df,
+        dim_barrios_clean[['codi_barri_num', 'barrio_id']],
+        left_on='Codi_Barri',
+        right_on='codi_barri_num',
         how='inner'
     )
+    
+    logger.info(f"Después de mapear barrio_id: {len(combined_df)} filas")
+    
+    # 7. Preparar columnas finales
     combined_df = combined_df.rename(columns={'Any': 'anio'})
     combined_df['etl_loaded_at'] = reference_time.isoformat()
     
-    cols = ['barrio_id', 'anio', 'num_propietarios_fisica', 'num_propietarios_juridica', 
-            'pct_propietarios_extranjeros', 'superficie_media_m2', 'num_plantas_avg', 
+    cols = ['barrio_id', 'anio', 'num_propietarios_fisica', 'num_propietarios_juridica',
+            'pct_propietarios_extranjeros', 'superficie_media_m2', 'num_plantas_avg',
             'antiguedad_media_bloque', 'etl_loaded_at']
-    return combined_df[[c for c in cols if c in combined_df.columns]]
+    
+    result = combined_df[[c for c in cols if c in combined_df.columns]]
+    logger.info(f"Resultado final: {len(result)} filas, columnas: {list(result.columns)}")
+    
+    return result
 
 def prepare_fact_hogares_avanzado(
     dfs: Dict[str, pd.DataFrame],
