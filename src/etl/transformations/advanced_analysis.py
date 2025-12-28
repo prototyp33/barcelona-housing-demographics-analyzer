@@ -105,6 +105,44 @@ def prepare_fact_renta_avanzada(
     
     return combined_df[['barrio_id', 'anio', 'renta_bruta_llar', 'indice_gini', 'ratio_p80_p20', 'etl_loaded_at']]
 
+def get_topographical_penalty(barrio_nombre: str, distrito_nombre: str) -> float:
+    """
+    Calculates a topographical penalty index (0 to 1) based on:
+    - Steep slopes (Pendiente)
+    - Accessibility constraints (e.g., extremely deep metro stations like in El Coll)
+    - Urban fragmentation.
+    """
+    bn = str(barrio_nombre).lower()
+    dn = str(distrito_nombre).lower()
+    
+    penalty = 0.0
+    
+    # 1. Base District-level penalty (general orography)
+    if 'nou barris' in dn:
+        penalty += 0.4
+    elif 'horta-guinardó' in dn:
+        penalty += 0.35
+    elif 'sarrià-sant gervasi' in dn:
+        penalty += 0.25
+    elif 'gràcia' in dn:
+        penalty += 0.15
+    
+    # 2. Neighborhood-specific boosts (The "El Coll" & surroundings factor)
+    # El Coll: Extreme slopes + Deepest Metro station in BCN
+    if 'coll' in bn:
+        penalty += 0.35
+    # Vallbona & Torre Baró: Isolation + Steep orography
+    elif 'vallbona' in bn or 'torre baró' in bn:
+        penalty += 0.4
+    # Carmel & Teixonera: Complex terrain
+    elif 'carmel' in bn or 'teixonera' in bn:
+        penalty += 0.3
+    # Roquetes & Trinitat Nova: High mountain neighborhoods in Nou Barris
+    elif 'roquetes' in bn or 'trinitat nova' in bn:
+        penalty += 0.25
+        
+    return min(penalty, 1.0)
+
 def prepare_fact_catastro_avanzado(
     dfs: Dict[str, pd.DataFrame],
     dim_barrios: pd.DataFrame,
@@ -132,16 +170,28 @@ def prepare_fact_catastro_avanzado(
         # 1. Normalización de columnas
         df.columns = [c.strip().lower() for c in df.columns]
         
-        # 2. Renombrar columnas estándar
+        # 2. Renombrar columnas estándar (incluyendo Portaldades)
         rename_map = {
             "codi_barri": "Codi_Barri",
-            "any": "Any"
+            "any": "Any",
+            "dim-00:temps": "Any",
+            "data_referencia": "Any"
         }
         for col_old, col_new in rename_map.items():
             if col_old in df.columns:
                 df = df.rename(columns={col_old: col_new})
         
+        # Especial para territori y temps en Portaldades
+        if 'dim-01:territori (order)' in df.columns:
+            df['Codi_Barri'] = df['dim-01:territori (order)']
+        elif 'dim-01:territori' in df.columns and 'Codi_Barri' not in df.columns:
+            df['Codi_Barri'] = df['dim-01:territori'].str.extract(r'^(\d+)').astype(float)
+        
         # 3. Asegurar tipos numéricos
+        if 'Any' in df.columns and df['Any'].dtype == 'object':
+            # Intentar extraer año de fecha (ISO format como 2018-01-01T00:00:00Z)
+            df['Any'] = pd.to_datetime(df['Any'], errors='coerce').dt.year
+            
         df['Any'] = pd.to_numeric(df['Any'], errors='coerce')
         df['Codi_Barri'] = pd.to_numeric(df['Codi_Barri'], errors='coerce')
         
@@ -272,6 +322,45 @@ def prepare_fact_catastro_avanzado(
                 logger.warning(f"    No se encontró columna de nacionalidad")
                 continue
         
+        elif 'built' in key or 'soil' in key or 'surface_total' in key or 'surface_soil' in key:
+            # Superficie construida o de suelo (Portaldades proxy para plantas)
+            logger.info(f"    Tipo: Proxy de Plantas (Superficie)")
+            
+            # Buscar columna de valor
+            val_col = 'valor' if 'valor' in df.columns else (
+                'value' if 'value' in df.columns else (
+                'Valor' if 'Valor' in df.columns else None))
+            
+            if val_col:
+                df[val_col] = pd.to_numeric(df[val_col], errors='coerce')
+                # Fix: Check for 'built' or 'constru' in key
+                metric = 'built_surface' if 'built' in key or 'constru' in key else 'soil_surface'
+                df = df.groupby(['Any', 'Codi_Barri'])[val_col].sum().reset_index()
+                df = df.rename(columns={val_col: metric})
+                logger.info(f"    Resultado {metric}: {len(df)} filas")
+            else:
+                logger.warning(f"    No se encontró columna de valor en {key}")
+                continue
+        
+        elif 'floors' in key or 'plantes' in key:
+            # Dataset oficial de plantas (o similar directo)
+            logger.info(f"    Tipo: Plantas (Directo)")
+            # Intentar encontrar una columna que represente el promedio o valor
+            val_col = None
+            for col in ['valor', 'value', 'nombre', 'count']:
+                if col in df.columns:
+                    val_col = col
+                    break
+            
+            if val_col:
+                # Agregación simple si es un dataset de conteo (aproximación)
+                df = df.groupby(['Any', 'Codi_Barri'])[val_col].mean().reset_index()
+                df = df.rename(columns={val_col: 'num_plantas_avg'})
+                logger.info(f"    Resultado num_plantas_avg: {len(df)} filas")
+            else:
+                logger.warning(f"    No se pudo procesar dataset de plantas")
+                continue
+        
         else:
             logger.warning(f"    Tipo de dataset no reconocido: {key}")
             continue
@@ -294,28 +383,46 @@ def prepare_fact_catastro_avanzado(
     logger.info(f"Antes de mapear barrio_id: {len(combined_df)} filas")
     logger.info(f"Columnas disponibles: {list(combined_df.columns)}")
     
-    # 6. Mapear barrio_id
+    # 6. Map barrio_id and calculate topographical penalty
     combined_df['Codi_Barri'] = pd.to_numeric(combined_df['Codi_Barri'], errors='coerce')
-    dim_barrios_clean = dim_barrios[['codi_barri', 'barrio_id']].copy()
+    dim_barrios_clean = dim_barrios[['codi_barri', 'barrio_id', 'barrio_nombre', 'distrito_nombre']].copy()
     dim_barrios_clean['codi_barri_num'] = pd.to_numeric(dim_barrios_clean['codi_barri'], errors='coerce')
     
     combined_df = pd.merge(
         combined_df,
-        dim_barrios_clean[['codi_barri_num', 'barrio_id']],
+        dim_barrios_clean[['codi_barri_num', 'barrio_id', 'barrio_nombre', 'distrito_nombre']],
         left_on='Codi_Barri',
         right_on='codi_barri_num',
         how='inner'
     )
     
-    logger.info(f"Después de mapear barrio_id: {len(combined_df)} filas")
+    # Apply topographical penalty
+    combined_df['indice_penalizacion_topografica'] = combined_df.apply(
+        lambda x: get_topographical_penalty(x['barrio_nombre'], x['distrito_nombre']),
+        axis=1
+    )
+    
+    logger.info(f"Después de mapear barrio_id y calcular penalización topographical: {len(combined_df)} filas")
     
     # 7. Preparar columnas finales
     combined_df = combined_df.rename(columns={'Any': 'anio'})
     combined_df['etl_loaded_at'] = reference_time.isoformat()
     
+    # Calculate num_plantas_avg proxy if built/soil columns are available
+    if 'built_surface' in combined_df.columns and 'soil_surface' in combined_df.columns:
+        # Avoid division by zero
+        combined_df['num_plantas_avg_proxy'] = combined_df['built_surface'] / combined_df['soil_surface'].replace(0, np.nan)
+        # If num_plantas_avg doesn't exist yet, use the proxy
+        if 'num_plantas_avg' not in combined_df.columns:
+            combined_df['num_plantas_avg'] = combined_df['num_plantas_avg_proxy']
+        else:
+            # Fill NaNs in official with proxy if available
+            combined_df['num_plantas_avg'] = combined_df['num_plantas_avg'].fillna(combined_df['num_plantas_avg_proxy'])
+        logger.info(f"Calculado num_plantas_avg (proxy/fusion): mean={combined_df['num_plantas_avg'].mean():.2f}")
+
     cols = ['barrio_id', 'anio', 'num_propietarios_fisica', 'num_propietarios_juridica',
             'pct_propietarios_extranjeros', 'superficie_media_m2', 'num_plantas_avg',
-            'antiguedad_media_bloque', 'etl_loaded_at']
+            'antiguedad_media_bloque', 'indice_penalizacion_topografica', 'etl_loaded_at']
     
     result = combined_df[[c for c in cols if c in combined_df.columns]]
     logger.info(f"Resultado final: {len(result)} filas, columnas: {list(result.columns)}")

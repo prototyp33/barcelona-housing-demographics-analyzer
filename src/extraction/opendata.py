@@ -38,6 +38,8 @@ class OpenDataBCNExtractor(BaseExtractor):
         "cadastre_avg_surface": "est-cadastre-habitatges-superficie-mitjana",
         "cadastre_owner_nationality": "est-cadastre-locals-prop",
         "cadastre_floors": "immo-edif-hab-segons-num-plantes-sobre-rasant",
+        "cadastre_built_surface": "spoprmtadc",
+        "cadastre_soil_surface": "wjnmk82jd9",
         "household_crowding": "pad_dom_mdbas_n-persones",
         "household_nationality": "pad_dom_mdbas_nacionalitat",
         "household_minors": "pad_dom_mdbas_edat-0018",

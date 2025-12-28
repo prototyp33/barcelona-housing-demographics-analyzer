@@ -337,7 +337,7 @@ def run_etl(
         # Mapeo de grupos a sus keys
         advanced_groups = {
             "renta": ["income_gross_household", "income_gini", "income_p80_p20"],
-            "catastro": ["cadastre_year_const", "cadastre_owner_type", "cadastre_avg_surface", "cadastre_owner_nationality", "cadastre_floors"],
+            "catastro": ["cadastre_year_const", "cadastre_owner_type", "cadastre_avg_surface", "cadastre_owner_nationality", "cadastre_floors", "cadastre_built_surface", "cadastre_soil_surface"],
             "hogares": ["household_crowding", "household_nationality", "household_minors", "household_women"],
             "turismo": ["tourism_intensity", "tourism_hut"]
         }
@@ -365,6 +365,9 @@ def run_etl(
                 if path is None:
                     # Fallback: buscar por ID del dataset en el nombre del archivo
                     path = _find_latest_file(RAW_OPENDATABCN_DIR, f"*{dataset_id}*.csv")
+                    # También buscar en portaldades si no se encuentra en opendatabcn
+                    if path is None and portaldades_dir.exists():
+                        path = _find_latest_file(portaldades_dir, f"*{dataset_id}*.csv")
                 
                 if path:
                     logger.info(f"Cargando dataset avanzado '{key}' desde: {path.name}")
