@@ -193,6 +193,54 @@ Access the dashboard at `http://localhost:8501`.
 - **Demographic Deep-dive:** Age structure, migration, and household composition.
 - **Data Export:** Download the full cleaned database (SQLite) directly from the sidebar.
 
+### 🚀 REST API (FastAPI)
+
+The project includes a production-ready REST API serving XGBoost predictions and housing analytics.
+
+#### Run the API
+
+```bash
+# Option 1: Using Makefile (recommended)
+make api
+
+# Option 2: Using Python
+python3 scripts/run_api.py
+
+# Option 3: Using uvicorn directly
+uvicorn src.api.main:app --reload
+```
+
+Access the API at:
+
+- **API**: http://localhost:8000
+- **Interactive Docs (Swagger)**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+#### Quick API Test
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Get investment recommendations
+curl -X POST http://localhost:8000/investment/recommend \
+  -H "Content-Type: application/json" \
+  -d '{"budget": 250000, "strategy": "yield", "max_results": 5}'
+
+# Run full test suite
+python3 scripts/test_api.py
+```
+
+**API Endpoints:**
+
+- `/barrios` - List all neighborhoods
+- `/barrios/{id}` - Get neighborhood details
+- `/predictions/{id}` - Get price prediction
+- `/investment/recommend` - Get investment recommendations
+- `/clusters/` - Get cluster information
+
+For complete API documentation, see [docs/API_README.md](docs/API_README.md).
+
 ### Data Extraction
 
 #### Extract Priority Sources (GeoJSON, Demographics, Income)
