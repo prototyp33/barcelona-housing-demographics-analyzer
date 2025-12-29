@@ -1,12 +1,19 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 21 de diciembre de 2025
+**Última actualización**: 29 de diciembre de 2025
 
----
+## 🏆 Últimos Hitos (Fase 2: Modelado Hedónico Avanzado) ✅
 
-## 📊 Resumen Ejecutivo
+Se ha completado la Fase 2 con éxito, elevando la capacidad analítica del proyecto:
+
+- 🚀 **Modelo XGBoost (MACRO v0.3)**: Implementado con R² mejorado y nuevas variables físicas.
+- 🏘️ **Segmentación Automática**: Clustering K-Means de barrios en 4 segmentos estratégicos.
+- 📐 **Penalizaciones Hedónicas**: Integración de índices topográficos y proxies de accesibilidad (plantas/ascensor).
+- 💰 **Consultor de Inversión**: Motor de recomendación basado en desviaciones de valor y yields.
+- 🔄 **ETL Avanzado**: Pipeline enriquecido con distancias Haversine (POIs) y proxies de superficie.
 
 El proyecto ha completado exitosamente el **Sprint de Integridad de Datos (Nov 2025)**, cumpliendo todos los criterios críticos:
+
 - ✅ **fact_precios**: 6,358 registros preservados (objetivo: >1,014)
 - ✅ **dim_barrios**: 73/73 barrios con geometrías GeoJSON válidas (100%)
 - ✅ **fact_demografia**: 0% nulls en campos críticos (objetivo: <10%)
@@ -20,6 +27,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### 1. **Infraestructura de Extracción de Datos** ✅
 
 - **Módulo de extracción modular** (`src/data_extraction.py`):
+
   - `BaseExtractor` con funcionalidades comunes (rate limiting, retry, logging)
   - `INEExtractor` - Extracción de datos del INE (estructura base)
   - `OpenDataBCNExtractor` - Integración con API CKAN de Open Data BCN
@@ -39,6 +47,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 - **Base de datos SQLite** (`data/processed/database.db`):
   - ✅ `dim_barrios` - 73 barrios con metadatos completos
 - ✅ `fact_precios` - 1,014 registros (venta y alquiler)
+
   - ✅ `fact_demografia` - 657 registros (2015-2023)
   - ✅ `etl_runs` - Auditoría de ejecuciones ETL
 
@@ -61,6 +70,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
   - ✅ Reporte JSON detallado
 
 **Resultados de validación**:
+
 - ✅ 102 archivos OK (72%)
 - ⚠️ 39 archivos con warnings (28%) - principalmente columnas constantes esperadas
 - ❌ 0 archivos con errores críticos
@@ -96,23 +106,27 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 #### MACRO v0.2 Optimizado ✅ (LISTO PARA PRODUCCIÓN)
 
 **Performance**:
+
 - R² = 0.7944
 - RMSE = 272.34 €/m²
 - Features = 11 (colinealidad eliminada)
 
 **Features clave**:
+
 - `renta_promedio_barrio` (mayor peso)
 - `plantas_barrio_mean` (validado estadísticamente)
 - `ano_construccion_barrio_mean`
 - `latitud`, `longitud` (efectos espaciales)
 
 **Validaciones completadas**:
+
 - ✅ VIF < 5 (sin colinealidad)
 - ✅ Residuos normales (p = 0.08)
 - ✅ Coeficientes interpretables
 - ✅ `plantas_barrio_mean` investigado y validado (Fases 1-4 completadas)
 
 **Investigación de coeficientes**:
+
 - ✅ Correlación simple: r = -0.48 (significativa)
 - ✅ Correlación parcial (controlando año): r = -0.23 (significativa)
 - ✅ Interacción con ascensor: r = 0.77 (alta correlación)
@@ -135,6 +149,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Datos Brutos (`data/raw/`)
 
 #### 1. **Open Data BCN** (`data/raw/opendatabcn/`)
+
 - **Demografía**: `opendatabcn_demographics_*.csv`
   - Población por barrio, sexo y año (2015-2023)
   - ~657 registros procesados
@@ -145,6 +160,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
   - Datos disponibles pero sin métrica de precio identificable
 
 #### 2. **Portal de Dades** (`data/raw/portaldades/`)
+
 - **141 archivos CSV** de indicadores de "Habitatge"
 - **Metadatos**: `indicadores_habitatge.csv` (141 indicadores)
 - **Tipos de datos**:
@@ -155,11 +171,13 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 - **Granularidad**: Barrio, Distrito, Municipio
 
 #### 3. **INE** (`data/raw/ine/`)
+
 - Estructura base preparada (pendiente extracción completa)
 
 ### Base de Datos Procesada (`data/processed/database.db`)
 
 #### `dim_barrios` (73 registros - 100% con geometría) ✅
+
 ```sql
 - barrio_id (PK)
 - barrio_nombre
@@ -173,6 +191,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 **Estado**: ✅ **COMPLETADO** - Todos los barrios tienen geometrías válidas cargadas desde `barrios_geojson_*.json`
 
 #### `fact_precios` (6,358 registros) ✅
+
 ```sql
 - barrio_id (FK)
 - anio (2012-2025)
@@ -183,12 +202,14 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ```
 
 **Fuentes**:
+
 - `opendatabcn_idealista`: 59 registros (2015)
 - `portaldades`: 6,299 registros (2012-2025)
 
 **Estado**: ✅ **COMPLETADO** - Multi-source records preservados, sin duplicados reales
 
 #### `fact_demografia` (657 registros) ✅
+
 ```sql
 - barrio_id (FK)
 - anio (2015-2023)
@@ -209,22 +230,25 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Criterios del Sprint - Todos Cumplidos ✅
 
 #### 1. **fact_precios: Multi-source records preserved** ✅
+
 - **Objetivo**: >1,014 registros preservando datos de múltiples fuentes
 - **Estado Actual**: 6,358 registros
-- **Verificación**: 
+- **Verificación**:
   - ✅ Sin duplicados reales (0 violaciones de índice único)
   - ✅ Múltiples fuentes preservadas (opendatabcn_idealista + portaldades)
   - ✅ Trazabilidad completa con `dataset_id` y `source`
 
 #### 2. **dim_barrios: GeoJSON geometries injected** ✅
+
 - **Objetivo**: 73/73 barrios con `geometry_json` válido
 - **Estado Actual**: 73/73 barrios (100%)
-- **Verificación**: 
+- **Verificación**:
   - ✅ Todas las geometrías cargadas desde `barrios_geojson_*.json`
   - ✅ Validación de estructura GeoJSON completa
   - ✅ Script `scripts/load_geometries.py` operativo
 
 #### 3. **fact_demografia: <10% nulls in key fields** ✅
+
 - **Objetivo**: <10% nulls en campos críticos
 - **Estado Actual**: 0% nulls en campos críticos
 - **Verificación**:
@@ -259,6 +283,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 **Estado**: `IdealistaRapidAPIExtractor` ya se autentica correctamente (Plan Basic, 150 peticiones/mes). Falta completar el `barrio_location_ids.csv` para los 73 barrios y ejecutar la extracción mensual.
 
 **Riesgos**:
+
 - Límite duro de 150 peticiones: discovery + extracción debe planificarse cuidadosamente.
 - API no oficial (scraperium): susceptible a cambios en el HTML de Idealista.
 
@@ -273,11 +298,13 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Prioridad Alta 🔴
 
 1. **Resolver deduplicación en fact_precios**
+
    - Issue: #XX (crear)
    - Tiempo estimado: 2-3 horas
    - Impacto: Alto - recuperar datos perdidos
 
 2. **Completar campos NULL en fact_demografia**
+
    - Buscar datasets adicionales en Portal de Dades
    - Integrar datos de INE si están disponibles
    - Issue: #XX (crear)
@@ -290,12 +317,14 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Prioridad Media 🟡
 
 4. **EDA Inicial** (`notebooks/01-eda-initial.ipynb`)
+
    - Análisis exploratorio de datos cargados
    - Visualizaciones básicas
    - Identificar patrones y outliers
    - Milestone: Milestone 2
 
 5. **Implementar análisis básico** (`src/analysis.py`)
+
    - Funciones de correlación demografía-precios
    - Estadísticas por barrio/distrito
    - Tendencias temporales
@@ -309,10 +338,12 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Prioridad Baja 🟢
 
 7. **Completar extractores**
+
    - INE: Implementar extracción completa
    - Idealista: Evaluar viabilidad legal/ética
 
 8. **Dashboard Streamlit** (`src/app.py`)
+
    - Visualizaciones interactivas
    - Filtros por barrio, año, etc.
    - Milestone: Milestone 4
@@ -331,18 +362,21 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Issues Técnicos
 
 1. **Fix: Deduplicación agresiva en fact_precios**
+
    - Tipo: `bug`
    - Prioridad: `high`
    - Labels: `data-processing`, `etl`, `database`
    - Descripción: Se pierden datos válidos al deduplicar por barrio_id/anio/trimestre sin considerar dataset_id
 
 2. **Feature: Completar campos demográficos faltantes**
+
    - Tipo: `enhancement`
    - Prioridad: `high`
    - Labels: `data-processing`, `etl`
    - Descripción: Buscar e integrar datos para hogares_totales, edad_media, porc_inmigracion, densidad_hab_km2
 
 3. **Improvement: Mejorar mapeo de territorios Portal de Dades**
+
    - Tipo: `enhancement`
    - Prioridad: `medium`
    - Labels: `data-processing`, `quality-assurance`
@@ -357,6 +391,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Issues de Desarrollo
 
 5. **Task: EDA Inicial - Análisis Exploratorio**
+
    - Tipo: `task`
    - Prioridad: `medium`
    - Labels: `analysis`, `notebook`
@@ -364,6 +399,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
    - Descripción: Completar notebook 01-eda-initial.ipynb con análisis de datos cargados
 
 6. **Feature: Implementar funciones de análisis**
+
    - Tipo: `enhancement`
    - Prioridad: `medium`
    - Labels: `analysis`
@@ -371,6 +407,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
    - Descripción: Crear funciones en src/analysis.py para correlaciones y estadísticas
 
 7. **Feature: Dashboard Streamlit** ✅ En Progreso
+
    - Tipo: `enhancement`
    - Prioridad: `high`
    - Labels: `dashboard`, `streamlit`, `visualization`
@@ -388,7 +425,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
    - Labels: `testing`, `quality-assurance`
    - Milestone: Milestone 5
    - Descripción: Crear suite de tests para funciones críticas
-   - **Progreso**: 
+   - **Progreso**:
      - ✅ PR #110: Tests para `demographics.py` (58% cobertura)
      - ✅ PR #111: Tests para `pipeline.py` (78% cobertura)
      - ⚠️ Pendiente: `market.py` (37%), `orchestrator.py` (4%)
@@ -396,6 +433,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 ### Issues de Datos
 
 9. **Task: Implementar extractor INE completo**
+
    - Tipo: `task`
    - Prioridad: `low`
    - Labels: `data-extraction`, `ine`
@@ -431,7 +469,7 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 - **Módulos principales**: 5
 - **Scripts CLI**: 4
 - **Documentación**: 8 documentos
-- **Tests**: 
+- **Tests**:
   - ✅ Cobertura total: **37%** (objetivo: ≥80%)
   - ✅ `cleaners.py`: **100%** cobertura
   - ✅ `database_setup.py`: **97%** cobertura
@@ -471,4 +509,3 @@ El siguiente hito natural es **Milestone 2: Initial Analysis & EDA**, que permit
 ---
 
 **Próxima acción recomendada**: Crear issues en GitHub para los problemas identificados y comenzar con el EDA inicial.
-

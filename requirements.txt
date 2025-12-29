@@ -48,6 +48,14 @@ seaborn
 folium==0.20.0
 branca==0.8.2
 pydeck==0.9.1
+
+# =============================================================================
+# API Framework (FastAPI)
+# =============================================================================
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+python-multipart>=0.0.20
 xyzservices==2025.11.0
 
 # Geospatial

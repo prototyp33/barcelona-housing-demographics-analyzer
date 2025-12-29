@@ -109,6 +109,22 @@ dashboard-demo:  ## Inicia dashboard en modo demo (puerto 8502)
 	@PYTHONPATH=. streamlit run src/app/main.py --server.port 8502
 
 # ============================================================
+# API (FastAPI)
+# ============================================================
+
+api:  ## Inicia API REST (FastAPI)
+	@echo "Iniciando API REST en http://localhost:8000..."
+	@python3 scripts/run_api.py
+
+api-docs:  ## Abre documentación de API en el navegador
+	@echo "Abriendo documentación de API..."
+	@open http://localhost:8000/docs || xdg-open http://localhost:8000/docs
+
+api-test:  ## Prueba health check de API
+	@echo "Probando API health check..."
+	@curl -s http://localhost:8000/health | python3 -m json.tool
+
+# ============================================================
 # INSTALACION Y SETUP
 # ============================================================
 
