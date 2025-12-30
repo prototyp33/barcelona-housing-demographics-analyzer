@@ -164,6 +164,10 @@ class ModelService:
         reco = reco.copy()
         reco['estimated_total_cost'] = reco['avg_venta_23'] * avg_size
         
+        # Add segmento if not present
+        if 'segmento' not in reco.columns:
+            reco['segmento'] = 0
+        
         return reco[['barrio_nombre', 'avg_venta_23', 'gross_yield', 'desviacion_valor', 
                      'segmento', 'estimated_total_cost']]
     

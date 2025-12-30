@@ -43,7 +43,7 @@ async def get_recommendations(request: InvestmentRequest):
                 avg_venta_23=row['avg_venta_23'],
                 gross_yield=row['gross_yield'],
                 desviacion_valor=row['desviacion_valor'],
-                segmento=int(row['segmento']) if pd.notna(row['segmento']) else 0,
+                segmento=int(row['segmento']) if 'segmento' in row and pd.notna(row['segmento']) else 0,
                 estimated_total_cost=row['estimated_total_cost'],
                 rank=len(recommendations) + 1
             )
