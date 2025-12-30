@@ -114,7 +114,11 @@ dashboard-demo:  ## Inicia dashboard en modo demo (puerto 8502)
 
 api:  ## Inicia API REST (FastAPI)
 	@echo "Iniciando API REST en http://localhost:8000..."
-	@python3 scripts/run_api.py
+	@if [ -d .venv ]; then \
+		. .venv/bin/activate && python3 scripts/run_api.py; \
+	else \
+		python3 scripts/run_api.py; \
+	fi
 
 api-docs:  ## Abre documentación de API en el navegador
 	@echo "Abriendo documentación de API..."
