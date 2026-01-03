@@ -91,7 +91,7 @@ def test_opendata_get_dataset_info_failure(opendata_extractor, mock_response):
 def test_opendata_download_dataset_success_csv(opendata_extractor, mock_response):
     """Test successful download of a CSV dataset."""
     dataset_id = "test-csv"
-    csv_content = "col1,col2\nval1,val2"
+    csv_content = b"col1,col2\nval1,val2"  # Use bytes, not string
     
     # Mock get_dataset_info response
     info_resp = mock_response(json_data={
@@ -101,8 +101,8 @@ def test_opendata_download_dataset_success_csv(opendata_extractor, mock_response
         }
     })
     
-    # Mock download response
-    download_resp = mock_response(text=csv_content)
+    # Mock download response - use content (bytes) not text
+    download_resp = mock_response(content=csv_content)
     
     # Configure side_effect for sequential calls
     opendata_extractor.session.get.side_effect = [info_resp, download_resp]
