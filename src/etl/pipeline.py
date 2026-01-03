@@ -76,8 +76,26 @@ def _load_manifest(raw_dir: Path) -> List[Dict[str, object]]:
     try:
         with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
-        logger.info("Manifest cargado: %d entradas", len(manifest))
-        return manifest
+
+        # Validar estructura básica
+        if not isinstance(manifest, list):
+            logger.warning("El manifest.json no es una lista válida. Ignorando.")
+            return []
+
+        # Filtrar entradas inválidas (no son diccionarios)
+        valid_entries = [
+            entry for entry in manifest
+            if isinstance(entry, dict)
+        ]
+
+        if len(valid_entries) < len(manifest):
+            logger.warning(
+                "Se ignoraron %d entradas inválidas en manifest.json",
+                len(manifest) - len(valid_entries)
+            )
+
+        logger.info("Manifest cargado: %d entradas válidas", len(valid_entries))
+        return valid_entries
     except (json.JSONDecodeError, Exception) as e:
         logger.warning("Error cargando manifest.json: %s", e)
         return []

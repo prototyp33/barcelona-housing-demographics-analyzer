@@ -201,6 +201,7 @@ class TestValidateAllFactTables:
             renta_out,
             oferta_out,
             regulacion_out,
+            _, _, _, _, _, _, _, _, _, _,  # 10 placeholders for new tables
             results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
@@ -224,6 +225,7 @@ class TestValidateAllFactTables:
             demo_amp_out,
             renta_out,
             oferta_out,
+            _, _, _, _, _, _, _, _, _, _, _, # 11 placeholders including regulacion
             results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,

@@ -206,6 +206,13 @@ def prepare_fact_precios(
             fact = pd.DataFrame()
 
         if not fact.empty:
+            # Normalizar posibles valores concatenados con '|' eliminando duplicados
+            # Se aplica ANTES de la deduplicación para corregir tags duplicados (e.g. "SourceA|SourceA")
+            if "source" in fact.columns:
+                fact["source"] = fact["source"].apply(_normalize_pipe_tags)
+            if "dataset_id" in fact.columns:
+                fact["dataset_id"] = fact["dataset_id"].apply(_normalize_pipe_tags)
+
             dedup_columns = [
                 "barrio_id",
                 "anio",
@@ -233,12 +240,6 @@ def prepare_fact_precios(
                     rows_after,
                     rows_before - rows_after,
                 )
-
-            # Normalizar posibles valores concatenados con '|' eliminando duplicados
-            if "source" in fact.columns:
-                fact["source"] = fact["source"].apply(_normalize_pipe_tags)
-            if "dataset_id" in fact.columns:
-                fact["dataset_id"] = fact["dataset_id"].apply(_normalize_pipe_tags)
 
             if fact["source"].astype(str).str.contains(r"\\|").any():
                 logger.error(
