@@ -1,260 +1,489 @@
-# Próximos Pasos - Roadmap de Desarrollo
+# 🚀 Next Steps - Barcelona Housing Demographics Analyzer
 
-Este documento detalla los próximos pasos recomendados para continuar el desarrollo del proyecto Barcelona Housing Demographics Analyzer.
-
-## ✅ Estado Actual
-
-**Completado**:
-- ✅ **Milestone 1: Foundation & Data Infrastructure**
-  - Extracción de datos (E) con mejoras avanzadas
-  - Transformación (T) con esquema dimensional
-  - Carga (L) en SQLite
-  - Pipeline ETL completo y funcional
-
-**Base de datos disponible**: `data/processed/database.db` con:
-- `dim_barrios`: 73 barrios
-- `fact_demografia`: 657 registros (2015-2023)
-- `fact_precios`: 59 registros (venta 2015)
-- `etl_runs`: Auditoría de ejecuciones
+**Date:** 2026-01-03  
+**Current Status:** Phase 2 Complete, Ready for Phase 3  
+**Last Milestone:** TMB/OSM ingestion + Accessibility features + Fairness harness
 
 ---
 
-## 🎯 Próximos Pasos Recomendados
+## 📊 Current State
 
-### **Paso 1: Documentación del Esquema de Base de Datos** (Prioridad Alta)
+### ✅ What's Working
 
-**Objetivo**: Documentar la estructura completa de la base de datos para facilitar análisis y desarrollo.
+- **Data Pipeline:** TMB/OSM ingestion (1,071 bus stops, 165 rail stations)
+- **Features:** Accessibility metrics (5 features per barrio)
+- **Database:** `v_demografia_aggregated` view providing demographic metrics
+- **Testing:** Fairness A/B harness with improved baseline (MAE: 422€, R²: 0.72)
+- **Coverage:** 73/73 barrios with complete data
 
-**Tareas**:
-- [ ] Crear `docs/DATABASE_SCHEMA.md` con:
-  - Descripción detallada de cada tabla
-  - Relaciones entre tablas (diagrama ER)
-  - Ejemplos de consultas SQL comunes
-  - Convenciones de nombres y tipos de datos
-- [ ] Agregar diagrama de relaciones (usando Mermaid o similar)
-- [ ] Documentar índices y constraints
+### ⚠️ What Needs Attention
 
-**Tiempo estimado**: 2-3 horas
-
----
-
-### **Paso 2: EDA Inicial - Notebook de Exploración** (Prioridad Alta)
-
-**Objetivo**: Completar `notebooks/01-eda-initial.ipynb` con análisis exploratorio de los datos cargados.
-
-**Tareas**:
-- [ ] Conectar a la base de datos SQLite
-- [ ] Análisis descriptivo básico:
-  - Resumen estadístico de `fact_demografia`
-  - Resumen estadístico de `fact_precios`
-  - Distribución de barrios y distritos
-- [ ] Visualizaciones iniciales:
-  - Evolución temporal de población por distrito
-  - Distribución de precios de venta por barrio
-  - Mapa de calor de precios vs población
-- [ ] Identificar datos faltantes y outliers
-- [ ] Documentar hallazgos iniciales
-
-**Tiempo estimado**: 4-6 horas
-
-**Ejemplo de código inicial**:
-```python
-import sqlite3
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-conn = sqlite3.connect('../data/processed/database.db')
-
-# Cargar datos
-df_demo = pd.read_sql_query("""
-    SELECT d.*, b.barrio_nombre, b.distrito_nombre
-    FROM fact_demografia d
-    JOIN dim_barrios b ON d.barrio_id = b.barrio_id
-""", conn)
-
-df_precios = pd.read_sql_query("""
-    SELECT p.*, b.barrio_nombre, b.distrito_nombre
-    FROM fact_precios p
-    JOIN dim_barrios b ON p.barrio_id = b.barrio_id
-""", conn)
-```
+- **Model Performance:** V2 (accessibility+) performs worse than V1 baseline
+  - V2 MAE: 449€ vs V1: 422€ (+6.4%)
+  - V2 R²: 0.67 vs V1: 0.72 (-6.7%)
+- **Fairness Metrics:** GES dropped from 0.51 to 0.36 (equity worsened)
+- **Test Debt:** 14 tests skipped (pre-existing issues)
+- **Data Gaps:** Some fact tables still empty
 
 ---
 
-### **Paso 3: Funciones de Análisis Básicas** (Prioridad Media)
+## 🎯 Immediate Priorities (Next Sprint)
 
-**Objetivo**: Implementar funciones útiles en `src/analysis.py` para análisis reutilizables.
+### 1. **Fix Accessibility Feature Engineering** 🔧
 
-**Funciones sugeridas**:
-- [ ] `get_demographics_by_district(district_name, year_start, year_end)`
-- [ ] `get_housing_prices_by_barrio(barrio_name, year_start, year_end)`
-- [ ] `calculate_population_growth(barrio_id, year_start, year_end)`
-- [ ] `correlate_demographics_prices(district_name=None)`
-- [ ] `get_top_barrios_by_metric(metric, top_n=10, year=None)`
-- [ ] `compare_barrios(barrio_ids, metrics=['poblacion_total', 'precio_m2_venta'])`
+**Priority:** HIGH  
+**Effort:** 2-3 days  
+**Impact:** Critical for model performance
 
-**Tiempo estimado**: 4-6 horas
+**Tasks:**
 
----
+- [ ] Standardize features (z-score normalization)
+  ```python
+  from sklearn.preprocessing import StandardScaler
+  scaler = StandardScaler()
+  X_scaled = scaler.fit_transform(X)
+  ```
+- [ ] Test interaction terms: `renta_mediana * access_score`
+- [ ] Create polynomial features for distances (non-linear relationships)
+- [ ] Remove multicollinearity (dist_metro_m vs estaciones_metro)
+- [ ] Add log transformations for distance features
 
-### **Paso 4: Visualizaciones Interactivas Básicas** (Prioridad Media)
+**Expected Outcome:**
 
-**Objetivo**: Crear visualizaciones interactivas usando Plotly o Altair.
-
-**Tareas**:
-- [ ] Función para gráfico de evolución temporal (población/precios)
-- [ ] Función para mapa de calor de correlaciones
-- [ ] Función para comparación de barrios
-- [ ] Guardar visualizaciones en `notebooks/visualizations/`
-
-**Tiempo estimado**: 3-4 horas
-
----
-
-### **Paso 5: Dashboard Streamlit Básico** (Prioridad Baja - Futuro)
-
-**Objetivo**: Crear un dashboard interactivo básico en `src/app.py`.
-
-**Funcionalidades iniciales**:
-- [ ] Selector de barrio/distrito
-- [ ] Visualización de evolución temporal
-- [ ] Tabla de datos filtrados
-- [ ] Métricas resumen (población, precios)
-
-**Tiempo estimado**: 6-8 horas
+- V2 MAE < V1 MAE (target: <400€)
+- GES > 0.70 (improved equity)
+- R² > 0.75
 
 ---
 
-### **Paso 6: Mejoras al Pipeline ETL** (Prioridad Baja)
+### 2. **Create Tracking Issue for Skipped Tests** 📝
 
-**Tareas opcionales**:
-- [ ] Agregar validación de integridad referencial
-- [ ] Implementar incremental loads (solo nuevos datos)
-- [ ] Agregar tests unitarios para ETL
-- [ ] Optimizar consultas SQL
+**Priority:** MEDIUM  
+**Effort:** 1 hour  
+**Impact:** Technical debt management
 
-**Tiempo estimado**: 4-6 horas
+**Tasks:**
 
----
+- [ ] Create GitHub issue using `.github/ISSUE_TEMPLATE_SKIPPED_TESTS.md`
+- [ ] Assign to backlog
+- [ ] Set priority: Medium
+- [ ] Add labels: `technical-debt`, `testing`
 
-## 📋 Plan de Acción Inmediato (Esta Semana)
+**Command:**
 
-### Día 1-2: Documentación
-1. Crear `docs/DATABASE_SCHEMA.md`
-2. Actualizar README con instrucciones de uso del ETL
-
-### Día 3-4: EDA
-1. Completar `notebooks/01-eda-initial.ipynb`
-2. Generar visualizaciones iniciales
-3. Documentar hallazgos
-
-### Día 5: Funciones de Análisis
-1. Implementar 3-4 funciones básicas en `analysis.py`
-2. Probar funciones con datos reales
-
----
-
-## 🔧 Comandos Útiles para Empezar
-
-### Verificar datos en la base de datos:
 ```bash
-python -c "
-import sqlite3
-import pandas as pd
-conn = sqlite3.connect('data/processed/database.db')
-print('Barrios:', pd.read_sql_query('SELECT COUNT(*) FROM dim_barrios', conn).iloc[0,0])
-print('Demografía:', pd.read_sql_query('SELECT COUNT(*) FROM fact_demografia', conn).iloc[0,0])
-print('Precios:', pd.read_sql_query('SELECT COUNT(*) FROM fact_precios', conn).iloc[0,0])
-"
+gh issue create \
+  --title "Fix 14 Pre-existing Test Failures" \
+  --body-file .github/ISSUE_TEMPLATE_SKIPPED_TESTS.md \
+  --label technical-debt,testing \
+  --milestone "Phase 3"
 ```
 
-### Regenerar base de datos después de nueva extracción:
-```bash
-# 1. Extraer datos actualizados
-python scripts/extract_data.py --sources opendatabcn --year-start 2015 --year-end 2023
+---
 
-# 2. Ejecutar ETL
-python scripts/process_and_load.py --raw-dir data/raw --processed-dir data/processed
-```
+### 3. **Update PROJECT_STATUS.md** 📄
 
-### Explorar datos en Jupyter:
+**Priority:** MEDIUM  
+**Effort:** 30 minutes  
+**Impact:** Documentation completeness
+
+**Tasks:**
+
+- [ ] Mark Phase 2 as complete
+- [ ] Update feature inventory
+- [ ] Document new database views
+- [ ] Add fairness testing section
+- [ ] Update next steps
+
+---
+
+## 🔬 Feature Engineering Experiments (Week 1-2)
+
+### Experiment 1: Feature Scaling & Normalization
+
+**Hypothesis:** Raw distance features have different scales causing model instability
+
+**Approach:**
+
 ```python
-# En notebooks/01-eda-initial.ipynb
-import sqlite3
-import pandas as pd
-import matplotlib.pyplot as plt
+# Current (raw)
+features = ['dist_metro_m', 'dist_bus_m', 'access_score']
 
-conn = sqlite3.connect('../data/processed/database.db')
+# Proposed (scaled)
+from sklearn.preprocessing import StandardScaler, RobustScaler
+scaler = RobustScaler()  # Less sensitive to outliers
+X_scaled = scaler.fit_transform(X[features])
+```
 
-# Ver estructura
-tables = pd.read_sql_query(
-    "SELECT name FROM sqlite_master WHERE type='table'", 
-    conn
+**Success Criteria:**
+
+- MAE improvement > 5%
+- Feature importance more balanced
+
+---
+
+### Experiment 2: Interaction Terms
+
+**Hypothesis:** Accessibility impact varies by income level
+
+**Approach:**
+
+```python
+# Create interaction features
+df['renta_x_access'] = df['renta_mediana'] * df['access_score']
+df['renta_x_dist_metro'] = df['renta_mediana'] / (1 + df['dist_metro_m'])
+df['poblacion_x_access'] = df['poblacion_total'] * df['access_score']
+```
+
+**Success Criteria:**
+
+- R² improvement > 0.05
+- GES improvement (better equity)
+
+---
+
+### Experiment 3: Non-linear Transformations
+
+**Hypothesis:** Distance impact is logarithmic, not linear
+
+**Approach:**
+
+```python
+import numpy as np
+
+# Log transformations for distances
+df['log_dist_metro'] = np.log1p(df['dist_metro_m'])
+df['log_dist_bus'] = np.log1p(df['dist_bus_m'])
+
+# Inverse transformations (closer = higher value)
+df['proximity_metro'] = 1 / (1 + df['dist_metro_m'] / 100)
+df['proximity_bus'] = 1 / (1 + df['dist_bus_m'] / 50)
+```
+
+**Success Criteria:**
+
+- Better fit for peripheral barrios
+- Reduced MAE in Nou Barris, Sant Andreu
+
+---
+
+### Experiment 4: Feature Selection
+
+**Hypothesis:** Some features add noise, not signal
+
+**Approach:**
+
+```python
+from sklearn.feature_selection import SelectKBest, f_regression
+
+# Test different feature combinations
+combinations = [
+    ['renta_mediana', 'poblacion_total', 'edad_media', 'access_score'],
+    ['renta_mediana', 'poblacion_total', 'proximity_metro', 'proximity_bus'],
+    ['renta_mediana', 'edad_media', 'log_dist_metro', 'estaciones_metro']
+]
+
+# Use SelectKBest to identify top features
+selector = SelectKBest(f_regression, k=5)
+X_selected = selector.fit_transform(X, y)
+```
+
+**Success Criteria:**
+
+- Simpler model with equal/better performance
+- Reduced overfitting
+
+---
+
+## 📈 Model Improvements (Week 3-4)
+
+### 1. **Regularization & Hyperparameter Tuning**
+
+```python
+from sklearn.model_selection import GridSearchCV
+
+param_grid = {
+    'max_depth': [3, 5, 7],
+    'learning_rate': [0.01, 0.05, 0.1],
+    'n_estimators': [100, 200, 300],
+    'reg_alpha': [0, 0.1, 1.0],  # L1 regularization
+    'reg_lambda': [0, 0.1, 1.0]  # L2 regularization
+}
+
+grid_search = GridSearchCV(
+    XGBRegressor(),
+    param_grid,
+    cv=5,
+    scoring='neg_mean_absolute_error'
 )
-print(tables)
-
-# Cargar datos combinados
-query = """
-SELECT 
-    d.anio,
-    d.poblacion_total,
-    d.poblacion_hombres,
-    d.poblacion_mujeres,
-    p.precio_m2_venta,
-    b.barrio_nombre,
-    b.distrito_nombre
-FROM fact_demografia d
-LEFT JOIN fact_precios p ON d.barrio_id = p.barrio_id AND d.anio = p.anio
-JOIN dim_barrios b ON d.barrio_id = b.barrio_id
-ORDER BY d.anio, b.barrio_nombre
-"""
-
-df = pd.read_sql_query(query, conn)
-print(df.head())
-print(df.info())
 ```
 
 ---
 
-## 📊 Métricas de Éxito
+### 2. **Segment-Weighted Training**
 
-Para considerar completado cada paso:
+**Goal:** Improve fairness by giving more weight to underrepresented segments
 
-- **Paso 1 (Documentación)**: 
-  - ✅ Documento completo con ejemplos
-  - ✅ Diagrama ER incluido
-  
-- **Paso 2 (EDA)**:
-  - ✅ Notebook ejecutable sin errores
-  - ✅ Al menos 5 visualizaciones
-  - ✅ Hallazgos documentados
-  
-- **Paso 3 (Funciones)**:
-  - ✅ Al menos 5 funciones implementadas
-  - ✅ Funciones documentadas con docstrings
-  - ✅ Ejemplos de uso incluidos
+```python
+# Calculate sample weights based on district
+district_counts = df['distrito_nombre'].value_counts()
+df['sample_weight'] = df['distrito_nombre'].map(
+    lambda x: 1.0 / district_counts[x]
+)
+
+# Train with weights
+model.fit(X_train, y_train, sample_weight=weights_train)
+```
 
 ---
 
-## 🚀 Siguiente Hito
+### 3. **Ensemble Methods**
 
-**Objetivo**: Completar Milestone 2 (Initial Analysis & EDA)
+**Goal:** Combine multiple models for better robustness
 
-**Fecha objetivo**: 1-2 semanas
+```python
+from sklearn.ensemble import VotingRegressor
 
-**Entregables**:
-- Documentación del esquema
-- Notebook EDA completo
-- Funciones de análisis básicas
-- Visualizaciones iniciales
+ensemble = VotingRegressor([
+    ('xgb', XGBRegressor()),
+    ('rf', RandomForestRegressor()),
+    ('gb', GradientBoostingRegressor())
+])
+```
 
 ---
 
-## 💡 Notas
+## 🗄️ Data Completeness (Ongoing)
 
-- Priorizar calidad sobre cantidad: mejor tener pocas funciones bien documentadas
-- Mantener el código DRY (Don't Repeat Yourself)
-- Documentar decisiones y hallazgos en los notebooks
-- Commits frecuentes con mensajes descriptivos
+### Priority Tables to Populate
 
+1. **fact_educacion** (Currently: Some data)
+
+   - Source: Open Data BCN
+   - Metrics: Schools, universities per barrio
+   - Impact: Education access features
+
+2. **fact_seguridad** (Currently: Some data)
+
+   - Source: Open Data BCN
+   - Metrics: Crime rates, police stations
+   - Impact: Safety perception features
+
+3. **fact_vivienda_publica** (Currently: Some data)
+
+   - Source: INCASOL, Open Data BCN
+   - Metrics: Public housing availability
+   - Impact: Affordability features
+
+4. **fact_presion_turistica** (Currently: Some data)
+   - Source: Airbnb, Open Data BCN
+   - Metrics: Tourist density, rental pressure
+   - Impact: Gentrification indicators
+
+---
+
+## 🎨 Dashboard & API Enhancements
+
+### 1. **Add Accessibility View to Streamlit Dashboard**
+
+```python
+# New view: src/app/views/accessibility.py
+def render_accessibility_view():
+    st.title("🚇 Accessibility Analysis")
+
+    # Map: Access score by barrio
+    # Chart: Distance to transit vs prices
+    # Table: Top/bottom 10 barrios by access_score
+```
+
+### 2. **API Endpoints for Accessibility**
+
+```python
+# src/api/routers/accessibility.py
+@router.get("/barrios/{barrio_id}/accessibility")
+async def get_barrio_accessibility(barrio_id: int):
+    # Return accessibility metrics for barrio
+    pass
+
+@router.get("/accessibility/rankings")
+async def get_accessibility_rankings():
+    # Return barrios ranked by access_score
+    pass
+```
+
+---
+
+## 🧪 Testing Strategy
+
+### 1. **Fix Skipped Tests** (14 tests)
+
+- Pipeline tests (3): Fix mock data structure
+- Servicios salud tests (5): Fix extractor logic
+- Zonas verdes test (1): Fix assertion
+- Educacion test (1): Fix empty DataFrame handling
+
+### 2. **Add New Tests**
+
+- [ ] Test `v_demografia_aggregated` view
+- [ ] Test accessibility feature engineering
+- [ ] Test fairness metrics calculation
+- [ ] Integration test for full ETL pipeline
+
+---
+
+## 📊 Fairness Monitoring
+
+### 1. **Automated Fairness CI/CD**
+
+```yaml
+# .github/workflows/fairness-check.yml
+name: Fairness Check
+on: [pull_request]
+jobs:
+  fairness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run A/B Harness
+        run: python scripts/fairness_ab_harness.py
+      - name: Check Metrics
+        run: |
+          # Fail if GES < 0.70 or IPR outside [0.8, 1.2]
+```
+
+### 2. **Fairness Dashboard**
+
+- Real-time GES, IPR, PDI metrics
+- District-level error heatmap
+- Trend analysis over time
+
+---
+
+## 🎯 Phase 3 Goals (Next 4-6 Weeks)
+
+### Week 1-2: Feature Engineering
+
+- ✅ Fix accessibility features
+- ✅ Test interaction terms
+- ✅ Implement non-linear transformations
+- ✅ Run experiments, document results
+
+### Week 3-4: Model Optimization
+
+- ✅ Hyperparameter tuning
+- ✅ Segment-weighted training
+- ✅ Ensemble methods
+- ✅ Achieve target metrics (MAE <400€, R²>0.75, GES>0.70)
+
+### Week 5-6: Integration & Deployment
+
+- ✅ Add accessibility views to dashboard
+- ✅ Create API endpoints
+- ✅ Fix skipped tests
+- ✅ Update documentation
+- ✅ Deploy to production
+
+---
+
+## 📋 Backlog (Future Phases)
+
+### Data Sources to Integrate
+
+- [ ] IDESCAT (Catalan statistics)
+- [ ] Cadastre data (building characteristics)
+- [ ] Energy efficiency certificates
+- [ ] Green space quality metrics
+- [ ] Air quality sensors
+
+### Advanced Features
+
+- [ ] Time series forecasting (price trends)
+- [ ] Gentrification risk scoring
+- [ ] Investment opportunity ranking
+- [ ] Neighborhood clustering
+- [ ] Comparative analysis tool
+
+### Infrastructure
+
+- [ ] CI/CD pipeline for ETL
+- [ ] Data quality monitoring
+- [ ] Automated data refresh
+- [ ] API rate limiting
+- [ ] Caching layer
+
+---
+
+## 🎓 Success Metrics
+
+### Model Performance
+
+- ✅ **MAE:** <400€ (currently 422€)
+- ✅ **R²:** >0.75 (currently 0.72)
+- ✅ **Coverage:** 100% barrios (currently 100%)
+
+### Fairness
+
+- ✅ **GES:** >0.70 (currently 0.51)
+- ✅ **IPR:** 0.8-1.2 (currently 0.88)
+- ✅ **PDI:** <5.0 (currently 4.74)
+
+### Technical
+
+- ✅ **Test Coverage:** >80% (currently 34.53%)
+- ✅ **Skipped Tests:** 0 (currently 14)
+- ✅ **Data Completeness:** >90% critical tables
+
+### Business
+
+- ✅ **API Response Time:** <200ms
+- ✅ **Dashboard Load Time:** <3s
+- ✅ **User Satisfaction:** >4.5/5
+
+---
+
+## 🚀 Quick Start Commands
+
+### Run Fairness A/B Test
+
+```bash
+python scripts/fairness_ab_harness.py
+```
+
+### Create Tracking Issue
+
+```bash
+gh issue create --title "Fix 14 Pre-existing Test Failures" \
+  --body-file .github/ISSUE_TEMPLATE_SKIPPED_TESTS.md \
+  --label technical-debt,testing
+```
+
+### Run Full ETL Pipeline
+
+```bash
+python -m src.etl.pipeline
+```
+
+### Start Dashboard
+
+```bash
+streamlit run src/app/main.py
+```
+
+### Start API
+
+```bash
+uvicorn src.api.main:app --reload
+```
+
+---
+
+## 📞 Support & Resources
+
+- **Documentation:** `docs/`
+- **Sprint Summaries:** `docs/SPRINT_COMPLETION_*.md`
+- **Database Schema:** `docs/DATABASE_SCHEMA.md`
+- **API Docs:** `http://localhost:8000/docs` (when running)
+
+---
+
+**Last Updated:** 2026-01-03  
+**Next Review:** After Week 2 experiments complete
