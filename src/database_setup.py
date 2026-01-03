@@ -722,6 +722,7 @@ CREATE_TABLE_STATEMENTS = (
         superficie_media_m2 REAL,
         num_plantas_avg REAL,
         antiguedad_media_bloque REAL,
+        indice_penalizacion_topografica REAL,
         dataset_id TEXT,
         source TEXT DEFAULT 'opendata_bcn_cadastre',
         etl_loaded_at TEXT,

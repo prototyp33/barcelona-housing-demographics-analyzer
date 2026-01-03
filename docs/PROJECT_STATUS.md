@@ -1,6 +1,6 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 29 de diciembre de 2025
+**Última actualización**: 31 de diciembre de 2025
 
 ## 🏆 Últimos Hitos (Fase 2: Modelado Hedónico Avanzado) ✅
 
@@ -11,6 +11,15 @@ Se ha completado la Fase 2 con éxito, elevando la capacidad analítica del proy
 - 📐 **Penalizaciones Hedónicas**: Integración de índices topográficos y proxies de accesibilidad (plantas/ascensor).
 - 💰 **Consultor de Inversión**: Motor de recomendación basado en desviaciones de valor y yields.
 - 🔄 **ETL Avanzado**: Pipeline enriquecido con distancias Haversine (POIs) y proxies de superficie.
+
+## 🏆 Últimos Hitos (Fase 3A: API REST & UI Premium) ✅
+
+Se ha completado la integración del backend con una capa visual de alto nivel:
+
+- 🎨 **Interfaz "Midnight Silicon"**: Landing page premium con estética de vanguardia (glassmorphism, mesh gradients).
+- 📖 **Documentación Tematizada**: Swagger UI y ReDoc personalizados con tipografía (Outfit/Inter) y sistema de colores semánticos.
+- 🛠️ **API Robust**: 100% operativa con validación Pydantic, manejo global de excepciones y corrección de serialización JSON.
+- 🏥 **Health Engine**: Sistema de monitoreo de salud del backend y servicios (DB + ML Model).
 
 El proyecto ha completado exitosamente el **Sprint de Integridad de Datos (Nov 2025)**, cumpliendo todos los criterios críticos:
 
@@ -297,11 +306,10 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 
 ### Prioridad Alta 🔴
 
-1. **Resolver deduplicación en fact_precios**
+1. **Integración Streamlit-API (Fase 3B)**
 
-   - Issue: #XX (crear)
-   - Tiempo estimado: 2-3 horas
-   - Impacto: Alto - recuperar datos perdidos
+   - Migrar el dashboard para consumir datos vía REST API en lugar de acceso directo a DB/CSV.
+   - Status: Pendiente (Próximo paso).
 
 2. **Completar campos NULL en fact_demografia**
 

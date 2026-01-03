@@ -1,6 +1,7 @@
 """Investment router - investment recommendations endpoints."""
 
 from fastapi import APIRouter, HTTPException
+import pandas as pd
 from ..models import InvestmentRequest, InvestmentResponse, InvestmentRecommendation
 from ..services import get_model_service
 
@@ -55,5 +56,3 @@ async def get_recommendations(request: InvestmentRequest):
         recommendations=recommendations
     )
 
-
-import pandas as pd

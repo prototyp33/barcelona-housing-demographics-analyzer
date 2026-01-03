@@ -68,8 +68,8 @@ def render_investment_scatter(df: pd.DataFrame, year: int) -> None:
         hover_name="barrio_nombre",
         color_discrete_map=color_map,
         labels={
-            "avg_precio_m2": "Precio Venta (€/m²)",
-            "yield_bruto_pct": "Yield Bruto Anual (%)",
+            "avg_precio_m2": "Precio Oferta (€/m²)",
+            "yield_bruto_pct": "Yield Bruto (Renta Contrato) (%)",
             "cuadrante": "Estrategia",
             "score_gentrificacion": "Índice Gentrificación"
         },
@@ -140,7 +140,7 @@ def render(year: int = 2023) -> None:
     st.header("💰 ANÁLISIS DE INVERSIÓN")
     st.markdown("""
     Este módulo identifica las mejores oportunidades de inversión basadas en la relación 
-    entre el **Precio de Venta** y el **Yield Bruto Anual**.
+    entre el **Precio de Oferta** (Idealista/Portal) y el **Yield Bruto** calculado con **Rentas de Contrato** (Incasòl).
     """)
 
     # Cargar datos

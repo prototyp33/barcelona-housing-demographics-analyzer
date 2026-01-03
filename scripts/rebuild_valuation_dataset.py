@@ -1,6 +1,8 @@
 import sqlite3
 import pandas as pd
 from pathlib import Path
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import RobustScaler
 
 db_path = Path("data/master.db")
 if not db_path.exists():
@@ -54,7 +56,27 @@ df['indice_penalizacion_topografica'] = df['indice_penalizacion_topografica'].fi
 df['access_penalty'] = df['access_penalty'].fillna(0)
 df['dist_to_center'] = df['dist_to_center'].fillna(df['dist_to_center'].mean())
 df['dist_to_tech_hub'] = df['dist_to_tech_hub'].fillna(df['dist_to_tech_hub'].mean())
+df['pct_propietarios_extranjeros'] = df['pct_propietarios_extranjeros'].fillna(df['pct_propietarios_extranjeros'].mean())
+
+# NEIGHBORHOOD SEGMENTATION (Clustering)
+cluster_vars = [
+    'avg_venta_23', 'gross_yield', 'effort_rate', 
+    'price_growth_1y', 'renta_bruta_llar', 'indice_gini', 
+    'pct_juridica', 'pct_propietarios_extranjeros', 'antiguedad_media_bloque'
+]
+
+# Fill NaNs for clustering variables specifically
+for var in cluster_vars:
+    df[var] = df[var].fillna(df[var].mean())
+
+# Scaling for clustering
+scaler = RobustScaler()
+X_scaled = scaler.fit_transform(df[cluster_vars])
+
+# K-Means Clustering
+kmeans = KMeans(n_clusters=4, random_state=42)
+df['segmento'] = kmeans.fit_predict(X_scaled)
 
 # Export
 df.to_csv("data/barcelona_ml_valuation.csv", index=False)
-print("✅ barcelona_ml_valuation.csv updated with Topographical, Access penalties and POI distances.")
+print("✅ barcelona_ml_valuation.csv updated with Topographical, Access penalties, POI distances, and Neighborhood Segments.")

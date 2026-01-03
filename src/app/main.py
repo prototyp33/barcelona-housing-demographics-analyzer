@@ -29,6 +29,7 @@ from src.app.views import (
     recommendations,
     market_cockpit,
     investment_analysis,
+    data_dictionary,
 )
 
 
@@ -341,11 +342,12 @@ def main() -> None:
     st.markdown("---")
     st.markdown("### 📚 Módulos Adicionales")
     
-    tab_sec1, tab_sec2, tab_sec3, tab_sec4, tab_sec5 = st.tabs([
+    tab_sec1, tab_sec2, tab_sec3, tab_sec4, tab_sec5, tab_sec6 = st.tabs([
         "Territorio",
         "Demografía",
         "Correlaciones",
         "Calidad de Datos",
+        "Diccionario Datos",
         "Market View (Legacy)",
     ])
     
@@ -366,6 +368,9 @@ def main() -> None:
         data_quality.render(year=selected_year, key_prefix="tab_data_quality")
     
     with tab_sec5:
+        data_dictionary.render()
+    
+    with tab_sec6:
         market_view.render_market_cockpit()
 
 

@@ -18,6 +18,7 @@ import streamlit as st
 
 from src.app.config import DB_PATH, VIVIENDA_TIPO_M2
 from src.database_setup import validate_table_name
+from src.app.api_client import get_api_client
 
 
 def get_connection() -> sqlite3.Connection:
@@ -42,10 +43,19 @@ def get_connection() -> sqlite3.Connection:
 def load_barrios() -> pd.DataFrame:
     """
     Carga la dimensión de barrios con geometrías.
-    
-    Returns:
-        DataFrame con barrio_id, barrio_nombre, distrito_nombre, geometry_json.
+    Usa la API si está disponible, con fallback a DB local.
     """
+    # 1. Intentar via API
+    try:
+        client = get_api_client()
+        barrios_data = client.get_barrios(include_geometry=True)
+        if barrios_data:
+            df = pd.DataFrame(barrios_data)
+            return df.sort_values("barrio_id")
+    except Exception as e:
+        logger.warning(f"No se pudo conectar con la API para cargar barrios. Usando fallback local. Error: {e}")
+
+    # 2. Fallback local (DB)
     conn = get_connection()
     try:
         df = pd.read_sql(
@@ -53,8 +63,6 @@ def load_barrios() -> pd.DataFrame:
             SELECT DISTINCT
                 barrio_id,
                 barrio_nombre,
-                barrio_nombre_normalizado,
-                distrito_id,
                 distrito_nombre,
                 geometry_json
             FROM dim_barrios
@@ -72,19 +80,21 @@ def load_barrios() -> pd.DataFrame:
 def load_available_years() -> dict:
     """
     Obtiene los años disponibles en cada tabla de hechos.
-
-    Returns:
-        Diccionario con años mínimo y máximo por tabla.
-
-    Raises:
-        InvalidTableNameError: Si alguna tabla no está en la whitelist.
     """
+    # 1. API
+    try:
+        client = get_api_client()
+        years = client.get_years()
+        if years: return years
+    except Exception:
+        pass
+
+    # 2. Fallback local
     conn = get_connection()
     try:
         result = {}
         tables = ["fact_precios", "fact_demografia", "fact_renta"]
         for table in tables:
-            # Validar nombre de tabla contra whitelist (seguridad SQL injection)
             validated_table = validate_table_name(table)
             df = pd.read_sql(
                 f"SELECT MIN(anio) as min_year, MAX(anio) as max_year FROM {validated_table}",
@@ -103,10 +113,16 @@ def load_available_years() -> dict:
 def load_distritos() -> list[str]:
     """
     Obtiene la lista de distritos únicos.
-    
-    Returns:
-        Lista de nombres de distrito ordenados.
     """
+    # 1. API
+    try:
+        client = get_api_client()
+        distritos = client.get_distritos()
+        if distritos: return distritos
+    except Exception:
+        pass
+
+    # 2. Fallback
     conn = get_connection()
     try:
         df = pd.read_sql(
@@ -122,14 +138,21 @@ def load_distritos() -> list[str]:
 def load_precios(year: int, distrito: Optional[str] = None) -> pd.DataFrame:
     """
     Carga precios de vivienda consolidados (fact_precios + Idealista).
-    
-    Args:
-        year: Año a consultar.
-        distrito: Filtro opcional por distrito.
-    
-    Returns:
-        DataFrame consolidado y deduplicado.
     """
+    # 1. API
+    try:
+        client = get_api_client()
+        data = client.get_precios(year=year, distrito=distrito, include_geometry=True)
+        if data:
+            df = pd.DataFrame(data)
+            # Match the dashboard's column expectations
+            if 'avg_precio_m2' in df.columns:
+                return df
+            return df
+    except Exception:
+        pass
+
+    # 2. Fallback local
     conn = get_connection()
     try:
         # 1. Cargar fact_precios
@@ -201,6 +224,20 @@ def load_renta(year: int = 2022) -> pd.DataFrame:
     Returns:
         DataFrame con barrio_id y renta_euros.
     """
+    # 1. API
+    try:
+        client = get_api_client()
+        data = client.get_renta(year=year)
+        if data:
+            df = pd.DataFrame(data)
+            # Standardize column name if coming from fact_renta_avanzada
+            if 'renta_bruta_llar' in df.columns:
+                df = df.rename(columns={'renta_bruta_llar': 'renta_euros'})
+            return df
+    except Exception:
+        pass
+
+    # 2. Local Fallback
     conn = get_connection()
     try:
         df = pd.read_sql(
@@ -380,6 +417,16 @@ def load_kpis() -> dict:
     Returns:
         Diccionario con métricas clave.
     """
+    # 1. API
+    try:
+        client = get_api_client()
+        kpis = client.get_api_kpis()
+        if kpis:
+            return kpis
+    except Exception:
+        pass
+
+    # 2. Local Fallback
     conn = get_connection()
     try:
         # Total barrios
@@ -816,13 +863,57 @@ def load_gentrification_risk_metrics(year: int = 2023) -> pd.DataFrame:
 @st.cache_data(ttl=3600)
 def load_investment_data(year: int = 2023) -> pd.DataFrame:
     """
-    Carga datos para análisis de inversión integrando riesgo de gentrificación.
+    Carga datos para análisis de inversión con alineación estratégica:
+    - X: Venta: Precio Oferta (bhl3ulphi5)
+    - Y: Alquiler: Mensual (b37xv8wcjh - Incasòl)
     """
-    df = load_precios(year)
+    df = pd.DataFrame()
+    
+    # 1. Intentar via API Specialized Endpoint
+    try:
+        client = get_api_client()
+        data = client.get_investment_stats(year=year)
+        if data:
+            df = pd.DataFrame(data)
+    except Exception as e:
+        logger.warning(f"Error cargando inversión via API: {e}")
+
+    # 2. Fallback Local Direct SQL (Specialized Query)
+    if df.empty:
+        conn = get_connection()
+        try:
+            query = """
+            WITH offer_prices AS (
+                SELECT barrio_id, AVG(precio_m2_venta) as entry_cost
+                FROM fact_precios
+                WHERE anio = ? AND dataset_id = 'bhl3ulphi5'
+                GROUP BY barrio_id
+            ),
+            contract_rents AS (
+                SELECT barrio_id, AVG(precio_mes_alquiler) as rental_income
+                FROM fact_precios
+                WHERE anio = ? AND dataset_id = 'b37xv8wcjh'
+                GROUP BY barrio_id
+            )
+            SELECT 
+                b.barrio_id, b.barrio_nombre, b.distrito_nombre,
+                o.entry_cost as avg_precio_m2,
+                c.rental_income as avg_alquiler
+            FROM dim_barrios b
+            JOIN offer_prices o ON b.barrio_id = o.barrio_id
+            JOIN contract_rents c ON b.barrio_id = c.barrio_id
+            """
+            df = pd.read_sql(query, conn, params=[year, year])
+        except Exception as e:
+            logger.error(f"Error en fallback local de inversión: {e}")
+        finally:
+            conn.close()
+
     if df.empty:
         return pd.DataFrame()
     
-    # Calcular Yield Bruto Anual
+    # Calcular Yield Bruto Anual basado en métricas alineadas
+    # Formula: (Mes_Alquiler_Contrato * 12) / (Precio_M2_Oferta * 70)
     df['yield_bruto_pct'] = (df['avg_alquiler'] * 12 / (df['avg_precio_m2'] * VIVIENDA_TIPO_M2)) * 100
     
     # Simular Score de Liquidez

@@ -188,7 +188,8 @@ class ModelService:
         Returns:
             Dictionary mapping segment ID to characteristics
         """
-        if self.df is None:
+        if self.df is None or 'segmento' not in self.df.columns:
+            logger.warning("Segmento column missing from data")
             return {}
         
         cluster_info = {}

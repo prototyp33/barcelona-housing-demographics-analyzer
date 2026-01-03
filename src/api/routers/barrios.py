@@ -1,27 +1,29 @@
 """Barrios router - endpoints for neighborhood data."""
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from ..models import BarrioBase, BarrioDetail
 from ..services import get_db_service
 
 router = APIRouter(prefix="/barrios", tags=["barrios"])
 
 
-@router.get("/", response_model=List[BarrioBase])
+@router.get("/", response_model=List[Dict[str, Any]])
 async def list_barrios(
-    distrito: Optional[str] = Query(None, description="Filter by distrito name")
+    distrito: Optional[str] = Query(None, description="Filter by distrito name"),
+    include_geometry: bool = Query(False, description="Whether to include GeoJSON geometry")
 ):
     """Get list of all barrios, optionally filtered by distrito.
     
     Args:
         distrito: Optional distrito name filter
+        include_geometry: Whether to include GeoJSON geometry
         
     Returns:
         List of barrios with basic information
     """
     db = get_db_service()
-    barrios = db.get_barrios(distrito=distrito)
+    barrios = db.get_barrios(distrito=distrito, include_geometry=include_geometry)
     
     if not barrios:
         return []
