@@ -18,9 +18,12 @@ DB_PATH = PROJECT_ROOT / "data" / "processed" / "database.db"
 REPORT_PATH = PROJECT_ROOT / "docs" / "FAIRNESS_AB_TEST_REPORT.md"
 
 # Feature Sets
-# V1: Baseline with only economic data (what's actually available)
+# V1: Baseline with economic + demographic data
 BASE_FEATURES = [
-    'renta_mediana'
+    'renta_mediana',
+    'poblacion_total',
+    'edad_media',
+    'porc_inmigracion'
 ]
 
 # V2: Add accessibility features
@@ -35,21 +38,25 @@ ACCESSIBILITY_FEATURES = [
 def get_data():
     conn = sqlite3.connect(DB_PATH)
     
-    # Use only available data: prices (2023), renta (2023), mobility (2026)
-    # Note: fact_demografia is empty in current DB, so we skip it
+    # Use v_demografia_aggregated view which aggregates fact_demografia_ampliada
+    # This provides the standard demographic metrics we need
+    # Note: Demographics are from 2025 (latest), prices/renta from 2023
     query = """
     SELECT 
         db.barrio_id, db.barrio_nombre, db.distrito_nombre,
         AVG(fp.precio_m2_venta) AS target,
+        vd.poblacion_total, vd.edad_media, vd.porc_inmigracion,
         fr.renta_mediana, 
         fm.estaciones_metro, fm.estaciones_bus, 
         fm.dist_metro_m, fm.dist_bus_m, fm.access_score
     FROM dim_barrios db
     JOIN fact_precios fp ON db.barrio_id = fp.barrio_id AND fp.anio = 2023
+    LEFT JOIN v_demografia_aggregated vd ON db.barrio_id = vd.barrio_id AND vd.anio = 2025
     JOIN fact_renta fr ON db.barrio_id = fr.barrio_id AND fr.anio = 2023
     LEFT JOIN fact_movilidad fm ON db.barrio_id = fm.barrio_id
     WHERE fp.precio_m2_venta IS NOT NULL
     GROUP BY db.barrio_id, db.barrio_nombre, db.distrito_nombre, 
+             vd.poblacion_total, vd.edad_media, vd.porc_inmigracion,
              fr.renta_mediana, fm.estaciones_metro, fm.estaciones_bus,
              fm.dist_metro_m, fm.dist_bus_m, fm.access_score
     """
@@ -58,6 +65,10 @@ def get_data():
     
     print(f"Data loaded: {len(df)} barrios with complete data")
     print(f"Columns: {df.columns.tolist()}")
+    if len(df) > 0:
+        print(f"Sample demographic data:")
+        print(f"  - Población total: mean={df['poblacion_total'].mean():.0f}, min={df['poblacion_total'].min():.0f}, max={df['poblacion_total'].max():.0f}")
+        print(f"  - Edad media: mean={df['edad_media'].mean():.1f}, min={df['edad_media'].min():.1f}, max={df['edad_media'].max():.1f}")
     
     return df.dropna(subset=['target'] + BASE_FEATURES)
 

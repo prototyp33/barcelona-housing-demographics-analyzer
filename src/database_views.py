@@ -13,6 +13,7 @@ def create_analytical_views(conn: sqlite3.Connection) -> None:
     Crea o recrea las vistas analíticas principales de forma idempotente.
 
     Vistas creadas:
+        - v_demografia_aggregated (NEW: agregación de fact_demografia_ampliada)
         - v_affordability_quarterly
         - v_precios_evolucion_anual
         - v_demografia_resumen
@@ -29,6 +30,116 @@ def create_analytical_views(conn: sqlite3.Connection) -> None:
     logger.info("Creando vistas analíticas si no existen")
 
     scripts = [
+        # Vista de agregación demográfica desde fact_demografia_ampliada
+        # Esta vista proporciona las métricas estándar que normalmente estarían en fact_demografia
+        """
+        DROP VIEW IF EXISTS v_demografia_aggregated;
+        CREATE VIEW v_demografia_aggregated AS
+        SELECT 
+            barrio_id,
+            anio,
+            SUM(poblacion) AS poblacion_total,
+            SUM(CASE WHEN sexo = 'Home' OR sexo = 'Hombre' THEN poblacion ELSE 0 END) AS poblacion_hombres,
+            SUM(CASE WHEN sexo = 'Dona' OR sexo = 'Mujer' THEN poblacion ELSE 0 END) AS poblacion_mujeres,
+            -- Calcular edad media ponderada (aproximación basada en grupos de edad)
+            CASE 
+                WHEN SUM(poblacion) > 0 THEN
+                    ROUND(
+                        (SUM(CASE 
+                            WHEN grupo_edad LIKE '%0-4%' OR grupo_edad LIKE '%0 a 4%' THEN poblacion * 2
+                            WHEN grupo_edad LIKE '%5-9%' OR grupo_edad LIKE '%5 a 9%' THEN poblacion * 7
+                            WHEN grupo_edad LIKE '%10-14%' OR grupo_edad LIKE '%10 a 14%' THEN poblacion * 12
+                            WHEN grupo_edad LIKE '%15-19%' OR grupo_edad LIKE '%15 a 19%' THEN poblacion * 17
+                            WHEN grupo_edad LIKE '%18-34%' OR grupo_edad LIKE '%18 a 34%' THEN poblacion * 26
+                            WHEN grupo_edad LIKE '%20-24%' OR grupo_edad LIKE '%20 a 24%' THEN poblacion * 22
+                            WHEN grupo_edad LIKE '%25-29%' OR grupo_edad LIKE '%25 a 29%' THEN poblacion * 27
+                            WHEN grupo_edad LIKE '%30-34%' OR grupo_edad LIKE '%30 a 34%' THEN poblacion * 32
+                            WHEN grupo_edad LIKE '%35-39%' OR grupo_edad LIKE '%35 a 39%' THEN poblacion * 37
+                            WHEN grupo_edad LIKE '%35-64%' OR grupo_edad LIKE '%35 a 64%' THEN poblacion * 49.5
+                            WHEN grupo_edad LIKE '%40-44%' OR grupo_edad LIKE '%40 a 44%' THEN poblacion * 42
+                            WHEN grupo_edad LIKE '%45-49%' OR grupo_edad LIKE '%45 a 49%' THEN poblacion * 47
+                            WHEN grupo_edad LIKE '%50-54%' OR grupo_edad LIKE '%50 a 54%' THEN poblacion * 52
+                            WHEN grupo_edad LIKE '%55-59%' OR grupo_edad LIKE '%55 a 59%' THEN poblacion * 57
+                            WHEN grupo_edad LIKE '%60-64%' OR grupo_edad LIKE '%60 a 64%' THEN poblacion * 62
+                            WHEN grupo_edad LIKE '%65-69%' OR grupo_edad LIKE '%65 a 69%' THEN poblacion * 67
+                            WHEN grupo_edad LIKE '%65%' OR grupo_edad LIKE '%65 i més%' THEN poblacion * 75
+                            WHEN grupo_edad LIKE '%70-74%' OR grupo_edad LIKE '%70 a 74%' THEN poblacion * 72
+                            WHEN grupo_edad LIKE '%75-79%' OR grupo_edad LIKE '%75 a 79%' THEN poblacion * 77
+                            WHEN grupo_edad LIKE '%80-84%' OR grupo_edad LIKE '%80 a 84%' THEN poblacion * 82
+                            WHEN grupo_edad LIKE '%85%' OR grupo_edad LIKE '%85 i més%' THEN poblacion * 87
+                            ELSE poblacion * 40  -- Default para grupos no reconocidos
+                        END)) / SUM(poblacion), 1
+                    )
+                ELSE NULL
+            END AS edad_media,
+            -- Porcentaje de inmigración (nacidos fuera de España)
+            CASE 
+                WHEN SUM(poblacion) > 0 THEN
+                    ROUND(
+                        100.0 * SUM(CASE 
+                            WHEN nacionalidad NOT IN ('Espanya', 'España', 'Europa') 
+                                OR nacionalidad IN ('Àfrica', 'África', 'Amèrica', 'América', 'Àsia', 'Asia', 'Oceania', 'Oceanía')
+                            THEN poblacion 
+                            ELSE 0 
+                        END) / SUM(poblacion), 2
+                    )
+                ELSE NULL
+            END AS porc_inmigracion,
+            -- Porcentaje de mayores de 65
+            CASE 
+                WHEN SUM(poblacion) > 0 THEN
+                    ROUND(
+                        100.0 * SUM(CASE 
+                            WHEN grupo_edad LIKE '%65%' OR grupo_edad LIKE '%70%' OR grupo_edad LIKE '%75%' 
+                                OR grupo_edad LIKE '%80%' OR grupo_edad LIKE '%85%'
+                            THEN poblacion 
+                            ELSE 0 
+                        END) / SUM(poblacion), 2
+                    )
+                ELSE NULL
+            END AS pct_mayores_65,
+            -- Porcentaje de menores de 15
+            CASE 
+                WHEN SUM(poblacion) > 0 THEN
+                    ROUND(
+                        100.0 * SUM(CASE 
+                            WHEN grupo_edad LIKE '%0-4%' OR grupo_edad LIKE '%5-9%' OR grupo_edad LIKE '%10-14%'
+                                OR grupo_edad LIKE '%0 a 4%' OR grupo_edad LIKE '%5 a 9%' OR grupo_edad LIKE '%10 a 14%'
+                            THEN poblacion 
+                            ELSE 0 
+                        END) / SUM(poblacion), 2
+                    )
+                ELSE NULL
+            END AS pct_menores_15,
+            -- Índice de envejecimiento (mayores 65 / menores 15)
+            CASE 
+                WHEN SUM(CASE 
+                    WHEN grupo_edad LIKE '%0-4%' OR grupo_edad LIKE '%5-9%' OR grupo_edad LIKE '%10-14%'
+                        OR grupo_edad LIKE '%0 a 4%' OR grupo_edad LIKE '%5 a 9%' OR grupo_edad LIKE '%10 a 14%'
+                    THEN poblacion 
+                    ELSE 0 
+                END) > 0 THEN
+                    ROUND(
+                        100.0 * SUM(CASE 
+                            WHEN grupo_edad LIKE '%65%' OR grupo_edad LIKE '%70%' OR grupo_edad LIKE '%75%' 
+                                OR grupo_edad LIKE '%80%' OR grupo_edad LIKE '%85%'
+                            THEN poblacion 
+                            ELSE 0 
+                        END) / SUM(CASE 
+                            WHEN grupo_edad LIKE '%0-4%' OR grupo_edad LIKE '%5-9%' OR grupo_edad LIKE '%10-14%'
+                                OR grupo_edad LIKE '%0 a 4%' OR grupo_edad LIKE '%5 a 9%' OR grupo_edad LIKE '%10 a 14%'
+                            THEN poblacion 
+                            ELSE 0 
+                        END), 2
+                    )
+                ELSE NULL
+            END AS indice_envejecimiento,
+            'fact_demografia_ampliada' AS source,
+            MAX(etl_loaded_at) AS etl_loaded_at
+        FROM fact_demografia_ampliada
+        GROUP BY barrio_id, anio
+        ORDER BY barrio_id, anio;
+        """,
         # Vista de affordability trimestral basada en fact_housing_master
         """
         DROP VIEW IF EXISTS v_affordability_quarterly;
