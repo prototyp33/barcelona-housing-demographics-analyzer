@@ -1,594 +1,382 @@
-# Barcelona Housing Demographics Analyzer
+# 🏠 Barcelona Housing Demographics Analyzer
 
-[![Issues Abiertas](https://img.shields.io/github/issues/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues)
-[![Issues Cerradas](https://img.shields.io/github/issues-closed/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square&color=success)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues?q=is%3Aissue+is%3Aclosed)
-[![Pull Requests](https://img.shields.io/github/issues-pr/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/pulls)
-[![Última Actualización](https://img.shields.io/github/last-commit/prototyp33/barcelona-housing-demographics-analyzer?style=flat-square)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/commits/main)
+A comprehensive data analytics platform for Barcelona's housing market, combining demographic data, accessibility metrics, and machine learning to provide insights into housing prices and neighborhood characteristics.
 
-[![CI Status](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/workflows/CI%20Pipeline/badge.svg)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/prototyp33/barcelona-housing-demographics-analyzer/branch/main/graph/badge.svg)](https://codecov.io/gh/prototyp33/barcelona-housing-demographics-analyzer)
-[![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/pulls)
+---
 
-> 📊 Dashboard interactivo de análisis de vivienda y demografía en Barcelona
+## 🎯 Quick Start
 
-## 📊 Project Status
+### Prerequisites
 
-### Sprint Progress
-
-![Sprint 1](https://img.shields.io/badge/Sprint%201-75%25-green?style=flat-square)
-![Sprint 2](https://img.shields.io/badge/Sprint%202-0%25-lightgrey?style=flat-square)
-![Sprint 3](https://img.shields.io/badge/Sprint%203-0%25-lightgrey?style=flat-square)
-![Sprint 4](https://img.shields.io/badge/Sprint%204-0%25-lightgrey?style=flat-square)
-
-### Data Quality
-
-| Metric            | Status   | Target |
-| ----------------- | -------- | ------ |
-| Data Completeness | 96.2% ✅ | ≥95%   |
-| Data Validity     | 98.5% ✅ | ≥98%   |
-| Test Coverage     | 78% ⚠️   | ≥80%   |
-| Docs Coverage     | 65% ⚠️   | ≥70%   |
-
-### Quick Links
-
-- 📋 [Project Board](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/projects)
-- 📊 [Live Dashboard](https://barcelona-housing-analyzer.streamlit.app) _(si está desplegado)_
-- 📖 [Documentation](./docs)
-- 🐛 [Report Bug](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=bug_report.yml)
-- ✨ [Request Feature](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues/new?template=feature_request.yml)
-
-Open-source dashboard to analyze the relationship between demographic evolution and housing prices in Barcelona.
-
-## 📋 Vision and Objectives
-
-This project aims to consolidate demographic data and housing prices from multiple public sources (INE, Open Data BCN, Idealista) into a unified, clean, and normalized database that enables integrated analysis, statistical correlations, and interactive visualizations.
-
-**Key Objectives**:
-
-- Integrate 3+ public data sources
-- Ensure data quality: ≥95% completeness, ≥98% validity
-- Maintain historical data from 2015-2025 (10 years)
-- Enable analysis by neighborhood/district with temporal granularity (quarterly/annual)
-- Support periodic updates (quarterly) with future automation capabilities
-
-For detailed vision and objectives, see [docs/01_VISION_AND_OBJECTIVES.md](docs/01_VISION_AND_OBJECTIVES.md).
-
-Additional context:
-
-- [Project Charter & Developer Profile](docs/PROJECT_CHARTER.md)
-- [Project Management Playbook](docs/PROJECT_MANAGEMENT.md)
-
-## 📁 Project Structure
-
-**Estructura oficial del proyecto** (ver [`docs/PROJECT_STRUCTURE_PROPOSAL.md`](docs/PROJECT_STRUCTURE_PROPOSAL.md) para detalles):
-
-```
-barcelona-housing-demographics-analyzer/
-├── src/                    # Código de producción (módulos reutilizables)
-│   ├── extraction/         # Extractores por fuente de datos
-│   │   ├── base.py         # BaseExtractor (público)
-│   │   ├── opendata.py     # OpenDataBCNExtractor
-│   │   ├── idealista.py    # IdealistaExtractor
-│   │   ├── portaldades.py  # PortalDadesExtractor
-│   │   └── ...             # INE, IDESCAT, Incasol
-│   ├── etl/                # Pipeline ETL
-│   │   ├── pipeline.py      # Orquestador principal
-│   │   └── validators.py   # Validaciones (público)
-│   ├── database/           # Acceso a base de datos
-│   │   ├── schema.py       # Definición de schema
-│   │   └── repository.py   # Repositorios tipados (público)
-│   ├── analysis/           # Funciones analíticas
-│   │   └── models.py       # Modelos ML/estadísticos
-│   └── app/                # Dashboard Streamlit
-│       ├── main.py
-│       └── pages/
-│
-├── scripts/                # Scripts ejecutables (CLI tools)
-│   ├── etl/                # Scripts ETL por feature
-│   ├── analysis/           # Scripts de análisis
-│   └── maintenance/        # Scripts de mantenimiento
-│
-├── spikes/                 # Spikes temporales (experimentación)
-│   └── data-validation/    # Spike actual (Issue #198-#204)
-│       ├── scripts/        # Scripts específicos del spike
-│       ├── notebooks/      # Notebooks del spike
-│       ├── data/          # Datos del spike
-│       └── docs/          # Documentación del spike
-│
-├── notebooks/              # Notebooks de análisis (producción)
-│   ├── 01_eda.ipynb
-│   └── 02_analysis.ipynb
-│
-├── tests/                  # Tests organizados por feature
-│   ├── unit/
-│   ├── integration/
-│   └── fixtures/
-│
-├── docs/                   # Documentación organizada
-│   ├── architecture/       # Decisiones de arquitectura
-│   ├── guides/            # Guías de uso
-│   ├── planning/          # Planning y roadmaps
-│   └── spikes/            # Documentación de spikes
-│
-└── data/                   # Datos (inmutable)
-    ├── raw/               # Datos brutos de fuentes
-    └── processed/         # Datos transformados + database.db
-```
-
-### 🔗 Reglas de Dependencias
-
-**Límites explícitos entre módulos** (ver [`docs/architecture/DEPENDENCIES.md`](docs/architecture/DEPENDENCIES.md)):
-
-- `src/` → Puede importar: `stdlib`, `third-party`, otros módulos de `src/` (sin ciclos)
-- `scripts/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`
-- `spikes/*/scripts/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`
-- `notebooks/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`
-- `tests/` → Puede importar: `stdlib`, `third-party`, módulos de `src/`, `tests/fixtures/`
-
-**Regla clave**: Evitar dependencias cíclicas. Si A importa B, B NO puede importar A.
-
-## 🚀 Getting Started
+- Python 3.11 or 3.12
+- Git
+- 4GB RAM minimum
 
 ### Installation
 
-1. Clone the repository:
-
 ```bash
-git clone https://github.com/yourusername/barcelona-housing-demographics-analyzer.git
+# Clone the repository
+git clone https://github.com/prototyp33/barcelona-housing-demographics-analyzer.git
 cd barcelona-housing-demographics-analyzer
-```
 
-2. Create (or reuse) the project virtual environment and install dependencies:
+# Create virtual environment
+python3 -m venv myenv
+source myenv/bin/activate  # On Windows: myenv\Scripts\activate
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-> 💡 Tip: in VS Code/Cursor run `Python: Select Interpreter` and pick `.venv` so notebooks, tests, and the run button always use the same interpreter.
+### Running the Application
 
-3. (Optional) Set up environment variables for Idealista API:
+#### Option 1: Streamlit Dashboard (Recommended)
 
 ```bash
-# Register at https://developers.idealista.com/ to get API credentials
-# Then set environment variables:
-export IDEALISTA_API_KEY=your_api_key_here
-export IDEALISTA_API_SECRET=your_api_secret_here
+./run_dashboard.sh
 ```
 
-### 🏠 Interactive Dashboard (The Cockpit)
+Then open http://localhost:8501 in your browser.
 
-The project features a modern, modular Streamlit dashboard for visual analysis.
-
-#### Run Locally
+#### Option 2: FastAPI Backend
 
 ```bash
-# Opción 1: Usando Makefile (recomendado)
-make dashboard
-
-# Opción 2: Comando directo con PYTHONPATH
-PYTHONPATH=. streamlit run src/app/main.py
+./run_api.sh
 ```
 
-#### Run with Docker
+Then open http://localhost:8000/docs for API documentation.
+
+#### Option 3: Manual with PYTHONPATH
 
 ```bash
-# Build the container
-docker build -t barcelona-housing-analytics .
-
-# Run the container
-docker run -p 8501:8501 barcelona-housing-analytics
-```
-
-Access the dashboard at `http://localhost:8501`.
-
-**Key Features:**
-
-- **Market Cockpit:** Real-time KPIs, Gross Yield Analysis, and YoY Price Variation.
-- **Interactive Maps:** Price distribution and Affordability heatmaps (Choropleth).
-- **Demographic Deep-dive:** Age structure, migration, and household composition.
-- **Data Export:** Download the full cleaned database (SQLite) directly from the sidebar.
-
-### 🚀 REST API (FastAPI)
-
-The project includes a production-ready REST API serving XGBoost predictions and housing analytics.
-
-#### Run the API
-
-```bash
-# Option 1: Using Makefile (recommended)
-make api
-
-# Option 2: Using Python
-python3 scripts/run_api.py
-
-# Option 3: Using uvicorn directly
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+streamlit run src/app/main.py
+# or
 uvicorn src.api.main:app --reload
-```
-
-Access the API at:
-
-- **API**: http://localhost:8000
-- **Interactive Docs (Swagger)**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-#### Quick API Test
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Get investment recommendations
-curl -X POST http://localhost:8000/investment/recommend \
-  -H "Content-Type: application/json" \
-  -d '{"budget": 250000, "strategy": "yield", "max_results": 5}'
-
-# Run full test suite
-python3 scripts/test_api.py
-```
-
-**API Endpoints:**
-
-- `/barrios` - List all neighborhoods
-- `/barrios/{id}` - Get neighborhood details
-- `/predictions/{id}` - Get price prediction
-- `/investment/recommend` - Get investment recommendations
-- `/clusters/` - Get cluster information
-
-For complete API documentation, see [docs/API_README.md](docs/API_README.md).
-
-### Data Extraction
-
-#### Extract Priority Sources (GeoJSON, Demographics, Income)
-
-```bash
-# Extract priority datasets (GeoJSON, extended demographics, income)
-python scripts/extract_priority_sources.py
-
-# Extract with verbose logging
-python scripts/extract_priority_sources.py --log-level DEBUG
-```
-
-#### Extract Idealista Data (Requires API Credentials)
-
-```bash
-# Extract both sale and rent offers
-python scripts/extract_idealista.py --operation both
-
-# Extract only sale offers
-python scripts/extract_idealista.py --operation sale
-
-# Extract only rent offers
-python scripts/extract_idealista.py --operation rent
-
-# Extract for specific neighborhoods
-python scripts/extract_idealista.py --operation both --barrios "Eixample" "Gràcia"
-```
-
-#### Extract All Sources (Legacy)
-
-```bash
-# Extract all data from 2015-2025
-python scripts/extract_data.py --year-start 2015 --year-end 2025
-
-# Extract from specific sources only
-python scripts/extract_data.py --sources opendatabcn ine
-
-# Verbose mode for debugging
-python scripts/extract_data.py --verbose
-```
-
-Or use the Python module directly:
-
-```python
-from src.data_extraction import extract_all_sources
-
-# Extract all sources
-data = extract_all_sources(year_start=2015, year_end=2025)
-
-# Extract specific sources
-data = extract_all_sources(
-    year_start=2020,
-    year_end=2024,
-    sources=["opendatabcn", "ine"]
-)
-```
-
-Extracted data is automatically saved in `data/raw/` directory (organized by source in subdirectories).
-
-**Example with custom output directory:**
-
-```bash
-python scripts/extract_data.py \
-    --year-start 2015 \
-    --year-end 2025 \
-    --output-dir /custom/path/data
-```
-
-### Portal Dades (Habitatge) Scraper
-
-Automate indicator discovery and downloads from Portal Dades (requires Playwright):
-
-```bash
-# Install Playwright once
-pip install playwright
-playwright install
-
-# Scrape IDs + download all indicators (CSV by default)
-python scripts/extract_portaldades.py
-
-# Only list indicator IDs (no downloads)
-python scripts/extract_portaldades.py --scrape-only
-
-# Limit pagination
-python scripts/extract_portaldades.py --max-pages 3
-```
-
-Downloaded files live under `data/raw/portaldades/` and the indicator catalog in `data/raw/portaldades/indicadores_habitatge.csv`.
-
-### Data Processing and Loading (ETL)
-
-Transform and load extracted data into a dimensional SQLite database:
-
-```bash
-# Process raw data and create/update database.db
-python scripts/process_and_load.py \
-    --raw-dir data/raw \
-    --processed-dir data/processed \
-    --log-level INFO
-```
-
-This creates `data/processed/database.db` with:
-
-- **dim_barrios**: Neighborhood dimension table (73 barrios with GeoJSON geometries)
-- **fact_demografia**: Standard demographic facts (population by year and barrio)
-- **fact_demografia_ampliada**: Extended demographics (age groups and nationality by barrio, year, sex)
-- **fact_precios**: Housing prices facts (sale and rental prices by year and barrio, deduplicated via `HousingCleaner`)
-- **fact_renta**: Income facts (household disposable income by barrio and year)
-- **etl_runs**: ETL execution audit log
-
-**Query the database**:
-
-```python
-import sqlite3
-import pandas as pd
-
-conn = sqlite3.connect('data/processed/database.db')
-
-# Get demographics with barrio names
-df = pd.read_sql_query("""
-    SELECT d.*, b.barrio_nombre, b.distrito_nombre
-    FROM fact_demografia d
-    JOIN dim_barrios b ON d.barrio_id = b.barrio_id
-    WHERE d.anio = 2023
-""", conn)
-
-# Get extended demographics (age groups and nationality)
-df_ampliada = pd.read_sql_query("""
-    SELECT
-        b.barrio_nombre,
-        d.anio,
-        d.sexo,
-        d.grupo_edad,
-        d.nacionalidad,
-        d.poblacion
-    FROM fact_demografia_ampliada d
-    JOIN dim_barrios b ON d.barrio_id = b.barrio_id
-    WHERE d.anio = 2025
-      AND d.grupo_edad = '18-34'
-    ORDER BY d.poblacion DESC
-""", conn)
-
-# Get rent data by barrio
-df_renta = pd.read_sql_query("""
-    SELECT
-        b.barrio_nombre,
-        b.distrito_nombre,
-        r.anio,
-        r.renta_euros,
-        r.renta_mediana,
-        r.num_secciones
-    FROM fact_renta r
-    JOIN dim_barrios b ON r.barrio_id = b.barrio_id
-    WHERE r.anio = 2022
-    ORDER BY r.renta_euros DESC
-""", conn)
-
-# Get barrios with geometry (for mapping)
-df_geometrias = pd.read_sql_query("""
-    SELECT
-        barrio_id,
-        barrio_nombre,
-        distrito_nombre,
-        geometry_json
-    FROM dim_barrios
-    WHERE geometry_json IS NOT NULL
-""", conn)
-```
-
-For detailed API usage and configuration, see [docs/API_usage.md](docs/API_usage.md).
-For data structure and directory organization, see [docs/DATA_STRUCTURE.md](docs/DATA_STRUCTURE.md).
-For next steps and development roadmap, see [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md).
-
-## 📋 Issue Management
-
-This project uses a structured workflow for managing GitHub issues.
-
-### Quick Commands (Makefile)
-
-```bash
-# Show all available commands
-make help
-
-# Validate issue drafts locally
-make validate-issues
-
-# Preview issues (dry-run)
-make preview-issues
-
-# Create a specific issue
-make create-issue FILE=mi-issue.md
-
-# Create all issues from drafts
-make create-issues
-
-# Sync metrics with documentation
-make sync-issues
-```
-
-### Create a New Issue
-
-1. **Create draft** from template:
-
-   ```bash
-   cp docs/issues/ejemplo-issue-draft.md docs/issues/mi-nueva-issue.md
-   ```
-
-2. **Edit the draft** with your requirements
-
-3. **Validate locally**:
-
-   ```bash
-   make validate-issues
-   # Or for a specific file:
-   python3 scripts/validate_issues.py docs/issues/mi-nueva-issue.md
-   ```
-
-4. **Create in GitHub**:
-   ```bash
-   make create-issue FILE=mi-nueva-issue.md
-   ```
-
-### Issue Best Practices
-
-See complete guide: [docs/BEST_PRACTICES_GITHUB_ISSUES.md](docs/BEST_PRACTICES_GITHUB_ISSUES.md)
-
-**Quick checklist:**
-
-- ✅ Descriptive title with type prefix `[FEATURE]`, `[BUG]`, `[DATA]`
-- ✅ Clear "Objetivo/Descripción" section
-- ✅ Acceptance criteria with checkboxes `- [ ]`
-- ✅ Affected files listed
-- ✅ Time estimation included
-- ✅ Appropriate labels (`bug`, `enhancement`, `etl`, etc.)
-
-### Project Metrics
-
-View current metrics: [docs/PROJECT_METRICS.md](docs/PROJECT_METRICS.md)
-
-Update metrics from GitHub:
-
-```bash
-make sync-issues
 ```
 
 ---
 
-## 🎯 Project Management Automation
+## 📊 Features
 
-This project uses automated sprint planning and date assignment for efficient project management.
+### Data Pipeline
 
-### Sprint Organization (2025 Roadmap)
+- **TMB/OSM Integration:** 1,071 bus stops + 165 rail stations
+- **Demographic Data:** Population, age, immigration metrics
+- **Accessibility Metrics:** Transit proximity, accessibility scores
+- **Housing Prices:** Sale and rental prices per m²
+- **Income Data:** Median household income by neighborhood
 
-The project is organized into **8 sprints** spanning January to October 2025, optimized to avoid Spanish holidays:
+### Analytics
 
-| Sprint       | Dates           | Duration | Focus Area                  |
-| ------------ | --------------- | -------- | --------------------------- |
-| **Sprint 1** | Jan 7 - Jan 26  | 3 weeks  | Quick Wins Foundation       |
-| **Sprint 2** | Jan 27 - Mar 2  | 5 weeks  | Core ML Engine              |
-| **Sprint 3** | Mar 3 - Apr 13  | 6 weeks  | Data Expansion (pre-Easter) |
-| **Sprint 4** | Apr 21 - Jun 1  | 6 weeks  | Differentiation Showcase    |
-| **Sprint 5** | Jun 2 - Jun 29  | 4 weeks  | Dashboard Polish            |
-| **Sprint 6** | Jun 30 - Jul 27 | 4 weeks  | Testing & QA                |
-| **Sprint 7** | Sep 1 - Sep 28  | 4 weeks  | Advanced Features           |
-| **Sprint 8** | Sep 29 - Oct 26 | 4 weeks  | Documentation & Launch      |
+- **Fairness A/B Testing:** Compare model versions for equity
+- **Neighborhood Clustering:** Identify similar areas
+- **Price Predictions:** ML-based price forecasting
+- **Trend Analysis:** Historical price evolution
+- **Gentrification Risk:** Early warning indicators
 
-> **Note:** August is intentionally left free for summer holidays. Easter week (Apr 13-20) is also avoided.
+### Visualizations
 
-### Bulk Sprint Date Assignment
+- Interactive maps with neighborhood boundaries
+- Price heatmaps and trend charts
+- Accessibility score visualizations
+- Demographic breakdowns
+- Correlation matrices
 
-Automate the assignment of sprint dates to GitHub issues:
+---
 
-```bash
-# Show sprint calendar with all dates
-python scripts/bulk_add_sprint_dates.py --show-calendar
+## 🗄️ Database Schema
 
-# Preview changes (critical issues only) - RECOMMENDED FIRST
-python scripts/bulk_add_sprint_dates.py --dry-run --critical-only
+### Core Tables
 
-# Preview all changes
-python scripts/bulk_add_sprint_dates.py --dry-run
+- `dim_barrios` - 73 Barcelona neighborhoods (dimension table)
+- `fact_precios` - Housing prices (sale/rental)
+- `fact_demografia_ampliada` - Granular demographic data
+- `fact_renta` - Income statistics
+- `fact_movilidad` - Accessibility metrics (NEW)
 
-# Apply to critical issues (7 epic issues)
-python scripts/bulk_add_sprint_dates.py --apply --critical-only
+### Views
 
-# Apply to all issues with sprint labels
-python scripts/bulk_add_sprint_dates.py --apply
+- `v_demografia_aggregated` - Aggregated demographic metrics
+- `v_affordability_quarterly` - Affordability analysis
+- `v_barrio_scorecard` - Comprehensive neighborhood metrics
 
-# Process a specific sprint
-python scripts/bulk_add_sprint_dates.py --dry-run --sprint sprint-1
-```
+See `docs/DATABASE_SCHEMA.md` for complete schema.
 
-**How it works:**
+---
 
-1. Script reads issue labels (`sprint-1`, `sprint-2`, etc.)
-2. Automatically assigns start/end dates based on the roadmap calendar
-3. Updates GitHub Projects v2 custom fields (Start Date, End Date)
-4. Generates detailed reports and logs
+## 🧪 Testing
 
-**Requirements:**
-
-- Issues must be tagged with sprint labels (`sprint-1` through `sprint-8`)
-- Issues must be added to [GitHub Project #7](https://github.com/users/prototyp33/projects/7)
-- GitHub token with `repo` and `project` scopes
-
-**Setup GitHub Token:**
+### Run All Tests
 
 ```bash
-# Option 1: Using gh CLI
-gh auth login
-export GITHUB_TOKEN=$(gh auth token)
-
-# Option 2: Manual token creation
-# 1. Go to https://github.com/settings/tokens/new
-# 2. Select scopes: repo, project
-# 3. Generate and export
-export GITHUB_TOKEN="ghp_your_token_here"
+pytest
 ```
 
-### Critical Epic Issues
+### Run Specific Test Suite
 
-The following issues are flagged as critical epics for priority focus:
+```bash
+pytest tests/test_fk_validation.py -v
+pytest tests/test_data_extraction.py -v
+```
 
-- #91, #87, #89, #123, #92, #93, #95
+### Run Fairness A/B Test
 
-These align with Sprint 1-2 milestones and are essential for the Quick Wins Foundation.
+```bash
+python scripts/fairness_ab_harness.py
+```
+
+### Coverage Report
+
+```bash
+pytest --cov=src --cov-report=html
+open htmlcov/index.html
+```
+
+---
+
+## 📁 Project Structure
+
+```
+barcelona-housing-demographics-analyzer/
+├── src/
+│   ├── api/              # FastAPI backend
+│   ├── app/              # Streamlit dashboard
+│   ├── etl/              # ETL pipeline
+│   ├── extraction/       # Data extractors (TMB, OSM, Open Data BCN)
+│   ├── processing/       # Data transformations
+│   └── database_setup.py # Database schema
+├── scripts/
+│   ├── fairness_ab_harness.py  # A/B testing framework
+│   └── test_issue_*.py         # Validation scripts
+├── tests/                # Unit and integration tests
+├── docs/                 # Documentation
+├── data/
+│   ├── raw/             # Raw extracted data
+│   └── processed/       # Processed database
+├── run_dashboard.sh     # Helper to run Streamlit
+└── run_api.sh          # Helper to run FastAPI
+```
+
+---
+
+## 🚀 Usage Examples
+
+### Dashboard Navigation
+
+1. **Overview** - High-level metrics and trends
+2. **Market View** - Price analysis by neighborhood
+3. **Demographics** - Population and age statistics
+4. **Map Analysis** - Geographic visualizations
+5. **Correlations** - Feature relationships
+6. **Data Quality** - Pipeline health metrics
+
+### API Endpoints
+
+```bash
+# Get all neighborhoods
+curl http://localhost:8000/barrios
+
+# Get specific neighborhood
+curl http://localhost:8000/barrios/1
+
+# Get price statistics
+curl http://localhost:8000/stats/prices
+
+# Get accessibility rankings
+curl http://localhost:8000/accessibility/rankings
+```
+
+See http://localhost:8000/docs for interactive API documentation.
+
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+export DB_PATH="data/processed/database.db"
+export API_PORT=8000
+export DASHBOARD_PORT=8501
+```
+
+### Streamlit Config
+
+Edit `.streamlit/config.toml`:
+
+```toml
+[theme]
+primaryColor = "#FF6B6B"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#FAFAFA"
+font = "sans serif"
+```
+
+---
+
+## 📈 Data Sources
+
+- **TMB (Transports Metropolitans de Barcelona)** - Public transit data
+- **OpenStreetMap** - Geographic and transit infrastructure
+- **Open Data BCN** - Demographics, housing, income
+- **INE (Instituto Nacional de Estadística)** - National statistics
+- **Idealista** - Real estate listings (historical)
+
+---
+
+## 🎓 Key Metrics
+
+### Model Performance
+
+- **MAE:** 422€ (Mean Absolute Error)
+- **R²:** 0.72 (Coefficient of Determination)
+- **Coverage:** 73/73 neighborhoods (100%)
+
+### Fairness Metrics
+
+- **GES (Group Equity Score):** 0.51 (target: >0.70)
+- **IPR (Income Parity Ratio):** 0.88 (target: 0.8-1.2)
+- **PDI (Prediction Dispersion Index):** 4.74 (target: <5.0)
+
+### Data Quality
+
+- **Test Coverage:** 34.53%
+- **Passing Tests:** 299/313
+- **ETL Success Rate:** >95%
+
+---
+
+## 🛠️ Development
+
+### Run ETL Pipeline
+
+```bash
+python -m src.etl.pipeline
+```
+
+### Create New View
+
+```python
+from src.database_views import create_analytical_views
+import sqlite3
+
+conn = sqlite3.connect('data/processed/database.db')
+create_analytical_views(conn)
+conn.close()
+```
+
+### Add New Extractor
+
+1. Create extractor in `src/extraction/`
+2. Inherit from `BaseExtractor`
+3. Implement `extract()` method
+4. Add to `orchestrator.py`
 
 ---
 
 ## 📚 Documentation
 
-### 📘 Guías de Contribución
+- **Next Steps:** `docs/NEXT_STEPS.md` - Phase 3 roadmap
+- **Sprint Completion:** `docs/SPRINT_COMPLETION_FINAL.md` - Recent achievements
+- **Database Schema:** `docs/DATABASE_SCHEMA.md` - Complete schema
+- **Fairness Report:** `docs/FAIRNESS_AB_TEST_REPORT.md` - Latest A/B test results
+- **Test Status:** `docs/TEST_STATUS_SUMMARY.md` - Testing overview
 
-Para mantener la calidad y el orden en el proyecto, consulta nuestras guías oficiales:
+---
 
-- **[📘 Mejores Prácticas de Gestión (Project Management)](docs/PROJECT_BEST_PRACTICES.md)** ⭐ - Guía completa de GitHub Projects, workflows y automatización
-- **[🛠 Configuración del Entorno](.github/scripts/README_SETUP.md)** - Setup automatizado de proyectos y scripts
+## 🐛 Troubleshooting
 
-### 📖 Documentación Técnica
+### "ModuleNotFoundError: No module named 'src'"
 
-- **[Project Status](docs/PROJECT_STATUS.md)** ⭐ - Current state, achievements, issues, and next steps
-- **[Project Metrics](docs/PROJECT_METRICS.md)** 📊 - Issue metrics and KPIs
-- **[Best Practices - Issues](docs/BEST_PRACTICES_GITHUB_ISSUES.md)** - Issue creation guidelines
-- [Issues to Create](docs/ISSUES_TO_CREATE.md) - GitHub issues ready to be created
-- [Vision and Objectives](docs/01_VISION_AND_OBJECTIVES.md) - Project goals and data requirements
-- [API Usage Guide](docs/API_usage.md) - How to use data extraction APIs
-- [Data Structure](docs/DATA_STRUCTURE.md) - Directory organization and file naming conventions
-- [Extraction Improvements](docs/EXTRACTION_IMPROVEMENTS.md) - Advanced features and improvements
-- [Project Milestones](docs/PROJECT_MILESTONES.md) - Development roadmap
-- [Next Steps](docs/NEXT_STEPS.md) - Immediate action plan and recommendations
-- [Debugging Datasets](docs/DEBUGGING_DATASETS.md) - Guide for investigating CKAN datasets
+**Solution:** Use the helper scripts or set PYTHONPATH:
+
+```bash
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+```
+
+### "Port 8501 is already in use"
+
+**Solution:** Kill existing process:
+
+```bash
+lsof -ti:8501 | xargs kill -9
+```
+
+### "Database file not found"
+
+**Solution:** Run ETL pipeline to create database:
+
+```bash
+python -m src.etl.pipeline
+```
+
+### Streamlit theme warnings
+
+**Solution:** These are harmless. Update `.streamlit/config.toml` to remove deprecated options.
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Code Standards
+
+- Follow PEP 8
+- Add type hints
+- Write docstrings
+- Include tests
+- Update documentation
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **Data Sources:** TMB, OpenStreetMap, Open Data BCN, INE
+- **Technologies:** Python, Streamlit, FastAPI, XGBoost, GeoPandas
+- **Contributors:** See GitHub contributors page
+
+---
+
+## 📞 Support
+
+- **Issues:** https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues
+- **Discussions:** https://github.com/prototyp33/barcelona-housing-demographics-analyzer/discussions
+- **Documentation:** `docs/` directory
+
+---
+
+## 🎯 Roadmap
+
+### Phase 3 (Current)
+
+- [ ] Feature engineering improvements
+- [ ] Model fairness optimization
+- [ ] Dashboard enhancements
+- [ ] API expansion
+
+### Future Phases
+
+- [ ] Time series forecasting
+- [ ] Gentrification risk scoring
+- [ ] Investment opportunity ranking
+- [ ] Mobile app
+
+See `docs/NEXT_STEPS.md` for detailed roadmap.
+
+---
+
+**Last Updated:** 2026-01-03  
+**Version:** 2.0.0  
+**Status:** ✅ Production Ready
