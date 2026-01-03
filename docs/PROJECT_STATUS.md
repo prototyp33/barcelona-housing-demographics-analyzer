@@ -1,16 +1,16 @@
 # Estado Actual del Proyecto - Barcelona Housing Demographics Analyzer
 
-**Última actualización**: 31 de diciembre de 2025
+**Última actualización**: 3 de enero de 2026
 
-## 🏆 Últimos Hitos (Fase 2: Modelado Hedónico Avanzado) ✅
+## 🏆 Últimos Hitos (Fase 2: Modelado Hedónico Avanzado & Estrategia) ✅
 
 Se ha completado la Fase 2 con éxito, elevando la capacidad analítica del proyecto:
 
-- 🚀 **Modelo XGBoost (MACRO v0.3)**: Implementado con R² mejorado y nuevas variables físicas.
-- 🏘️ **Segmentación Automática**: Clustering K-Means de barrios en 4 segmentos estratégicos.
-- 📐 **Penalizaciones Hedónicas**: Integración de índices topográficos y proxies de accesibilidad (plantas/ascensor).
-- 💰 **Consultor de Inversión**: Motor de recomendación basado en desviaciones de valor y yields.
-- 🔄 **ETL Avanzado**: Pipeline enriquecido con distancias Haversine (POIs) y proxies de superficie.
+- 🧠 **Modelo Random Forest (Predictivo)**: Implementado en `03_Price_Prediction_Modeling.ipynb` con un **R² de 0.90** y MAE de 266 €/m².
+- 🏘️ **Segmentación Automática**: Clustering K-Means consolidado en 4 segmentos estratégicos (Prime, Residential, Central, High Yield).
+- 🗺️ **Investment Opportunity Mapper**: Visualización geoespacial de desviaciones de valor (Heatmaps de infravaloración) en `04_Investment_Opportunity_Mapper.ipynb`.
+- 💰 **Consultor de Inversión (CLI)**: Script `scripts/run_simulations.py` operativo, permitiendo simulaciones basadas en 4 estrategias: Cash-Flow, Valuación/Gangas, Crecimiento y Preservación.
+- 🔄 **ETL Inteligente**: Pipeline unificado que genera `data/barcelona_ml_valuation.csv` con predicciones ML integradas.
 
 ## 🏆 Últimos Hitos (Fase 3A: API REST & UI Premium) ✅
 
@@ -112,38 +112,27 @@ La infraestructura de datos y el pipeline ETL están consolidados, con datos de 
 
 ### 7. **Modelos de Predicción** ✅
 
-#### MACRO v0.2 Optimizado ✅ (LISTO PARA PRODUCCIÓN)
+#### MACRO v0.3 (Random Forest) ✅ (LISTO PARA PRODUCCIÓN)
 
 **Performance**:
 
-- R² = 0.7944
-- RMSE = 272.34 €/m²
-- Features = 11 (colinealidad eliminada)
+- R² = 0.904
+- MAE = 266.45 €/m²
+- Features = 13 (Socioeconómicas + Físicas + Geográficas)
 
 **Features clave**:
 
-- `renta_promedio_barrio` (mayor peso)
-- `plantas_barrio_mean` (validado estadísticamente)
-- `ano_construccion_barrio_mean`
-- `latitud`, `longitud` (efectos espaciales)
+- `renta_bruta_llar` (Dominante)
+- `superficie_media_m2`
+- `antiguedad_media_bloque`
+- `dist_to_center` (Ajuste espacial)
+- `indice_gini` (Indicador de cohesión social)
 
 **Validaciones completadas**:
 
-- ✅ VIF < 5 (sin colinealidad)
-- ✅ Residuos normales (p = 0.08)
-- ✅ Coeficientes interpretables
-- ✅ `plantas_barrio_mean` investigado y validado (Fases 1-4 completadas)
-
-**Investigación de coeficientes**:
-
-- ✅ Correlación simple: r = -0.48 (significativa)
-- ✅ Correlación parcial (controlando año): r = -0.23 (significativa)
-- ✅ Interacción con ascensor: r = 0.77 (alta correlación)
-- ✅ Densidad como mediador: NO media el efecto (r = 0.08, baja correlación)
-
-**Status**: Listo para dashboard/producción
-
-**Documentación**: `spike-data-validation/docs/INVESTIGACION_PLANTAS_RESULTADOS.md`
+- ✅ Análisis de Residuos (Residual vs Fitted)
+- ✅ Importancia de variables (MDI)
+- ✅ Exportación de dataset de valuación con desviaciones (%)
 
 #### MICRO v0.1 ❌ (NO VIABLE)
 
