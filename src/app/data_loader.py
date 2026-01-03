@@ -852,18 +852,25 @@ def load_gentrification_risk_metrics(year: int = 2023) -> pd.DataFrame:
     """
     conn = get_connection()
     try:
-        # Intentar cargar desde vista avanzada si existe
+        # Use v_demografia_aggregated and calculate proxies
         query = """
         SELECT 
             b.barrio_id, b.barrio_nombre,
-            COALESCE(e.pct_universitarios, 0) as pct_universitarios,
+            COALESCE(e.num_centros_universidad, 0) as num_universidades,
             COALESCE(d.porc_inmigracion, 0) as porc_inmigracion,
-            COALESCE(d.densidad_hab_km2, 0) as densidad
+            COALESCE(d.poblacion_total, 0) as poblacion_total
         FROM dim_barrios b
-        LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id AND e.year = (SELECT MAX(year) FROM fact_educacion)
-        LEFT JOIN fact_demografia d ON b.barrio_id = d.barrio_id AND d.anio = (SELECT MAX(anio) FROM fact_demografia)
+        LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id AND e.anio = (SELECT MAX(anio) FROM fact_educacion)
+        LEFT JOIN v_demografia_aggregated d ON b.barrio_id = d.barrio_id AND d.anio = (SELECT MAX(anio) FROM v_demografia_aggregated)
         """
         df_risk = pd.read_sql(query, conn)
+        
+        # Calculate education proxy: universities per 10k population
+        df_risk['pct_universitarios'] = 0.0
+        mask = df_risk['poblacion_total'] > 0
+        df_risk.loc[mask, 'pct_universitarios'] = (
+            df_risk.loc[mask, 'num_universidades'] / df_risk.loc[mask, 'poblacion_total'] * 10000
+        )
         
         # Calcular variación de precios a 3 años (Lead Indicator de gentrificación)
         query_prices = f"""
