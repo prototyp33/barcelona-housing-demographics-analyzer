@@ -357,7 +357,11 @@ CREATE_TABLE_STATEMENTS = (
     """
     CREATE VIEW IF NOT EXISTS fact_accesibilidad AS
     SELECT 
-        barrio_id, anio, mes, estaciones_metro, estaciones_bicing, tiempo_medio_centro_minutos, etl_loaded_at
+        barrio_id, anio, mes, 
+        estaciones_metro, estaciones_bus, estaciones_bicing, 
+        dist_metro_m, dist_bus_m, access_score,
+        tiempo_medio_centro_minutos, 
+        etl_loaded_at
     FROM fact_movilidad;
     """,
     """
@@ -519,14 +523,14 @@ CREATE_TABLE_STATEMENTS = (
         anio INTEGER NOT NULL,
         mes INTEGER,
         estaciones_metro INTEGER DEFAULT 0,
-        estaciones_fgc INTEGER DEFAULT 0,
-        paradas_bus INTEGER DEFAULT 0,
+        estaciones_bus INTEGER DEFAULT 0,
         estaciones_bicing INTEGER DEFAULT 0,
-        capacidad_bicing INTEGER DEFAULT 0,
-        uso_bicing_promedio REAL,
+        dist_metro_m REAL,
+        dist_bus_m REAL,
+        access_score REAL,
         tiempo_medio_centro_minutos REAL,
         dataset_id TEXT,
-        source TEXT DEFAULT 'atm_opendata',
+        source TEXT DEFAULT 'tmb_bcn_spatial',
         etl_loaded_at TEXT,
         FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
     );

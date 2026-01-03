@@ -16,6 +16,8 @@ from .idealista import IdealistaExtractor
 from .ine import INEExtractor
 from .opendata import OpenDataBCNExtractor
 from .portaldades import PortalDadesExtractor
+from .tmb import TMBExtractor
+from .osm import OSMExtractor
 
 
 def validate_data_size(
@@ -184,7 +186,7 @@ def extract_all_sources(
         Tupla con (diccionario de DataFrames por fuente, metadata de cobertura)
     """
     if sources is None:
-        sources = ["ine", "opendatabcn", "idealista", "portaldades", "generalitat", "opendatabcn_advanced"]
+        sources = ["ine", "opendatabcn", "idealista", "portaldades", "generalitat", "opendatabcn_advanced", "tmb", "osm"]
     
     # Configurar directorio de salida
     if output_dir is None:
@@ -524,11 +526,45 @@ def extract_all_sources(
             results["generalitat_regulacion"] = pd.DataFrame()
             coverage_metadata["sources_failed"].append("generalitat_regulacion")
             coverage_metadata["coverage_by_source"]["generalitat_regulacion"] = {
-                "error": str(e),
-                "success": False,
             }
             if not continue_on_error:
                 raise
+
+    # TMB (Transport)
+    if "tmb" in sources:
+        try:
+            logger.info("=== Extrayendo datos de Transporte (TMB/BCN) ===")
+            tmb_extractor = TMBExtractor(output_dir=output_dir)
+            transit_results, transit_meta = tmb_extractor.extract_all()
+            
+            if transit_results:
+                for key, df in transit_results.items():
+                    results[f"tmb_{key}"] = df
+                coverage_metadata["sources_success"].append("tmb")
+            else:
+                coverage_metadata["sources_failed"].append("tmb")
+            coverage_metadata["coverage_by_source"]["tmb"] = transit_meta
+        except Exception as e:
+            logger.error(f"Error en extracción TMB: {e}")
+            coverage_metadata["sources_failed"].append("tmb")
+
+    # OSM (Vibrancy/Accessibility)
+    if "osm" in sources:
+        try:
+            logger.info("=== Extrayendo datos de OSM (Overpass) ===")
+            osm_extractor = OSMExtractor(output_dir=output_dir)
+            # Only transport for now to avoid long timeouts
+            osm_df, osm_meta = osm_extractor.query_transport()
+            
+            if osm_df is not None and not osm_df.empty:
+                results["osm_transport"] = osm_df
+                coverage_metadata["sources_success"].append("osm")
+            else:
+                coverage_metadata["sources_failed"].append("osm")
+            coverage_metadata["coverage_by_source"]["osm"] = osm_meta
+        except Exception as e:
+            logger.error(f"Error en extracción OSM: {e}")
+            coverage_metadata["sources_failed"].append("osm")
 
     # Validación de cobertura temporal y resumen
     logger.info("=== Resumen de extracción ===")
