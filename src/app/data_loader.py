@@ -874,9 +874,10 @@ def load_gentrification_risk_metrics(year: int = 2023) -> pd.DataFrame:
         
         # Calcular variación de precios a 3 años (Lead Indicator de gentrificación)
         query_prices = f"""
-        SELECT barrio_id, anio, precio_m2_venta
+        SELECT barrio_id, anio, AVG(precio_m2_venta) as precio_m2_venta
         FROM fact_precios
-        WHERE anio IN ({year}, {year-3})
+        WHERE anio IN ({year}, {year-3}) AND precio_m2_venta IS NOT NULL
+        GROUP BY barrio_id, anio
         """
         df_p = pd.read_sql(query_prices, conn)
         if not df_p.empty and year in df_p['anio'].values:
