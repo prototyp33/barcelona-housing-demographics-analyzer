@@ -17,9 +17,8 @@ Se ha completado la Fase 2 con éxito, elevando la capacidad analítica del proy
 Se ha completado la integración del backend con una capa visual de alto nivel:
 
 - 🎨 **Interfaz "Midnight Silicon"**: Landing page premium con estética de vanguardia (glassmorphism, mesh gradients).
-- 📖 **Documentación Tematizada**: Swagger UI y ReDoc personalizados con tipografía (Outfit/Inter) y sistema de colores semánticos.
-- 🛠️ **API Robust**: 100% operativa con validación Pydantic, manejo global de excepciones y corrección de serialización JSON.
-- 🏥 **Health Engine**: Sistema de monitoreo de salud del backend y servicios (DB + ML Model).
+- ⚖️ **Fairness Audit (Q1 2026)**: Primera auditoría de sesgo completada con métricas GES (0.48), IPR (1.07) y PDI (6.44).
+- 🛡️ **Mitigación de Overfitting**: Implementación de regularización agresiva y validación cruzada (R²=0.79 en validación).
 
 El proyecto ha completado exitosamente el **Sprint de Integridad de Datos (Nov 2025)**, cumpliendo todos los criterios críticos:
 

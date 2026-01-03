@@ -66,11 +66,15 @@ class ModelService:
             
             self.model = xgb.XGBRegressor(
                 objective='reg:squarederror',
-                n_estimators=500,
-                learning_rate=0.05,
-                max_depth=6,
-                subsample=0.8,
-                colsample_bytree=0.8,
+                n_estimators=100,      # Improved from 500
+                learning_rate=0.04,
+                max_depth=3,           # Improved from 6
+                gamma=5.0,             # Regularization
+                reg_alpha=1.0,         # L1
+                reg_lambda=2.0,        # L2
+                min_child_weight=3,    # Prevent small leaf splits
+                subsample=0.7,
+                colsample_bytree=0.7,
                 random_state=42,
                 n_jobs=-1
             )
@@ -209,6 +213,42 @@ class ModelService:
             }
         
         return cluster_info
+
+    def get_fairness_metrics(self) -> Dict:
+        """Calculate model fairness metrics (GES, IPR, PDI).
+        
+        Returns:
+            Dictionary with fairness scores
+        """
+        if self.df is None or 'precio_estimado' not in self.df.columns:
+            return {}
+            
+        df = self.df.copy()
+        df['abs_error'] = np.abs(df['avg_venta_23'] - df['precio_estimado'])
+        
+        # 1. Geographic Equity Score (GES)
+        district_maes = df.groupby('distrito_nombre')['abs_error'].mean()
+        ges = 1 - (district_maes.std() / district_maes.mean()) if district_maes.mean() > 0 else 0
+        
+        # 2. Income Parity Ratio (IPR)
+        median_income = df['renta_bruta_llar'].median()
+        mae_low = df[df['renta_bruta_llar'] <= median_income]['abs_error'].mean()
+        mae_high = df[df['renta_bruta_llar'] > median_income]['abs_error'].mean()
+        ipr = mae_low / mae_high if mae_high > 0 else 0
+        
+        # 3. Prediction Dispersion Index (PDI)
+        errors = df['abs_error'].dropna()
+        if len(errors) > 0 and np.median(errors) > 0:
+            pdi = (np.percentile(errors, 95) - np.percentile(errors, 5)) / np.median(errors)
+        else:
+            pdi = 0
+            
+        return {
+            'ges': float(ges),
+            'ipr': float(ipr),
+            'pdi': float(pdi),
+            'district_mae': district_maes.to_dict()
+        }
 
 
 # Global instance
