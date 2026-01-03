@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from src.app.config import COLOR_SCALES, PROFESSIONAL_COLORS
+from src.app.config import COLOR_SCALES
 from src.app.data_loader import load_full_correlation_data
 from src.app.components import render_empty_state, card_standard
 from src.app.styles import apply_plotly_theme
