@@ -39,6 +39,42 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def build_geojson(df: pd.DataFrame) -> dict:
+    """
+    Construye un objeto GeoJSON a partir de un DataFrame con geometrías.
+    
+    Args:
+        df: DataFrame con columnas 'barrio_id' y 'geometry_json'.
+    
+    Returns:
+        Diccionario GeoJSON con FeatureCollection.
+    """
+    features = []
+    
+    for _, row in df.iterrows():
+        if pd.notna(row.get('geometry_json')):
+            try:
+                geometry = json.loads(row['geometry_json']) if isinstance(row['geometry_json'], str) else row['geometry_json']
+                feature = {
+                    "type": "Feature",
+                    "properties": {
+                        "barrio_id": int(row['barrio_id']),
+                        "barrio_nombre": row.get('barrio_nombre', ''),
+                        "distrito_nombre": row.get('distrito_nombre', '')
+                    },
+                    "geometry": geometry
+                }
+                features.append(feature)
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logging.warning(f"Error parsing geometry for barrio_id {row.get('barrio_id')}: {e}")
+                continue
+    
+    return {
+        "type": "FeatureCollection",
+        "features": features
+    }
+
+
 @st.cache_data(ttl=3600)
 def load_barrios() -> pd.DataFrame:
     """
