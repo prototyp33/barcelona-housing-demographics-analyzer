@@ -531,7 +531,8 @@ def run_etl(
         from ..processing.prepare_presion_turistica import prepare_presion_turistica  # noqa: WPS433
         from ..processing.prepare_seguridad import prepare_seguridad  # noqa: WPS433
         from ..processing.prepare_ruido import prepare_ruido  # noqa: WPS433
-
+        from ..processing.prepare_movilidad import prepare_movilidad  # noqa: WPS433
+ 
         fact_regulacion = None
         fact_presion_turistica = None
         fact_seguridad = None
@@ -796,6 +797,21 @@ def run_etl(
             logger.info("Directorio de datos de ruido no encontrado, omitiendo contaminación acústica")
             fact_ruido = None
         
+        # Procesar movilidad y accesibilidad (TMB/OSM)
+        try:
+            logger.info("=== Procesando movilidad y accesibilidad ===")
+            fact_movilidad = prepare_movilidad(
+                raw_data_dir=raw_base_dir,
+                barrios_df=dim_barrios,
+                reference_time=reference_time
+            )
+            if fact_movilidad is not None and not fact_movilidad.empty:
+                logger.info("✓ Movilidad procesada: %s registros", len(fact_movilidad))
+                params["movilidad_rows"] = int(len(fact_movilidad))
+        except Exception as e:
+            handle_source_error("movilidad", e, context="procesamiento")
+            fact_movilidad = None
+
         # Procesar renta si está disponible
         fact_renta = None
         if renta_df is not None and not renta_df.empty:
@@ -1114,8 +1130,19 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_oferta_idealista (no disponible o vacío)")
+ 
+        if fact_movilidad is not None and not fact_movilidad.empty:
+            logger.info("Cargando tabla de hechos de movilidad")
+            fact_movilidad.to_sql(
+                "fact_movilidad",
+                conn,
+                if_exists="replace",
+                index=False,
+            )
+        else:
+            logger.debug("No se cargaron datos en fact_movilidad (no disponible o vacío)")
 
-        # Cargar datasets avanzados usando batch processing
+         # Cargar datasets avanzados usando batch processing
         logger.info("=== Cargando datasets avanzados con procesamiento por lotes ===")
         
         # Optimize memory before insertion
