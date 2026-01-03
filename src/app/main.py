@@ -295,13 +295,26 @@ def main() -> None:
         advanced_analytics.render(year=selected_year)
 
     with tab_inv:
-        investment_analysis.render(year=selected_year)
+        try:
+            investment_analysis.render(year=selected_year)
+        except Exception as e:
+            st.error(f"⚠️ Error loading Investment Analysis view: {str(e)}")
+            st.info("This view is temporarily unavailable. Please try another view or contact support.")
+            st.caption("Tip: Try navigating to other tabs like Market or Insights.")
     
     with tab3:
-        alerts.render(year=selected_year)
+        try:
+            alerts.render(year=selected_year)
+        except Exception as e:
+            st.error(f"⚠️ Error loading Alerts view: {str(e)}")
+            st.info("This view is temporarily unavailable. Please try another view.")
     
     with tab4:
-        recommendations.render(year=selected_year)
+        try:
+            recommendations.render(year=selected_year)
+        except Exception as e:
+            st.error(f"⚠️ Error loading Recommendations view: {str(e)}")
+            st.info("This view is temporarily unavailable. Please try another view.")
     
     with tab5:
         st.header("📝 Reportes Ejecutivos")
