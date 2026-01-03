@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from src.data_processing import prepare_fact_precios
+from src.etl.transformations.market import prepare_fact_precios
 from datetime import datetime
 
 def test_fact_precios_deduplication():
