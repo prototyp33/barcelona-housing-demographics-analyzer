@@ -669,6 +669,17 @@ class TestRunETL:
                 None,  # fact_demografia_ampliada
                 None,  # fact_renta
                 None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
                 [],  # fk_validation_results
             )
 
@@ -732,12 +743,23 @@ class TestRunETL:
                 "precio_m2_venta": [3000.0],
             })
             mock_validate.return_value = (
-                pd.DataFrame(),
-                pd.DataFrame(),
-                None,
-                None,
-                None,
-                [],
+                pd.DataFrame(),  # fact_precios
+                pd.DataFrame(),  # fact_demografia
+                None,  # fact_demografia_ampliada
+                None,  # fact_renta
+                None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
+                [],  # fk_validation_results
             )
 
             db_path = run_etl(
@@ -895,12 +917,23 @@ class TestRunETL:
             })
             mock_precios.return_value = pd.DataFrame()  # Vacío
             mock_validate.return_value = (
-                pd.DataFrame(),
-                pd.DataFrame(),
-                None,
-                None,
-                None,
-                [],
+                pd.DataFrame(),  # fact_precios
+                pd.DataFrame(),  # fact_demografia
+                None,  # fact_demografia_ampliada
+                None,  # fact_renta
+                None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
+                [],  # fk_validation_results
             )
 
             # No debería lanzar excepción, solo warning
@@ -968,12 +1001,23 @@ class TestRunETL:
                 pd.DataFrame(),
             )
             mock_validate.return_value = (
-                pd.DataFrame(),
-                pd.DataFrame(),
-                None,
-                None,
-                None,
-                [],
+                pd.DataFrame(),  # fact_precios
+                pd.DataFrame(),  # fact_demografia
+                None,  # fact_demografia_ampliada
+                None,  # fact_renta
+                None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
+                [],  # fk_validation_results
             )
 
             run_etl(
