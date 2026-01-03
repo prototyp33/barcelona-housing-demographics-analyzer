@@ -669,6 +669,17 @@ class TestRunETL:
                 None,  # fact_demografia_ampliada
                 None,  # fact_renta
                 None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
                 [],  # fk_validation_results
             )
 
@@ -734,6 +745,17 @@ class TestRunETL:
             mock_validate.return_value = (
                 pd.DataFrame(),
                 pd.DataFrame(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -810,6 +832,17 @@ class TestRunETL:
                 pd.DataFrame(),
                 None,
                 pd.DataFrame(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 [],
@@ -900,6 +933,17 @@ class TestRunETL:
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 [],
             )
 
@@ -973,6 +1017,17 @@ class TestRunETL:
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 [],
             )
 
@@ -992,38 +1047,31 @@ class TestRunETL:
         raw_dir = raw_data_structure["raw_dir"]
         processed_dir = raw_data_structure["processed_dir"]
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim:
-            # Hacer que prepare_dim_barrios lance una excepción después de que se cree la conexión
-            # Necesitamos que el esquema se cree primero para que el registro funcione
-            call_count = 0
-            def side_effect(*args, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                if call_count == 1:
-                    # Primera llamada: retornar DataFrame válido para que se cree el esquema
-                    return pd.DataFrame({
-                        "barrio_id": [1],
-                        "barrio_nombre": ["Barrio 1"],
-                        "barrio_nombre_normalizado": ["barrio 1"],
-                        "distrito_id": [1],
-                        "distrito_nombre": ["Distrito 1"],
-                        "municipio": ["Barcelona"],
-                        "ambito": ["barri"],
-                        "codi_districte": ["01"],
-                        "codi_barri": ["01"],
-                        "geometry_json": [None],
-                        "source_dataset": ["test"],
-                        "etl_created_at": ["2022-01-01T00:00:00"],
-                        "etl_updated_at": ["2022-01-01T00:00:00"],
-                    })
-                else:
-                    # Segunda llamada: lanzar error
-                    raise ValueError("Error de procesamiento")
+        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.data_processing.prepare_fact_demografia"
+        ) as mock_demo:
+            # Configurar prepare_dim_barrios para que sea exitoso
+            mock_dim.return_value = pd.DataFrame({
+                "barrio_id": [1],
+                "barrio_nombre": ["Barrio 1"],
+                "barrio_nombre_normalizado": ["barrio 1"],
+                "distrito_id": [1],
+                "distrito_nombre": ["Distrito 1"],
+                "municipio": ["Barcelona"],
+                "ambito": ["barri"],
+                "codi_districte": ["01"],
+                "codi_barri": ["01"],
+                "geometry_json": [None],
+                "source_dataset": ["test"],
+                "etl_created_at": ["2022-01-01T00:00:00"],
+                "etl_updated_at": ["2022-01-01T00:00:00"],
+            })
             
-            mock_dim.side_effect = side_effect
+            # Configurar prepare_fact_demografia para que falle
+            # Esto asegura que el error ocurra después de prepare_dim_barrios
+            mock_demo.side_effect = ValueError("Error de procesamiento en demografía")
 
             # El error debería ocurrir pero el registro debería funcionar
-            # Como el error ocurre después de crear el esquema, el registro debería funcionar
             try:
                 run_etl(
                     raw_base_dir=raw_dir,
@@ -1091,6 +1139,17 @@ class TestRunETL:
             mock_validate.return_value = (
                 pd.DataFrame({"barrio_id": [1, 2], "anio": [2022, 2022], "precio_m2_venta": [3000.0, 4000.0]}),
                 pd.DataFrame({"barrio_id": [1, 2], "anio": [2022, 2022], "poblacion_total": [1000, 2000]}),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
