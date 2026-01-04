@@ -124,7 +124,7 @@ def render() -> None:
                 "Descripción": st.column_config.TextColumn("Definición", width="large")
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
     st.markdown("<br>", unsafe_allow_html=True)

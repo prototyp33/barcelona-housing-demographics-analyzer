@@ -39,16 +39,18 @@ def render_kpis() -> None:
         },
         {
             "title": "Precio Medio (Venta)",
-            "value": kpis['precio_medio_2022'],
+            "value": kpis.get('precio_medio_actual', 0.0),
             "is_currency": True,
             "unit": "€/m²",
             "style": "cool",
+            "delta": f"vs {kpis.get('año_max', 2023)-1}: {((kpis.get('precio_medio_actual', 0)/kpis.get('precio_medio_anterior', 1))-1)*100:+.1f}%" if kpis.get('precio_medio_anterior') else None
         },
         {
-            "title": "Renta Media Anual",
-            "value": kpis['renta_media_2022'],
+            "title": "Renta Media (Hogar)",
+            "value": kpis.get('renta_media_actual', 0.0),
             "is_currency": True,
             "style": "white",
+            "delta": "Dato más reciente (2022/23)"
         },
     ]
     

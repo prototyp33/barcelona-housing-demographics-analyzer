@@ -46,10 +46,15 @@ def render_sidebar() -> tuple[int, str | None, str]:
     Renderiza el sidebar estilo cockpit con identidad, filtros y metadatos.
     """
     years_info = load_available_years()
-    min_year = years_info["fact_precios"]["min"] or 2015
-    max_year = years_info["fact_precios"]["max"] or 2022
+    min_year = years_info.get("fact_precios", {}).get("min") or 2015
+    max_year = years_info.get("fact_precios", {}).get("max") or 2023
+    
+    # Year with most income data
+    renta_info = years_info.get("fact_renta", {})
+    income_year = renta_info.get("max") or 2022
     
     with st.sidebar:
+        # ... (logo and identity remain the same)
         st.markdown(
             f'<div style="display: flex; align-items: center; margin-bottom: 30px;">'
             f'<div style="width: 44px; height: 44px; background: linear-gradient(135deg, #2F80ED 0%, #56CCF2 100%); '
@@ -79,12 +84,12 @@ def render_sidebar() -> tuple[int, str | None, str]:
         distrito_filter = None if selected_distrito == "Todos" else selected_distrito
         
         if selected_metric == "Renta Mensual":
-            st.info("Mostrando datos disponibles para **2022** (Único registro oficial de renta)")
-            selected_year = 2022
+            st.info(f"Mostrando datos de renta para **{income_year}**")
+            selected_year = income_year
             disable_slider = True
         else:
             disable_slider = False
-            default_year = 2022 if 2022 <= max_year else max_year
+            default_year = max_year
             selected_year = st.slider(
                 "Año de Análisis",
                 min_value=min_year,
@@ -115,7 +120,7 @@ def render_sidebar() -> tuple[int, str | None, str]:
                             data=fr,
                             file_name=latest_report.name,
                             mime="text/html",
-                            use_container_width=True,
+                            width="stretch",
                             help="Descarga el último reporte ejecutivo generado en formato HTML (interactivo/offline)."
                         )
                 else:
@@ -130,7 +135,7 @@ def render_sidebar() -> tuple[int, str | None, str]:
                         data=fp,
                         file_name="barcelona_housing.db",
                         mime="application/x-sqlite3",
-                        use_container_width=True,
+                        width="stretch",
                         help="Descarga el archivo SQLite completo con todas las tablas procesadas."
                     )
         
@@ -338,7 +343,7 @@ def main() -> None:
                             data=f,
                             file_name=latest_report.name,
                             mime="text/html",
-                            use_container_width=True
+                            width="stretch"
                         )
                 else:
                     st.warning("⚠️ No se han encontrado reportes generados.")

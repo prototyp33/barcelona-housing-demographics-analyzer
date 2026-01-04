@@ -49,7 +49,7 @@ primaryColor = "#1976D2"
 # Fondo principal - Blanco limpio
 backgroundColor = "#FFFFFF"
 
-# Fondo secundario - Gris suave
+# Fondo secundario (Usado para la Sidebar)
 secondaryBackgroundColor = "#F0F2F6"
 
 # Color de texto
@@ -58,10 +58,13 @@ textColor = "#262730"
 # Fuente
 font = "sans serif"
 
-# Colores adicionales para componentes de Streamlit
-skeletonBackgroundColor = "#F0F2F6"
-widgetBackgroundColor = "#FFFFFF"
-widgetBorderColor = "#E5E7EB"
+# --- FIX FOR THE CONSOLE ERRORS ---
+# Explicitly defining these prevents the "" invalid color warnings
+[theme.sidebar]
+widgetBackgroundColor = "#F0F2F6"
+widgetBorderColor = "#D1D5DB"
+skeletonBackgroundColor = "#E5E7EB"
+
 
 # ==============================================================================
 # Configuración Alternativa: Tema Oscuro

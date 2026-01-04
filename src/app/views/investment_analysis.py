@@ -96,7 +96,7 @@ def render_investment_scatter(df: pd.DataFrame, year: int) -> None:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def render_investment_table(df: pd.DataFrame) -> None:
     """
@@ -129,7 +129,7 @@ def render_investment_table(df: pd.DataFrame) -> None:
             ),
             "cuadrante": st.column_config.TextColumn("Estrategia")
         },
-        use_container_width=True,
+        width="stretch",
         hide_index=True
     )
 

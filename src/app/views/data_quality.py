@@ -144,7 +144,7 @@ def render_quality_evolution() -> None:
         )
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_quality_issues() -> None:
@@ -164,7 +164,7 @@ def render_quality_issues() -> None:
     # Configurar columna de severidad como selectbox
     st.dataframe(
         issues_df,
-        use_container_width=True,
+        width="stretch",
         column_config={
             "Severidad": st.column_config.SelectboxColumn(
                 "Severidad",
@@ -195,7 +195,7 @@ def render_manual_validation() -> None:
     col1, col2 = st.columns([1, 4])
     
     with col1:
-        if st.button("Ejecutar Validación", type="primary", use_container_width=True):
+        if st.button("Ejecutar Validación", type="primary", width="stretch"):
             st.session_state['run_validation'] = True
     
     if st.session_state.get('run_validation', False):

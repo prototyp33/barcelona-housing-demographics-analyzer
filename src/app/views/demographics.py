@@ -328,24 +328,28 @@ def render_gentrification_analysis(year: int = 2023) -> None:
     st.subheader("🚀 Dinámicas de Transformación (Gentrificación)")
     st.caption("Relación entre el nivel educativo superior y el riesgo de gentrificación.")
 
+    # Prepare data for size (must be non-negative)
+    # Fill NaN with 0 and use absolute value for size, plus a small constant
+    df['size_fixed'] = df['var_precio_3a'].fillna(0).abs() + 2
+    
     # Scatter: % Universitarios vs Score Gentrificación
     fig = px.scatter(
         df,
         x="pct_universitarios",
         y="score_gentrificacion",
-        size="var_precio_3a",
+        size="size_fixed",
         color="score_gentrificacion",
         color_continuous_scale="Purples",
         hover_name="barrio_id", # En un caso real, traeríamos el nombre
         labels={
             "pct_universitarios": "% Población Universitaria",
             "score_gentrificacion": "Índice Gentrificación",
-            "var_precio_3a": "Δ Precio 3A"
+            "size_fixed": "Δ Precio 3A (abs)"
         }
     )
     apply_plotly_theme(fig)
     fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True, key="scatter_educ_gentrif")
+    st.plotly_chart(fig, width='stretch', key="scatter_educ_gentrif")
 
 
 def render(year: int = 2023) -> None:

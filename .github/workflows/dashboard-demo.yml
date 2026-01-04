@@ -33,6 +33,14 @@ jobs:
         pip install playwright
         playwright install chromium
         
+    - name: Initialize database
+      run: |
+        mkdir -p data/processed
+        python src/database_setup.py
+        python scripts/create_minimal_barrios.py
+        # Opcional: generar algunos datos mock para que el dashboard no esté vacío
+        python scripts/generate_mock_idealista.py || true
+        
     - name: Start Streamlit server
       run: |
         streamlit run src/app/main.py --server.port ${{ inputs.port }} --server.headless true &

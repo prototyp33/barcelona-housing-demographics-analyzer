@@ -32,10 +32,10 @@ def render_correlation_matrix(year: int = 2023) -> None:
     corr_map = {
         "avg_precio_m2": "Precio €/m²",
         "renta_euros": "Renta Anual",
+        "poblacion_total": "Población",
         "score_gentrificacion": "Índice Gentrif.",
         "pct_universitarios": "% Universitarios",
-        "nivel_ruido": "Ruido (dB)",
-        "densidad_hab_km2": "Densidad"
+        "nivel_ruido": "Ruido (dB)"
     }
     
     df_corr = df[list(corr_map.keys())].corr()
@@ -64,7 +64,7 @@ def render_correlation_matrix(year: int = 2023) -> None:
         plot_bgcolor="rgba(0,0,0,0)",
     )
     
-    st.plotly_chart(fig, key="correlations_matrix", use_container_width=True)
+    st.plotly_chart(fig, key="correlations_matrix", width="stretch")
 
 
 def render_advanced_scatters(year: int = 2023) -> None:
@@ -98,7 +98,7 @@ def render_advanced_scatters(year: int = 2023) -> None:
         )
         apply_plotly_theme(fig1)
         fig1.update_layout(height=400, showlegend=False)
-        st.plotly_chart(fig1, use_container_width=True, key="scatter_gentrif_precio")
+        st.plotly_chart(fig1, width="stretch", key="scatter_gentrif_precio")
         st.caption("🔍 Muestra cómo la transformación demográfica empuja los precios al alza.")
 
     with col2:
@@ -120,7 +120,7 @@ def render_advanced_scatters(year: int = 2023) -> None:
         )
         apply_plotly_theme(fig2)
         fig2.update_layout(height=400, coloraxis_showscale=False)
-        st.plotly_chart(fig2, use_container_width=True, key="scatter_ruido_gentrif")
+        st.plotly_chart(fig2, width="stretch", key="scatter_ruido_gentrif")
         st.caption("🔊 Evalúa si las zonas en transformación están expuestas a mayor contaminación acústica.")
 
 

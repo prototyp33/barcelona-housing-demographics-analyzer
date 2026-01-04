@@ -206,7 +206,7 @@ def render_secondary_metrics(year: int = 2024) -> None:
                             showlegend=False,
                             margin=dict(l=0, r=0, t=0, b=0),
                         )
-                        st.plotly_chart(fig, use_container_width=True, key="trend_chart")
+                        st.plotly_chart(fig, width="stretch", key="trend_chart")
                     else:
                         st.caption("Sin datos de tendencia")
                 else:
@@ -263,10 +263,10 @@ def render_quick_actions() -> None:
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("📊 Analizar barrio específico", use_container_width=True, key="btn_analizar_barrio"):
+        if st.button("📊 Analizar barrio específico", width="stretch", key="btn_analizar_barrio"):
             st.session_state["nav_to_insights"] = True
         
-        if st.button("💡 Obtener recomendaciones", use_container_width=True, key="btn_recomendaciones"):
+        if st.button("💡 Obtener recomendaciones", width="stretch", key="btn_recomendaciones"):
             st.session_state["nav_to_recommendations"] = True
     
     with col2:
@@ -275,15 +275,34 @@ def render_quick_actions() -> None:
             from src.alerts.detector import detect_all_changes
             # Contar alertas para todos los barrios (simplificado: solo algunos)
             num_alertas = 12  # Placeholder - se puede calcular realmente
-            if st.button(f"🔔 Ver alertas activas ({num_alertas})", use_container_width=True, key="btn_alertas"):
+            if st.button(f"🔔 Ver alertas activas ({num_alertas})", width="stretch", key="btn_alertas"):
                 st.session_state["nav_to_alerts"] = True
         except Exception:
-            if st.button("🔔 Ver alertas activas", use_container_width=True, key="btn_alertas"):
+            if st.button("🔔 Ver alertas activas", width="stretch", key="btn_alertas"):
                 st.session_state["nav_to_alerts"] = True
         
-        if st.button("📄 Generar reporte ejecutivo", use_container_width=True, key="btn_reporte"):
+        if st.button("📄 Generar reporte ejecutivo", width="stretch", key="btn_reporte"):
             st.info("Ejecuta: `python scripts/generate_reports.py --type executive_summary`")
 
+
+def render_hero_section() -> None:
+    """Renderiza una sección Hero de alto impacto."""
+    st.markdown(
+        f"""
+        <div style="position: relative; border-radius: 24px; overflow: hidden; margin-bottom: 30px; height: 300px;">
+            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+                        background: linear-gradient(135deg, rgba(29, 53, 87, 0.85) 0%, rgba(47, 128, 237, 0.4) 100%); 
+                        z-index: 1;"></div>
+            <img src="https://images.unsplash.com/photo-1583997051651-8255c4236318?auto=format&fit=crop&q=80&w=2000" 
+                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0;">
+            <div style="position: absolute; bottom: 40px; left: 40px; z-index: 2; color: white;">
+                <p style="text-transform: uppercase; letter-spacing: 2px; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: rgba(255,255,255,0.8);">Barcelona Housing Demographics</p>
+                <h1 style="color: white !important; font-size: 42px !important; margin: 0; font-weight: 800; text-shadow: 0 4px 12px rgba(0,0,0,0.3);">Market Intel Cockpit</h1>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 def render(year: int = 2024, distrito_filter: Optional[str] = None) -> None:
     """
@@ -293,6 +312,7 @@ def render(year: int = 2024, distrito_filter: Optional[str] = None) -> None:
         year: Año seleccionado.
         distrito_filter: Filtro opcional por distrito.
     """
+    render_hero_section()
     st.header("🏘️ MARKET COCKPIT - DASHBOARD PRINCIPAL")
     
     # KPIs Críticos

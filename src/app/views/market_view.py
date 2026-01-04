@@ -100,7 +100,7 @@ def render_correlation_scatter(year: int) -> None:
                         "poblacion_total": "Población"
                     }
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
         else:
             render_empty_state(
                 title="Correlación no disponible",
@@ -172,7 +172,7 @@ def render_supply_analysis(distritos: list[str] | None) -> None:
                 labels={"num_anuncios": "Cantidad de Anuncios", "distrito_nombre": "Distrito"},
                 color_discrete_map={"sale": "#FF5A5F", "rent": "#00A699"} # Airbnb-ish colors
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
 
 def render_market_cockpit() -> None:
@@ -220,7 +220,7 @@ def render_market_cockpit() -> None:
             title=f"Evolución {price_metric.replace('_', ' ').title()}",
             markers=True
         )
-        st.plotly_chart(fig_trends, use_container_width=True)
+        st.plotly_chart(fig_trends, width="stretch")
     else:
         render_empty_state(
             title="Sin tendencias",

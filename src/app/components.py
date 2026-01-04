@@ -522,7 +522,7 @@ def render_prediction_chart(title: str, fig) -> None:
     Renderiza un gráfico de predicción con estilo de tarjeta.
     """
     with card_chart(title=title):
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def render_recommendation_list(recommendations: list[dict]) -> None:

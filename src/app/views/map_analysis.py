@@ -323,7 +323,7 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
         coloraxis_colorbar=dict(title=legend_title)
     )
     
-    st.plotly_chart(fig, key=f"{key_prefix}_chart", use_container_width=True)
+    st.plotly_chart(fig, key=f"{key_prefix}_chart", width="stretch")
 
 
 def render(

@@ -117,7 +117,7 @@ def render_temporal_evolution(
         title_text="Evolución Temporal Multi-Métrica",
     )
     
-    st.plotly_chart(fig, use_container_width=True, key=f"temporal_evolution_{barrio_id}")
+    st.plotly_chart(fig, width="stretch", key=f"temporal_evolution_{barrio_id}")
     
     # Mostrar información de tendencias
     for metric, trend in trends_data.items():
@@ -176,7 +176,7 @@ def render_correlation_heatmap(
             yaxis_title="Métricas",
         )
         
-        st.plotly_chart(fig, use_container_width=True, key="correlation_heatmap")
+        st.plotly_chart(fig, width="stretch", key="correlation_heatmap")
         
         # Mostrar correlaciones más fuertes
         st.caption("💡 **Tip**: Correlaciones cercanas a 1 o -1 indican relaciones fuertes entre variables.")
@@ -271,7 +271,7 @@ def render_radar_chart(
             height=600,
         )
         
-        st.plotly_chart(fig, use_container_width=True, key="radar_chart")
+        st.plotly_chart(fig, width="stretch", key="radar_chart")
     
     except Exception as e:
         logger.error("Error renderizando radar chart: %s", e)
@@ -399,7 +399,7 @@ def render_bubble_chart(
             yaxis_title=y_metric.replace("_", " ").title(),
         )
         
-        st.plotly_chart(fig, use_container_width=True, key="bubble_chart")
+        st.plotly_chart(fig, width="stretch", key="bubble_chart")
     
     except Exception as e:
         logger.error("Error renderizando gráfico de burbujas: %s", e)
@@ -497,7 +497,7 @@ def render_treemap(
         
         fig.update_layout(height=700)
         
-        st.plotly_chart(fig, use_container_width=True, key=f"treemap_{metric}")
+        st.plotly_chart(fig, width="stretch", key=f"treemap_{metric}")
     
     except Exception as e:
         logger.error("Error renderizando treemap: %s", e)
