@@ -71,7 +71,7 @@ def calculate_trends(
         metric_mapping = {
             "precio_m2_venta": ("fact_precios", "precio_m2_venta"),
             "precio_mes_alquiler": ("fact_precios", "precio_mes_alquiler"),
-            "poblacion_total": ("fact_demografia", "poblacion_total"),
+            "poblacion_total": ("v_demografia_aggregated", "poblacion_total"),
             "renta_mediana": ("fact_renta", "renta_mediana"),
             "tasa_criminalidad_1000hab": ("fact_seguridad", "tasa_criminalidad_1000hab"),
             "nivel_lden_medio": ("fact_ruido", "nivel_lden_medio"),

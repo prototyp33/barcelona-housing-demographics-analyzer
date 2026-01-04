@@ -18,8 +18,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 import sqlite3
 
-from ..database_setup import DEFAULT_DB_NAME
-from .notifier import Alert, AlertPriority, create_alert
+from src.database_setup import DEFAULT_DB_NAME
+from src.alerts.notifier import Alert, AlertPriority, create_alert
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +59,11 @@ def detect_changes(
     Returns:
         Lista de alertas detectadas.
     """
-    from ...analysis.descriptive import calculate_trends
-    
     alerts = []
     
     try:
         # Obtener tendencias
-        from ...analysis.descriptive import calculate_trends
+        from src.analysis.descriptive import calculate_trends
         
         trend = calculate_trends(barrio_id, metric, db_path=db_path)
         
@@ -347,8 +345,8 @@ def detect_investment_opportunities(
     """
     Detecta si un barrio ha entrado en el 'Sweet Spot' de inversión.
     """
-    from ..app.config import VIVIENDA_TIPO_M2
-    from ..app.data_loader import load_investment_data
+    from src.app.config import VIVIENDA_TIPO_M2
+    from src.app.data_loader import load_investment_data
     
     alerts = []
     
