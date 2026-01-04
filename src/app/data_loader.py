@@ -19,24 +19,46 @@ import streamlit as st
 from src.app.config import DB_PATH, VIVIENDA_TIPO_M2
 from src.database_setup import validate_table_name
 from src.app.api_client import get_api_client
+from src.database import DatabaseManager
 
+_db_manager = DatabaseManager()
 
 def get_connection() -> sqlite3.Connection:
     """
-    Crea una conexión a la base de datos SQLite.
+    Crea una conexión a la base de datos SQLite usando el DatabaseManager.
     
     Returns:
         Conexión SQLite con foreign keys habilitadas.
-    
-    Raises:
-        FileNotFoundError: Si la base de datos no existe.
     """
-    if not DB_PATH.exists():
-        raise FileNotFoundError(f"Base de datos no encontrada: {DB_PATH}")
+    return _db_manager.get_connection()
+
+
+def table_exists(table_name: str, conn: Optional[sqlite3.Connection] = None) -> bool:
+    """
+    Verifica si una tabla existe en la base de datos.
     
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+    Args:
+        table_name: Nombre de la tabla a verificar.
+        conn: Conexión opcional a la base de datos. Si no se proporciona, crea una nueva.
+        
+    Returns:
+        True si la tabla existe, False en caso contrario.
+    """
+    _conn = conn
+    close_conn = False
+    
+    if _conn is None:
+        _conn = get_connection()
+        close_conn = True
+        
+    try:
+        cursor = _conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+        )
+        return cursor.fetchone() is not None
+    finally:
+        if close_conn:
+            _conn.close()
 
 
 def build_geojson(df: pd.DataFrame) -> dict:
@@ -218,12 +240,12 @@ def load_precios(year: int, distrito: Optional[str] = None) -> pd.DataFrame:
         except Exception:
             pass
 
-        # 3. Consolidar
-        dfs = [df for df in [df_off, df_id] if not df.empty]
+        # 3. Consolidar - filter out empty or all-NA DataFrames
+        dfs = [df for df in [df_off, df_id] if not df.empty and not df.isna().all().all()]
         if not dfs:
             return pd.DataFrame()
             
-        df = pd.concat(dfs).groupby('barrio_id').agg({
+        df = pd.concat(dfs, ignore_index=True).groupby('barrio_id').agg({
             'barrio_nombre': 'first',
             'distrito_nombre': 'first',
             'geometry_json': 'first',
@@ -345,8 +367,10 @@ def load_affordability_data(year: int = 2022) -> pd.DataFrame:
     if df_precios.empty:
         return pd.DataFrame()
         
-    # 2. Cargar renta
-    df_renta = load_renta(2022)
+    # 2. Cargar renta (usar el año más reciente disponible o 2022)
+    years_info = load_available_years()
+    income_year = years_info.get("fact_renta", {}).get("max") or 2022
+    df_renta = load_renta(income_year)
     
     # 3. Combinar
     df = df_precios.merge(df_renta, on='barrio_id', how='inner')
@@ -379,8 +403,10 @@ def load_temporal_comparison(year_start: int = 2015, year_end: int = 2022) -> pd
     # 3. Merge
     df = df_start.merge(df_end, on='barrio_id', how='inner')
     
-    # 4. Cargar renta y calcular esfuerzo
-    df_renta = load_renta(2022)
+    # 4. Cargar renta y calcular esfuerzo (usar el año más reciente disponible o 2022)
+    years_info = load_available_years()
+    income_year = years_info.get("fact_renta", {}).get("max") or 2022
+    df_renta = load_renta(income_year)
     df = df.merge(df_renta, on='barrio_id', how='inner')
     
     df["effort_start"] = (df["precio_start"] * VIVIENDA_TIPO_M2) / df["renta_euros"]
@@ -396,7 +422,7 @@ def load_temporal_comparison(year_start: int = 2015, year_end: int = 2022) -> pd
 
 
 @st.cache_data(ttl=3600)
-def load_correlation_data(year: int = 2022) -> pd.DataFrame:
+def load_correlation_data(year: int = 2023) -> pd.DataFrame:
     """
     Carga datos para análisis de correlación.
     
@@ -406,43 +432,35 @@ def load_correlation_data(year: int = 2022) -> pd.DataFrame:
     Returns:
         DataFrame con precio, renta, densidad y población.
     """
+    # Determinar mejores años disponibles para fallback
+    years_info = load_available_years()
+    income_year = year if year in [2022, 2023] else (years_info.get("fact_renta", {}).get("max") or 2022)
+    demo_year = min(year, 2025)
+    
     conn = get_connection()
     try:
-        df = pd.read_sql(
-            """
+        query = """
             SELECT 
                 b.barrio_id,
                 b.barrio_nombre,
                 b.distrito_nombre,
                 p.avg_precio_m2,
-                r.renta_euros,
-                d.densidad_hab_km2,
+                COALESCE(r.renta_mediana, r.renta_promedio, r.renta_euros) as renta_euros,
                 d.poblacion_total
             FROM dim_barrios b
-            LEFT JOIN (
+            INNER JOIN (
                 SELECT barrio_id, AVG(precio_m2_venta) AS avg_precio_m2
                 FROM fact_precios
                 WHERE anio = ? AND precio_m2_venta IS NOT NULL
                 GROUP BY barrio_id
             ) p ON b.barrio_id = p.barrio_id
-            LEFT JOIN (
-                SELECT barrio_id, renta_euros
-                FROM fact_renta WHERE anio = ?
-            ) r ON b.barrio_id = r.barrio_id
-            LEFT JOIN (
-                SELECT barrio_id, densidad_hab_km2, poblacion_total
-                FROM fact_demografia WHERE anio = ?
-            ) d ON b.barrio_id = d.barrio_id
-            WHERE p.avg_precio_m2 IS NOT NULL
-              AND r.renta_euros IS NOT NULL
-              AND d.densidad_hab_km2 IS NOT NULL
-            """,
-            conn,
-            params=[year, year, year],
-        )
+            LEFT JOIN fact_renta r ON b.barrio_id = r.barrio_id AND r.anio = ?
+            LEFT JOIN v_demografia_aggregated d ON b.barrio_id = d.barrio_id AND d.anio = ?
+        """
+        df = pd.read_sql(query, conn, params=[year, income_year, demo_year])
+        return df.dropna(subset=['renta_euros', 'poblacion_total'])
     finally:
         conn.close()
-    return df
 
 
 @st.cache_data(ttl=3600)
@@ -477,40 +495,47 @@ def load_kpis() -> dict:
         # Registros de precios
         precios = pd.read_sql("SELECT COUNT(*) as n FROM fact_precios", conn)
         
-        # Años cubiertos
-        years = pd.read_sql(
+        # Years covered
+        years_df = pd.read_sql(
             "SELECT MIN(anio) as min_y, MAX(anio) as max_y FROM fact_precios",
             conn,
         )
+        max_year = int(years_df["max_y"].iloc[0]) if pd.notna(years_df["max_y"].iloc[0]) else 2022
+        prev_year = max_year - 1
         
-        # Precio medio actual (2022) y anterior (2021)
+        # Precio medio actual (más reciente) y anterior
         precio_medio = pd.read_sql(
-            """
+            f"""
             SELECT anio, AVG(precio_m2_venta) as avg_precio
             FROM fact_precios
-            WHERE anio IN (2021, 2022) AND precio_m2_venta IS NOT NULL
+            WHERE anio IN ({prev_year}, {max_year}) AND precio_m2_venta IS NOT NULL
             GROUP BY anio
             """,
             conn,
         )
-        precio_2022 = precio_medio[precio_medio["anio"] == 2022]["avg_precio"].iloc[0] if not precio_medio[precio_medio["anio"] == 2022].empty else 0.0
-        precio_2021 = precio_medio[precio_medio["anio"] == 2021]["avg_precio"].iloc[0] if not precio_medio[precio_medio["anio"] == 2021].empty else 0.0
+        precio_curr = precio_medio[precio_medio["anio"] == max_year]["avg_precio"].iloc[0] if not precio_medio[precio_medio["anio"] == max_year].empty else 0.0
+        precio_prev = precio_medio[precio_medio["anio"] == prev_year]["avg_precio"].iloc[0] if not precio_medio[precio_medio["anio"] == prev_year].empty else 0.0
         
-        # Alquiler medio (2022)
+        # Alquiler medio (más reciente)
         alquiler_medio = pd.read_sql(
-            """
+            f"""
             SELECT AVG(precio_mes_alquiler) as avg_alquiler
             FROM fact_precios
-            WHERE anio = 2022 AND precio_mes_alquiler IS NOT NULL
+            WHERE anio = {max_year} AND precio_mes_alquiler IS NOT NULL
             """,
             conn,
         )
         
-        # Renta media (2022)
+        # Renta media (2023 o 2022)
         renta_media = pd.read_sql(
-            "SELECT AVG(renta_euros) as avg_renta FROM fact_renta WHERE anio = 2022",
+            "SELECT AVG(renta_mediana) as avg_renta FROM fact_renta WHERE anio = 2023",
             conn,
         )
+        if renta_media.empty or pd.isna(renta_media["avg_renta"].iloc[0]):
+             renta_media = pd.read_sql(
+                "SELECT AVG(renta_euros) as avg_renta FROM fact_renta WHERE anio = 2022",
+                conn,
+            )
         
     finally:
         conn.close()
@@ -519,12 +544,12 @@ def load_kpis() -> dict:
         "total_barrios": int(barrios["n"].iloc[0]),
         "barrios_con_geometria": int(geom["n"].iloc[0]),
         "registros_precios": int(precios["n"].iloc[0]),
-        "año_min": int(years["min_y"].iloc[0]) if pd.notna(years["min_y"].iloc[0]) else None,
-        "año_max": int(years["max_y"].iloc[0]) if pd.notna(years["max_y"].iloc[0]) else None,
-        "precio_medio_2022": float(precio_2022),
-        "precio_medio_2021": float(precio_2021),
-        "alquiler_medio_2022": float(alquiler_medio["avg_alquiler"].iloc[0]) if not alquiler_medio.empty and pd.notna(alquiler_medio["avg_alquiler"].iloc[0]) else 0.0,
-        "renta_media_2022": float(renta_media["avg_renta"].iloc[0]) if not renta_media.empty and pd.notna(renta_media["avg_renta"].iloc[0]) else 0.0,
+        "año_min": int(years_df["min_y"].iloc[0]) if pd.notna(years_df["min_y"].iloc[0]) else None,
+        "año_max": int(years_df["max_y"].iloc[0]) if pd.notna(years_df["max_y"].iloc[0]) else None,
+        "precio_medio_actual": float(precio_curr),
+        "precio_medio_anterior": float(precio_prev),
+        "alquiler_medio_actual": float(alquiler_medio["avg_alquiler"].iloc[0]) if not alquiler_medio.empty and pd.notna(alquiler_medio["avg_alquiler"].iloc[0]) else 0.0,
+        "renta_media_actual": float(renta_media["avg_renta"].iloc[0]) if not renta_media.empty and pd.notna(renta_media["avg_renta"].iloc[0]) else 0.0,
     }
 
 
@@ -550,15 +575,8 @@ def load_critical_kpis(year: int = 2024) -> dict:
             "ruido": {"value": None, "trend": None},
         }
 
-        # Auxiliar para verificar si una tabla existe
-        def table_exists(table_name: str) -> bool:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-            )
-            return cursor.fetchone() is not None
-
         # 1. Precio vs Índice Referencia
-        if table_exists("fact_precios") and table_exists("fact_regulacion"):
+        if table_exists("fact_precios", conn) and table_exists("fact_regulacion", conn):
             precio_indice_query = """
                 SELECT 
                     AVG(p.precio_mes_alquiler) as precio_medio_alquiler,
@@ -586,32 +604,35 @@ def load_critical_kpis(year: int = 2024) -> dict:
                 logger.warning(f"Error al cargar KPIs de precio vs índice: {e}")
 
         # 2. Presión Turística
-        if table_exists("fact_presion_turistica") and table_exists("fact_demografia"):
-            turismo_query = """
+        if table_exists("fact_presion_turistica", conn) and (table_exists("fact_demografia", conn) or table_exists("v_demografia_aggregated", conn)):
+            demo_table = "v_demografia_aggregated" if table_exists("v_demografia_aggregated", conn) else "fact_demografia"
+            pop_col = "poblacion_total" if demo_table == "v_demografia_aggregated" else "hogares_totales"
+            
+            turismo_query = f"""
                 SELECT 
                     SUM(pt.num_listings_airbnb) as total_listings,
-                    AVG(d.hogares_totales) as avg_hogares
+                    AVG(d.{pop_col}) as avg_demo
                 FROM fact_presion_turistica pt
-                LEFT JOIN fact_demografia d ON pt.barrio_id = d.barrio_id AND pt.anio = d.anio
+                LEFT JOIN {demo_table} d ON pt.barrio_id = d.barrio_id AND pt.anio = d.anio
                 WHERE pt.anio = ? AND pt.num_listings_airbnb IS NOT NULL
             """
             try:
                 turismo = pd.read_sql_query(turismo_query, conn, params=[year])
-                if not turismo.empty and turismo["avg_hogares"].iloc[0] is not None and turismo["avg_hogares"].iloc[0] > 0:
-                    total_hogares = turismo["avg_hogares"].iloc[0] * 73
+                if not turismo.empty and (turismo["avg_demo"].iloc[0] or 0) > 0:
+                    total_households = turismo["avg_demo"].iloc[0] * 73
                     total_listings = turismo["total_listings"].iloc[0] or 0
-                    val = (total_listings / total_hogares) * 100
+                    val = (total_listings / total_households) * 100
                     result["presion_turistica"]["value"] = val
                     
                     turismo_prev = pd.read_sql_query(turismo_query, conn, params=[year - 1])
-                    if not turismo_prev.empty and turismo_prev["avg_hogares"].iloc[0] is not None and turismo_prev["avg_hogares"].iloc[0] > 0:
-                        prev_val = (turismo_prev["total_listings"].iloc[0] or 0) / (turismo_prev["avg_hogares"].iloc[0] * 73) * 100
+                    if not turismo_prev.empty and (turismo_prev["avg_demo"].iloc[0] or 0) > 0:
+                        prev_val = (turismo_prev["total_listings"].iloc[0] or 0) / (turismo_prev["avg_demo"].iloc[0] * 73) * 100
                         result["presion_turistica"]["trend"] = val - prev_val
             except Exception as e:
                 logger.warning(f"Error al cargar KPIs de turismo: {e}")
 
         # 3. Criminalidad
-        if table_exists("fact_seguridad"):
+        if table_exists("fact_seguridad", conn):
             seguridad_query = """
                 SELECT AVG(s.tasa_criminalidad_1000hab) as avg_tasa_criminalidad
                 FROM fact_seguridad s
@@ -630,7 +651,7 @@ def load_critical_kpis(year: int = 2024) -> dict:
                 logger.warning(f"Error al cargar KPIs de seguridad: {e}")
 
         # 4. Ruido
-        if table_exists("fact_ruido"):
+        if table_exists("fact_ruido", conn):
             ruido_query = """
                 SELECT AVG(r.pct_poblacion_expuesta_65db) as avg_pct_expuesta
                 FROM fact_ruido r
@@ -737,14 +758,7 @@ def load_regulation_summary(year: int = 2024) -> dict:
     """
     conn = get_connection()
     try:
-        # Auxiliar para verificar si una tabla existe
-        def table_exists(table_name: str) -> bool:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-            )
-            return cursor.fetchone() is not None
-
-        if not table_exists("fact_regulacion"):
+        if not table_exists("fact_regulacion", conn):
             return {"zonas_tensionadas": 0, "total_licencias_vut": 0}
 
         query = """
@@ -780,14 +794,7 @@ def load_affordability_summary(year: int = 2024) -> dict:
     """
     conn = get_connection()
     try:
-        # Auxiliar para verificar si una tabla existe
-        def table_exists(table_name: str) -> bool:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-            )
-            return cursor.fetchone() is not None
-
-        if not table_exists("fact_precios") or not table_exists("fact_renta"):
+        if not table_exists("fact_precios", conn) or not table_exists("fact_renta", conn):
             return {"ratio_precio_renta_anios": None}
 
         query = """
@@ -881,6 +888,8 @@ def load_gentrification_risk_metrics(year: int = 2023) -> pd.DataFrame:
         """
         df_p = pd.read_sql(query_prices, conn)
         if not df_p.empty and year in df_p['anio'].values:
+            # Extra safety: drop duplicates if any (shouldn't happen with GROUP BY)
+            df_p = df_p.drop_duplicates(subset=['barrio_id', 'anio'])
             df_pivot = df_p.pivot(index='barrio_id', columns='anio', values='precio_m2_venta')
             if year-3 in df_pivot.columns:
                 df_pivot['var_precio_3a'] = ((df_pivot[year] - df_pivot[year-3]) / df_pivot[year-3]) * 100
@@ -1044,7 +1053,13 @@ def load_price_trends(distritos: Optional[list[str]] = None) -> pd.DataFrame:
     if not all_data:
         return pd.DataFrame()
         
-    df = pd.concat(all_data)
+    # Filter out empty or all-NA DataFrames to avoid FutureWarning
+    all_data = [d for d in all_data if not d.empty and not d.isna().all().all()]
+    
+    if not all_data:
+        return pd.DataFrame()
+
+    df = pd.concat(all_data, ignore_index=True)
     
     if distritos:
         df = df[df['distrito_nombre'].isin(distritos)]
@@ -1077,7 +1092,7 @@ def load_demographics_by_barrio(year: int) -> pd.DataFrame:
                 b.barrio_nombre,
                 b.distrito_nombre,
                 d.*
-            FROM fact_demografia d
+            FROM v_demografia_aggregated d
             JOIN dim_barrios b ON d.barrio_id = b.barrio_id
             WHERE d.anio = ?
             """,
@@ -1102,7 +1117,7 @@ def load_idealista_supply(distritos: Optional[list[str]] = None) -> pd.DataFrame
     """
     conn = get_connection()
     try:
-        if not table_exists("fact_oferta_idealista"):
+        if not table_exists("fact_oferta_idealista", conn):
             return pd.DataFrame()
             
         query = """

@@ -41,12 +41,14 @@ VALID_TABLES: FrozenSet[str] = frozenset(
         "fact_catastro_avanzado",
         "fact_hogares_avanzado",
         "fact_turismo_intensidad",
+        "fact_vivienda_contexto_metropolitano",
         "dim_barrios_extended",
         "fact_airbnb",
         "fact_control_alquiler",
         "fact_accesibilidad",
         "fact_centralidad",
         "etl_runs",
+        "etl_quality_metrics",
     }
 )
 
@@ -556,6 +558,17 @@ CREATE_TABLE_STATEMENTS = (
         fianzas_depositadas_euros REAL,
         renta_media_mensual_alquiler REAL,
         viviendas_proteccion_oficial INTEGER,
+        viviendas_iniciadas_vpo INTEGER,
+        viviendas_iniciadas_total INTEGER,
+        viviendas_terminadas_vpo INTEGER,
+        viviendas_terminadas_total INTEGER,
+        viviendas_principales INTEGER,
+        viviendas_no_principales INTEGER,
+        num_licencias_mayor INTEGER,
+        num_licencias_menor INTEGER,
+        viviendas_vacias REAL,
+        demanda_vpo REAL,
+        ayudas_alquiler REAL,
         dataset_id TEXT,
         source TEXT DEFAULT 'incasol_idescat',
         etl_loaded_at TEXT,
@@ -699,6 +712,18 @@ CREATE_TABLE_STATEMENTS = (
     );
     """,
     """
+    CREATE TABLE IF NOT EXISTS etl_quality_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        completeness REAL,
+        validity REAL,
+        consistency REAL,
+        timeliness INTEGER,
+        run_id TEXT,
+        FOREIGN KEY (run_id) REFERENCES etl_runs (run_id)
+    );
+    """,
+    """
     CREATE TABLE IF NOT EXISTS fact_renta_avanzada (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         barrio_id INTEGER NOT NULL,
@@ -770,6 +795,30 @@ CREATE_TABLE_STATEMENTS = (
     """,
     """
     CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_turismo_intensidad_unique ON fact_turismo_intensidad (barrio_id, anio);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_vivienda_contexto_metropolitano (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ambito TEXT NOT NULL,  -- 'Barcelona', 'AMB', 'AMB sense Barcelona'
+        anio_inicio INTEGER NOT NULL,
+        anio_fin INTEGER NOT NULL,
+        -- Régimen de tenencia (%)
+        propiedad_total REAL,
+        propiedad_pagada REAL,
+        propiedad_pendiente REAL,
+        alquiler_total REAL,
+        alquiler_mercado REAL,
+        alquiler_social REAL,
+        cesion_gratuita REAL,
+        -- Concentración de propiedad (%)
+        pct_persona_fisica REAL,
+        pct_persona_juridica REAL,
+        pct_grandes_tenedores REAL,
+        -- Metadatos
+        source TEXT,
+        etl_loaded_at TEXT,
+        UNIQUE(ambito, anio_inicio, anio_fin)
+    );
     """,
 )
 
@@ -876,6 +925,30 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
         if missing_dem_cols.keys() - dem_columns:
             conn.commit()
             logger.info("✓ Columnas adicionales añadidas a fact_demografia")
+
+        # Añadir columnas adicionales a fact_vivienda_publica
+        cursor = conn.execute("PRAGMA table_info(fact_vivienda_publica)")
+        vpo_columns = {row[1] for row in cursor.fetchall()}
+        missing_vpo_cols = {
+            "viviendas_iniciadas_vpo": "INTEGER",
+            "viviendas_iniciadas_total": "INTEGER",
+            "viviendas_terminadas_vpo": "INTEGER",
+            "viviendas_terminadas_total": "INTEGER",
+            "viviendas_principales": "INTEGER",
+            "viviendas_no_principales": "INTEGER",
+            "num_licencias_mayor": "INTEGER",
+            "num_licencias_menor": "INTEGER",
+            "viviendas_vacias": "REAL",
+            "demanda_vpo": "REAL",
+            "ayudas_alquiler": "REAL",
+        }
+        for col_name, col_type in missing_vpo_cols.items():
+            if col_name not in vpo_columns:
+                logger.info("Añadiendo columna %s a fact_vivienda_publica", col_name)
+                conn.execute(f"ALTER TABLE fact_vivienda_publica ADD COLUMN {col_name} {col_type}")
+        if missing_vpo_cols.keys() - vpo_columns:
+            conn.commit()
+            logger.info("✓ Columnas adicionales añadidas a fact_vivienda_publica")
     except sqlite3.Error as e:
         logger.warning("Error al aplicar migración de esquema: %s", e)
         # No lanzar excepción para no romper el flujo si la tabla no existe aún

@@ -53,6 +53,24 @@ class DatabaseService:
             logger.error(f"Error connecting to database: {e}")
             return None
     
+    def _sanitize_df(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """Sanitize DataFrame by replacing NaN/Inf with None and converting to dict list.
+        
+        Args:
+            df: DataFrame to sanitize
+            
+        Returns:
+            List of dictionaries compatible with JSON
+        """
+        if df.empty:
+            return []
+        
+        # Replace inf with NaN first
+        df = df.replace([float('inf'), float('-inf')], pd.NA)
+        
+        # Convert to object and replace NA/NaN with None for JSON compliance
+        return df.astype(object).where(pd.notnull(df), None).to_dict('records')
+
     def get_barrios(self, distrito: Optional[str] = None, include_geometry: bool = False) -> List[Dict[str, Any]]:
         """Get all barrios, optionally filtered by distrito.
         
@@ -80,7 +98,7 @@ class DatabaseService:
             else:
                 df = pd.read_sql_query(query, conn)
             
-            return df.to_dict('records')
+            return self._sanitize_df(df)
         except Exception as e:
             logger.error(f"Error fetching barrios: {e}")
             return []
@@ -95,7 +113,7 @@ class DatabaseService:
         
         try:
             result = {}
-            tables = ["fact_precios", "fact_demografia", "fact_renta", "fact_renta_avanzada"]
+            tables = ["fact_precios", "v_demografia_aggregated", "fact_renta", "fact_renta_avanzada"]
             for table in tables:
                 try:
                     df = pd.read_sql(
@@ -149,7 +167,7 @@ class DatabaseService:
             
             query += " GROUP BY p.barrio_id"
             df = pd.read_sql(query, conn, params=params)
-            return df.to_dict('records')
+            return self._sanitize_df(df)
         finally:
             conn.close()
 
@@ -185,27 +203,34 @@ class DatabaseService:
             JOIN contract_rents c ON b.barrio_id = c.barrio_id
             """
             df = pd.read_sql(query, conn, params=[year, year])
-            return df.to_dict('records')
+            return self._sanitize_df(df)
         finally:
             conn.close()
 
-    def get_renta(self, year: int = 2022) -> List[Dict[str, Any]]:
-        """Get income data (prefers fact_renta_avanzada)."""
+    def get_renta(self, year: int = 2023) -> List[Dict[str, Any]]:
+        """Get income data (attempts multiple columns)."""
         conn = self.get_connection()
         if conn is None:
             return []
         try:
-            # Try fact_renta first as it matches 'renta_euros'
-            try:
-                df = pd.read_sql("SELECT barrio_id, renta_euros FROM fact_renta WHERE anio = ?", conn, params=[year])
-                if not df.empty:
-                    return df.to_dict('records')
-            except Exception:
-                pass
+            # Try fact_renta first but be flexible with column names
+            query = """
+                SELECT 
+                    barrio_id, 
+                    COALESCE(renta_mediana, renta_promedio, renta_euros) as renta_euros 
+                FROM fact_renta 
+                WHERE anio = ?
+            """
+            df = pd.read_sql(query, conn, params=[year])
+            if not df.empty:
+                return self._sanitize_df(df)
             
             # Fallback to fact_renta_avanzada
-            df = pd.read_sql("SELECT barrio_id, renta_bruta_llar FROM fact_renta_avanzada WHERE anio = ?", conn, params=[year])
-            return df.to_dict('records')
+            df = pd.read_sql("SELECT barrio_id, renta_bruta_llar as renta_euros FROM fact_renta_avanzada WHERE anio = ?", conn, params=[year])
+            return self._sanitize_df(df)
+        except Exception as e:
+            logger.error(f"Error fetching renta for year {year}: {e}")
+            return []
         finally:
             conn.close()
 
@@ -225,32 +250,36 @@ class DatabaseService:
             
             # Years range from prices
             years = pd.read_sql("SELECT MIN(anio) as min_y, MAX(anio) as max_y FROM fact_precios", conn)
+            max_year = int(years['max_y'].iloc[0]) if pd.notna(years['max_y'].iloc[0]) else 2022
+            prev_year = max_year - 1
             
-            # Price averages for comparison (2022 vs 2021)
-            prices_cmp = pd.read_sql("""
+            # Price averages for comparison
+            prices_cmp = pd.read_sql(f"""
                 SELECT anio, AVG(precio_m2_venta) as avg_price, AVG(precio_mes_alquiler) as avg_rent
                 FROM fact_precios 
-                WHERE anio IN (2021, 2022) 
+                WHERE anio IN ({prev_year}, {max_year}) 
                 GROUP BY anio
             """, conn)
             
-            price_22 = float(prices_cmp[prices_cmp['anio'] == 2022]['avg_price'].iloc[0]) if not prices_cmp[prices_cmp['anio'] == 2022].empty else 0.0
-            price_21 = float(prices_cmp[prices_cmp['anio'] == 2021]['avg_price'].iloc[0]) if not prices_cmp[prices_cmp['anio'] == 2021].empty else 0.0
-            rent_22 = float(prices_cmp[prices_cmp['anio'] == 2022]['avg_rent'].iloc[0]) if not prices_cmp[prices_cmp['anio'] == 2022].empty else 0.0
+            price_curr = float(prices_cmp[prices_cmp['anio'] == max_year]['avg_price'].iloc[0]) if not prices_cmp[prices_cmp['anio'] == max_year].empty else 0.0
+            price_prev = float(prices_cmp[prices_cmp['anio'] == prev_year]['avg_price'].iloc[0]) if not prices_cmp[prices_cmp['anio'] == prev_year].empty else 0.0
+            rent_curr = float(prices_cmp[prices_cmp['anio'] == max_year]['avg_rent'].iloc[0]) if not prices_cmp[prices_cmp['anio'] == max_year].empty else 0.0
             
-            # Global income (2022)
-            income_22 = pd.read_sql("SELECT AVG(renta_euros) as avg_income FROM fact_renta WHERE anio = 2022", conn).iloc[0]['avg_income']
+            # Global income (fallback logic for different years/columns)
+            income_latest = pd.read_sql("SELECT AVG(renta_mediana) as avg_income FROM fact_renta WHERE anio = 2023", conn).iloc[0]['avg_income']
+            if income_latest is None:
+                income_latest = pd.read_sql("SELECT AVG(renta_euros) as avg_income FROM fact_renta WHERE anio = 2022", conn).iloc[0]['avg_income']
             
             return {
                 "total_barrios": int(barrios_n),
                 "barrios_con_geometria": int(geom_n),
                 "registros_precios": int(precios_n),
                 "año_min": int(years['min_y'].iloc[0]) if pd.notna(years['min_y'].iloc[0]) else None,
-                "año_max": int(years['max_y'].iloc[0]) if pd.notna(years['max_y'].iloc[0]) else None,
-                "precio_medio_2022": price_22,
-                "precio_medio_2021": price_21,
-                "alquiler_medio_2022": rent_22,
-                "renta_media_2022": float(income_22 or 0)
+                "año_max": max_year,
+                f"precio_medio_{max_year}": price_curr,
+                f"precio_medio_{prev_year}": price_prev,
+                f"alquiler_medio_{max_year}": rent_curr,
+                "renta_media_actual": float(income_latest or 0)
             }
         finally:
             conn.close()
@@ -298,7 +327,9 @@ class DatabaseService:
             if df.empty:
                 return None
             
-            return df.iloc[0].to_dict()
+            # Replace NaN/Inf in the single record
+            record = df.iloc[0].to_dict()
+            return {k: (v if pd.notnull(v) else None) for k, v in record.items()}
         except Exception as e:
             logger.error(f"Error fetching barrio detail: {e}")
             return None
@@ -331,11 +362,11 @@ class DatabaseService:
             
             if barrio_id:
                 query += " AND p.barrio_id = ?"
+                query += " GROUP BY p.anio, b.barrio_nombre ORDER BY p.anio"
                 df = pd.read_sql_query(query, conn, params=(barrio_id,))
             else:
+                query += " GROUP BY p.anio, b.barrio_nombre ORDER BY p.anio"
                 df = pd.read_sql_query(query, conn)
-            
-            query += " GROUP BY p.anio, b.barrio_nombre ORDER BY p.anio"
             
             return df
         except Exception as e:

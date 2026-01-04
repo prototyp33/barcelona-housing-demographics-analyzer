@@ -47,7 +47,7 @@ COLOR_SCALES = {
 }
 
 # Años disponibles (se actualizará dinámicamente desde la BD)
-DEFAULT_YEAR = 2022
+DEFAULT_YEAR = 2023
 MIN_YEAR = 2015
 MAX_YEAR = 2025
 

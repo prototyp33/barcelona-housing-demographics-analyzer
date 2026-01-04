@@ -15,9 +15,10 @@ import pandas as pd
 import streamlit as st
 
 from src.app.config import DB_PATH
-from src.app.data_loader import get_connection
+from src.database import DatabaseManager
 from src.database_setup import validate_table_name
 
+_db_manager = DatabaseManager()
 
 @st.cache_data(ttl=300)  # Cache por 5 minutos (métricas pueden cambiar)
 def calculate_completeness() -> float:
@@ -29,7 +30,7 @@ def calculate_completeness() -> float:
     Returns:
         Porcentaje de completitud (0-100).
     """
-    conn = get_connection()
+    conn = _db_manager.get_connection()
     try:
         # Calcular completitud por tabla
         tables = ["fact_precios", "fact_demografia", "fact_renta"]
@@ -54,14 +55,36 @@ def calculate_completeness() -> float:
                       AND (precio_m2_venta IS NOT NULL OR precio_mes_alquiler IS NOT NULL)
                 """
             elif table == "fact_demografia":
-                # Campos críticos: barrio_id, anio, poblacion_total
-                query = f"""
-                    SELECT COUNT(*) as non_null 
-                    FROM {validated_table}
-                    WHERE barrio_id IS NOT NULL 
-                      AND anio IS NOT NULL 
-                      AND poblacion_total IS NOT NULL
-                """
+                # Si fact_demografia está vacía, intentar con fact_demografia_ampliada
+                if total == 0:
+                    try:
+                        ampliada_total_df = pd.read_sql("SELECT COUNT(*) as total FROM fact_demografia_ampliada", conn)
+                        total = ampliada_total_df["total"].iloc[0]
+                        query = """
+                            SELECT COUNT(*) as non_null 
+                            FROM fact_demografia_ampliada
+                            WHERE barrio_id IS NOT NULL 
+                              AND anio IS NOT NULL 
+                              AND poblacion IS NOT NULL
+                        """
+                    except Exception:
+                        # Si falla, mantener fact_demografia original
+                        query = f"""
+                            SELECT COUNT(*) as non_null 
+                            FROM {validated_table}
+                            WHERE barrio_id IS NOT NULL 
+                              AND anio IS NOT NULL 
+                              AND poblacion_total IS NOT NULL
+                        """
+                else:
+                    # Campos críticos: barrio_id, anio, poblacion_total
+                    query = f"""
+                        SELECT COUNT(*) as non_null 
+                        FROM {validated_table}
+                        WHERE barrio_id IS NOT NULL 
+                          AND anio IS NOT NULL 
+                          AND poblacion_total IS NOT NULL
+                    """
             else:  # fact_renta
                 # Campos críticos: barrio_id, anio, renta_euros
                 query = f"""
@@ -97,7 +120,7 @@ def calculate_validity() -> float:
     Returns:
         Porcentaje de validez (0-100).
     """
-    conn = get_connection()
+    conn = _db_manager.get_connection()
     try:
         total_rows = 0
         valid_rows = 0
@@ -162,10 +185,10 @@ def calculate_consistency() -> float:
     Returns:
         Porcentaje de consistencia (0-100).
     """
-    conn = get_connection()
+    conn = _db_manager.get_connection()
     try:
-        # Obtener barrios únicos de cada tabla
-        tables = ["fact_precios", "fact_demografia", "fact_renta"]
+        # Obtener barrios únicos de cada tabla (usar fact_demografia_ampliada en lugar de fact_demografia vacía)
+        tables = ["fact_precios", "fact_demografia_ampliada", "fact_renta"]
         barrio_sets = []
         
         for table in tables:
@@ -202,7 +225,7 @@ def calculate_timeliness() -> int:
     Returns:
         Número de días desde el dato más reciente.
     """
-    conn = get_connection()
+    conn = _db_manager.get_connection()
     try:
         max_dates = []
         
@@ -239,20 +262,35 @@ def get_quality_history() -> pd.DataFrame:
     """
     Obtiene historial de métricas de calidad.
     
-    Por ahora retorna datos sintéticos, pero puede extenderse para
-    guardar métricas históricas en una tabla.
+    Intenta leer de la tabla etl_quality_metrics. Si no existe o está vacía,
+    retorna datos sintéticos basados en métricas actuales.
     
     Returns:
         DataFrame con fecha, completeness, validity, consistency.
     """
+    conn = _db_manager.get_connection()
+    try:
+        # Verificar si la tabla existe y tiene datos
+        df_real = pd.read_sql(
+            "SELECT timestamp as fecha, completeness, validity, consistency FROM etl_quality_metrics ORDER BY timestamp ASC",
+            conn
+        )
+        if not df_real.empty:
+            df_real['fecha'] = pd.to_datetime(df_real['fecha'])
+            return df_real
+    except Exception:
+        # Fallback a datos sintéticos si la tabla no existe o hay error
+        pass
+    finally:
+        conn.close()
+
     # Por ahora, retornar datos sintéticos basados en métricas actuales
-    # En el futuro, esto puede leer de una tabla etl_quality_metrics
     completeness = calculate_completeness()
     validity = calculate_validity()
     consistency = calculate_consistency()
     
     # Generar últimos 24 meses con variación pequeña
-    dates = pd.date_range(end=datetime.now(), periods=24, freq='M')
+    dates = pd.date_range(end=datetime.now(), periods=24, freq='ME')
     
     # Simular evolución histórica (variación pequeña alrededor del valor actual)
     import numpy as np
@@ -280,7 +318,7 @@ def detect_quality_issues() -> pd.DataFrame:
     Returns:
         DataFrame con barrio, issue, severidad, fecha detectado.
     """
-    conn = get_connection()
+    conn = _db_manager.get_connection()
     try:
         issues = []
         
