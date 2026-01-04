@@ -13,7 +13,7 @@ Los valores resultantes son ESTIMACIONES, no datos reales por barrio.
 import sqlite3
 import traceback
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -33,8 +33,10 @@ class ViviendaPublicaExtractor(BaseExtractor):
     
     # IDs de datasets Open Data BCN relacionados con vivienda
     OPENDATA_DATASETS = {
-        "habitatge": "habitatge",  # Organización de datasets de vivienda
+        "habitatges_tutelats": "serveissocials-habitatgestutelats",
         "cuotas_catastrales": "cuotas-catastrales",
+        "licencias_obra_mayor": "licencies-obres-majors",
+        "licencias_obra_menor": "licencies-obres-menors",
     }
     
     def __init__(self, rate_limit_delay: float = 2.0, output_dir: Optional[Path] = None):
@@ -50,10 +52,10 @@ class ViviendaPublicaExtractor(BaseExtractor):
             rate_limit_delay=rate_limit_delay,
             output_dir=output_dir
         )
-    
-    def extract_idescat_alquiler(self, year: int) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+
+    def extract_idescat_vivienda_publica(self, year: int) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
         """
-        Extrae datos de alquiler de IDESCAT a nivel municipal.
+        Extrae datos de vivienda protegida de IDESCAT a nivel municipal (EMEX).
         
         Args:
             year: Año de los datos.
@@ -61,58 +63,100 @@ class ViviendaPublicaExtractor(BaseExtractor):
         Returns:
             Tupla con (DataFrame con datos municipales, metadata).
         """
-        logger.info(f"Extrayendo datos de alquiler IDESCAT para {year}...")
+        logger.info(f"Extrayendo datos de vivienda IDESCAT para {year}...")
         
         coverage_metadata = {
             "source": "idescat_api",
             "year": year,
             "success": False,
-            "level": "municipal",  # Importante: datos a nivel municipal
+            "level": "municipal",
         }
         
         try:
-            # IDESCAT API endpoint para alquiler
-            # Nota: La estructura exacta de la API puede variar
-            # Este es un ejemplo basado en la documentación de IDESCAT
-            endpoint = f"{self.IDESCAT_BASE_URL}/emex/v1"
+            # IDESCAT API endpoint para datos municipales (EMEX)
+            endpoint = f"{self.IDESCAT_BASE_URL}/emex/v1/dades.json"
             params = {
                 "lang": "es",
-                "year": year,
-                "territory": "080193",  # Código INE de Barcelona
+                "id": "080193",  # Código INE de Barcelona
             }
             
             self._rate_limit()
             response = self.session.get(endpoint, params=params, timeout=30)
             
             if not self._validate_response(response):
-                coverage_metadata["error"] = "Error en respuesta HTTP"
+                coverage_metadata["error"] = f"Error HTTP {response.status_code}"
                 return None, coverage_metadata
             
             data = response.json()
             
-            # Parsear respuesta según estructura de IDESCAT
-            # La estructura puede variar, este es un ejemplo
-            if "data" in data:
-                df = pd.DataFrame(data["data"])
-            else:
-                # Intentar parsear directamente como lista
-                if isinstance(data, list):
-                    df = pd.DataFrame(data)
-                else:
-                    logger.error("Estructura de respuesta IDESCAT inesperada")
-                    coverage_metadata["error"] = "Estructura de respuesta inesperada"
-                    return None, coverage_metadata
+            # IDs de indicadores en EMEX Barcelona:
+            # f13: Viviendas iniciadas de protección oficial
+            # f14: Viviendas iniciadas (Total)
+            # f15: Viviendas terminadas de protección oficial
+            # f16: Viviendas terminadas (Total)
+            # f250: Viviendas familiares principales
+            # f398: Viviendas familiares no principales
             
-            logger.info(f"Datos IDESCAT extraídos: {len(df)} registros")
+            extracted_data = {"territorio": "Barcelona", "anio": year}
+            
+            target_ids = ["f13", "f14", "f15", "f16", "f250", "f398"]
+            
+            def find_indicators(obj, target_ids):
+                results = {}
+                if isinstance(obj, dict):
+                    if obj.get("id") in target_ids:
+                        val_str = str(obj.get("v", ""))
+                        if val_str:
+                            # En EMEX, v suele ser "valor_mun,valor_comarca,valor_cat"
+                            vals = val_str.split(",")
+                            try:
+                                results[obj["id"]] = float(vals[0]) if vals[0].strip() and vals[0] != "_" else None
+                            except (ValueError, IndexError):
+                                pass
+                    for k, v in obj.items():
+                        results.update(find_indicators(v, target_ids))
+                elif isinstance(obj, list):
+                    for item in obj:
+                        results.update(find_indicators(item, target_ids))
+                return results
+
+            found = find_indicators(data, target_ids)
+            
+            mapping = {
+                "f13": "viviendas_iniciadas_vpo",
+                "f14": "viviendas_iniciadas_total",
+                "f15": "viviendas_terminadas_vpo",
+                "f16": "viviendas_terminadas_total",
+                "f250": "viviendas_principales",
+                "f398": "viviendas_no_principales"
+            }
+            
+            for fid, col in mapping.items():
+                if fid in found:
+                    extracted_data[col] = found[fid]
+            
+            # Alias para mantener compatibilidad con columnas existentes
+            if "viviendas_iniciadas_vpo" in extracted_data:
+                extracted_data["viviendas_proteccion_oficial"] = extracted_data["viviendas_iniciadas_vpo"]
+            
+            if len(found) == 0:
+                logger.warning("No se encontraron indicadores de vivienda (f13/f14) en IDESCAT")
+                coverage_metadata["error"] = "No se encontraron indicadores f13/f14"
+                return None, coverage_metadata
+            
+            df = pd.DataFrame([extracted_data])
+            logger.info(f"Datos IDESCAT extraídos: {extracted_data}")
             coverage_metadata["success"] = True
-            coverage_metadata["total_records"] = len(df)
+            coverage_metadata["total_records"] = 1
             
             # Guardar datos raw
             filepath = self._save_raw_data(
                 data=df,
-                filename=f"idescat_alquiler_{year}",
+                filename=f"idescat_vivienda_{year}",
                 format="csv",
-                data_type="vivienda_publica"
+                data_type="vivienda_publica",
+                year_start=year,
+                year_end=year
             )
             coverage_metadata["filepath"] = str(filepath)
             
@@ -123,35 +167,80 @@ class ViviendaPublicaExtractor(BaseExtractor):
             logger.error(traceback.format_exc())
             coverage_metadata["error"] = str(e)
             return None, coverage_metadata
-    
-    def extract_opendata_habitatge(self) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+
+    def extract_licencias_obra(self) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
         """
-        Extrae datos de vivienda de Open Data BCN.
+        Extrae datos de licencias de obra (mayor y menor) de Open Data BCN.
         
         Returns:
-            Tupla con (DataFrame con datos, metadata).
+            Tupla con (DataFrame con licencias agregadas por barrio, metadata).
         """
-        logger.info("Extrayendo datos de vivienda de Open Data BCN...")
+        all_data = []
+        metadata = {"sources": [], "success": False}
         
-        coverage_metadata = {
-            "source": "opendata_bcn_habitatge",
-            "success": False,
-        }
+        for key in ["licencias_obra_mayor", "licencias_obra_menor"]:
+            dataset_id = self.OPENDATA_DATASETS[key]
+            logger.info(f"Extrayendo dataset de licencias: {dataset_id}")
+            try:
+                df, meta = self.opendata_extractor.download_dataset(dataset_id, resource_format='csv')
+                if df is not None and not df.empty:
+                    df['tipo_obra'] = "mayor" if "mayor" in key else "menor"
+                    all_data.append(df)
+                    metadata["sources"].append(dataset_id)
+            except Exception as e:
+                logger.error(f"Error extrayendo {dataset_id}: {e}")
+        
+        if not all_data:
+            return None, metadata
+            
+        df_combined = pd.concat(all_data, ignore_index=True)
+        metadata["success"] = True
+        
+        # Guardar raw
+        filepath = self._save_raw_data(
+            df_combined, 
+            "opendatabcn_licencias_obra", 
+            'csv',
+            data_type="vivienda_publica"
+        )
+        metadata["filepath"] = str(filepath)
+        
+        return df_combined, metadata
+
+    def extract_opendata_habitatge(self) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+        """
+        Extrae datos de vivienda protegida (habitatges tutelats) de Open Data BCN.
+        
+        Returns:
+            Tupla con (DataFrame con datos por barrio, metadata).
+        """
+        dataset_id = self.OPENDATA_DATASETS["habitatges_tutelats"]
+        logger.info(f"Extrayendo dataset '{dataset_id}' de Open Data BCN...")
         
         try:
-            # Buscar datasets de la organización "habitatge"
-            # Esto puede requerir explorar la API CKAN
-            logger.warning("Extractor de Open Data BCN habitatge no completamente implementado")
-            logger.info("Usar OpenDataBCNExtractor directamente para datasets específicos")
+            df, meta = self.opendata_extractor.download_dataset(
+                dataset_id,
+                resource_format='csv'
+            )
             
-            # TODO: Implementar búsqueda y descarga de datasets de habitatge
-            coverage_metadata["error"] = "No implementado completamente"
-            return None, coverage_metadata
+            if df is not None and not df.empty:
+                logger.info(f"✓ Dataset '{dataset_id}' extraído: {len(df)} registros")
+                
+                # Guardar datos raw
+                filepath = self._save_raw_data(
+                    data=df,
+                    filename=f"opendatabcn_{dataset_id.replace('-', '_')}",
+                    format="csv",
+                    data_type="vivienda_publica"
+                )
+                meta["filepath"] = str(filepath)
+                return df, meta
+            
+            return None, meta
             
         except Exception as e:
-            logger.error(f"Error extrayendo datos Open Data BCN: {e}")
-            coverage_metadata["error"] = str(e)
-            return None, coverage_metadata
+            logger.error(f"Error extrayendo '{dataset_id}': {e}")
+            return None, {"error": str(e), "success": False}
     
     def distribute_to_barrios(
         self,
@@ -224,18 +313,8 @@ class ViviendaPublicaExtractor(BaseExtractor):
             row = municipal_data.iloc[0]
             
             # Buscar columnas relevantes
-            renta_col = None
-            contratos_col = None
-            fianzas_col = None
-            
-            for col in municipal_data.columns:
-                col_lower = col.lower()
-                if "renta" in col_lower or "alquiler" in col_lower:
-                    renta_col = col
-                elif "contrato" in col_lower:
-                    contratos_col = col
-                elif "fianza" in col_lower:
-                    fianzas_col = col
+            vpo_col = "viviendas_proteccion_oficial" if "viviendas_proteccion_oficial" in row.index else None
+            total_iniciadas_col = "viviendas_iniciadas_total" if "viviendas_iniciadas_total" in row.index else None
             
             # Distribuir valores
             results = []
@@ -258,32 +337,24 @@ class ViviendaPublicaExtractor(BaseExtractor):
                     proporcion = peso / total_weight
                 
                 # Extraer valores municipales
-                renta_media = (
-                    float(row[renta_col]) if renta_col and renta_col in row.index and pd.notna(row[renta_col])
+                vpo = (
+                    float(row[vpo_col]) if vpo_col and pd.notna(row[vpo_col])
                     else None
                 )
-                contratos = (
-                    float(row[contratos_col]) if contratos_col and contratos_col in row.index and pd.notna(row[contratos_col])
-                    else None
-                )
-                fianzas = (
-                    float(row[fianzas_col]) if fianzas_col and fianzas_col in row.index and pd.notna(row[fianzas_col])
+                total_iniciadas = (
+                    float(row[total_iniciadas_col]) if total_iniciadas_col and pd.notna(row[total_iniciadas_col])
                     else None
                 )
                 
                 results.append({
                     "barrio_id": barrio_id,
                     "anio": year if year else None,
-                    "renta_media_mensual_alquiler": (
-                        round(renta_media * proporcion, 2) if renta_media is not None else None
+                    "viviendas_proteccion_oficial": (
+                        round(vpo * proporcion, 2) if vpo is not None else None
                     ),
-                    "contratos_alquiler_nuevos": (
-                        int(round(contratos * proporcion)) if contratos is not None else None
+                    "viviendas_iniciadas_total": (
+                        round(total_iniciadas * proporcion, 2) if total_iniciadas is not None else None
                     ),
-                    "fianzas_depositadas_euros": (
-                        round(fianzas * proporcion, 2) if fianzas is not None else None
-                    ),
-                    "viviendas_proteccion_oficial": None,  # No disponible en IDESCAT municipal
                     "is_estimated": True,  # Marcar como estimado
                     "distribution_weight": weight_type,
                 })
@@ -291,10 +362,6 @@ class ViviendaPublicaExtractor(BaseExtractor):
             df_distributed = pd.DataFrame(results)
             
             logger.info(f"Datos distribuidos para {len(df_distributed)} barrios")
-            logger.warning(
-                "⚠️  IMPORTANTE: Estos son valores ESTIMADOS por distribución proporcional, "
-                "no datos reales por barrio"
-            )
             
             distribution_metadata["success"] = True
             distribution_metadata["barrios_distributed"] = len(df_distributed)
@@ -333,19 +400,25 @@ class ViviendaPublicaExtractor(BaseExtractor):
                     db.barrio_nombre,
                     COALESCE(d.poblacion_total, 0) as peso
                 FROM dim_barrios db
-                LEFT JOIN fact_demografia d ON db.barrio_id = d.barrio_id AND d.anio = ?
+                LEFT JOIN v_demografia_aggregated d ON db.barrio_id = d.barrio_id AND d.anio = ?
                 WHERE peso > 0
                 ORDER BY db.barrio_id
                 """
                 df = pd.read_sql_query(query, conn, params=[year])
-            else:
+                
+                # Fallback if no data for specific year
+                if df.empty:
+                    logger.warning(f"No hay datos demográficos para {year}, intentando último disponible...")
+                    year = None
+            
+            if not year:
                 query = """
                 SELECT 
                     db.barrio_id,
                     db.barrio_nombre,
                     COALESCE(MAX(d.poblacion_total), 0) as peso
                 FROM dim_barrios db
-                LEFT JOIN fact_demografia d ON db.barrio_id = d.barrio_id
+                LEFT JOIN v_demografia_aggregated d ON db.barrio_id = d.barrio_id
                 GROUP BY db.barrio_id, db.barrio_nombre
                 HAVING peso > 0
                 ORDER BY db.barrio_id
@@ -389,60 +462,34 @@ class ViviendaPublicaExtractor(BaseExtractor):
     ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
         """
         Extrae todos los datos de vivienda pública disponibles y opcionalmente los distribuye por barrio.
-        
-        ⚠️ IMPORTANTE: Si distribute=True, los valores resultantes son ESTIMACIONES
-        por distribución proporcional, no datos reales por barrio.
-        
-        Args:
-            year: Año de los datos.
-            distribute: Si True, distribuye los datos municipales por barrio.
-            weight_type: Tipo de peso para distribución ('poblacion' o 'renta').
-            db_path: Ruta a la base de datos (requerido si distribute=True).
-        
-        Returns:
-            Tupla con (DataFrame con datos, metadata con advertencias).
         """
         # Extraer datos IDESCAT
-        df_idescat, meta_idescat = self.extract_idescat_alquiler(year)
+        df_idescat, meta_idescat = self.extract_idescat_vivienda_publica(year)
         
-        # Extraer datos Open Data BCN (opcional)
+        # Extraer datos Open Data BCN (habitatges tutelats)
         df_opendata, meta_opendata = self.extract_opendata_habitatge()
         
+        # Extraer Licencias de Obra
+        df_licencias, meta_lic = self.extract_licencias_obra()
+        
+        # Extraer Gencat (Viviendas vacías, demanda, ayudas)
+        from .gencat import GencatExtractor
+        gencat = GencatExtractor(output_dir=self.output_dir)
+        meta_gencat = gencat.extract_all_housing()
+        
         combined_metadata = {
-            "source": "vivienda_publica",
+            "source": "vivienda_publica_consolidada",
             "year": year,
-            "success": meta_idescat.get("success", False),
+            "success": meta_idescat.get("success", False) or meta_opendata.get("success", False),
             "has_idescat": df_idescat is not None,
             "has_opendata": df_opendata is not None,
-            "level": "municipal" if not distribute else "barrio",
-            "is_estimated": distribute,  # Marcar como estimado si se distribuye
+            "has_licencias": df_licencias is not None,
+            "has_gencat": any(m["success"] for m in meta_gencat.values()),
+            "level": "mixed",
         }
         
-        if df_idescat is None:
-            return None, combined_metadata
-        
-        # Si se solicita distribución, distribuir por barrios
-        if distribute:
-            logger.info(f"Distribuyendo datos municipales por barrios usando peso: {weight_type}")
-            df_distributed, dist_meta = self.distribute_to_barrios(
-                df_idescat,
-                db_path=db_path,
-                weight_type=weight_type,
-                year=year
-            )
+        # Para mantener compatibilidad con el retorno esperado por el script antiguo
+        if df_opendata is not None:
+            return df_opendata, combined_metadata
             
-            if df_distributed is not None:
-                combined_metadata.update(dist_meta)
-                combined_metadata["warning"] = (
-                    "⚠️ Los valores son ESTIMACIONES por distribución proporcional, "
-                    "no datos reales por barrio"
-                )
-                return df_distributed, combined_metadata
-        
-        # Si no se distribuye o falla la distribución, retornar datos municipales
-        combined_metadata["warning"] = (
-            "Datos a nivel municipal. Usar distribute=True para distribución por barrio "
-            "(valores estimados)"
-        )
         return df_idescat, combined_metadata
-

@@ -433,6 +433,111 @@ class IDESCATExtractor(BaseExtractor):
             data_type="renta_historica"
         )
     
+    def get_demographics_emex(self, year: int) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Extrae indicadores demográficos detallados de IDESCAT EMEX.
+        
+        Args:
+            year: Año de los datos.
+            
+        Returns:
+            Tupla con (DataFrame con datos, metadata)
+        """
+        logger.info(f"Extrayendo demografía detallada EMEX para {year}")
+        
+        url = f"{self.API_BASE_URL}/emex/v1/dades.json"
+        params = {"lang": "es", "id": "080193"} # Barcelona
+        
+        coverage_metadata = {
+            "source": "idescat_emex",
+            "year": year,
+            "success": False
+        }
+        
+        try:
+            self._rate_limit()
+            response = self.session.get(url, params=params, timeout=30)
+            if not self._validate_response(response):
+                _log("Invalid response", {"status": response.status_code})
+                return pd.DataFrame(), coverage_metadata
+            
+            data = response.json()
+            
+            # Mapeo de indicadores EMEX a nombres de columnas
+            mapping = {
+                # Sexo
+                "f318": "pob_hombres",
+                "f320": "pob_mujeres",
+                "f321": "pob_total",
+                # Grupos edad
+                "f167": "pob_0_14",
+                "f27": "pob_15_64",
+                "f28": "pob_65_84",
+                "f29": "pob_85_mas",
+                # Lugar nacimiento
+                "f69": "nac_cataluna",
+                "f72": "nac_resto_espana",
+                "f73": "nac_extranjero",
+                # Hogares dimensión
+                "f98": "hogares_1_pers",
+                "f99": "hogares_2_pers",
+                "f100": "hogares_3_pers",
+                "f101": "hogares_4_pers",
+                "f405": "hogares_5_mas",
+                # Hogares tipo
+                "f109": "hogares_unipersonal",
+                "f111": "hogares_pareja_sin_hijos",
+                "f112": "hogares_pareja_con_hijos",
+                "f113": "hogares_monoparental",
+            }
+            
+            extracted_data = {"territorio": "Barcelona", "anio": year}
+            
+            def find_indicators(obj, target_ids):
+                results = {}
+                if isinstance(obj, dict):
+                    if obj.get("id") in target_ids:
+                        val_str = str(obj.get("v", ""))
+                        if val_str:
+                            vals = val_str.split(",")
+                            try:
+                                results[obj["id"]] = float(vals[0]) if vals[0].strip() and vals[0] != "_" else None
+                            except (ValueError, IndexError):
+                                pass
+                    for k, v in obj.items():
+                        results.update(find_indicators(v, target_ids))
+                elif isinstance(obj, list):
+                    for item in obj:
+                        results.update(find_indicators(item, target_ids))
+                return results
+
+            found = find_indicators(data, list(mapping.keys()))
+            _log("Indicators found", {"count": len(found)})
+            
+            for fid, col in mapping.items():
+                if fid in found:
+                    extracted_data[col] = found[fid]
+            
+            df = pd.DataFrame([extracted_data])
+            coverage_metadata["success"] = True
+            
+            # Guardar datos raw
+            self._save_raw_data(
+                df, 
+                f"idescat_demografia_detallada_{year}", 
+                'csv',
+                year_start=year,
+                year_end=year,
+                data_type="demographics_ampliada"
+            )
+            
+            return df, coverage_metadata
+            
+        except Exception as e:
+            logger.error(f"Error en get_demographics_emex: {e}")
+            coverage_metadata["error"] = str(e)
+            return pd.DataFrame(), coverage_metadata
+
     def _normalize_barrio_name(self, name: str) -> str:
         """
         Normaliza el nombre de un barrio para mapearlo a codi_barri.
