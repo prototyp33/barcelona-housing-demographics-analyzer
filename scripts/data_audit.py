@@ -18,9 +18,10 @@ def run_audit():
     # 2. Fact Tables Audit
     tables = [
         "fact_precios", "fact_oferta_idealista", "fact_demografia", 
-        "fact_renta", "fact_comercio", "fact_servicios_salud",
-        "fact_medio_ambiente", "fact_ruido", "fact_presion_turistica",
-        "fact_vivienda_publica", "fact_educacion"
+        "fact_demografia_ampliada", "fact_renta", "fact_comercio", 
+        "fact_servicios_salud", "fact_medio_ambiente", "fact_ruido", 
+        "fact_presion_turistica", "fact_vivienda_publica", "fact_educacion",
+        "fact_vivienda_contexto_metropolitano"
     ]
     
     audit_data = []
@@ -30,32 +31,52 @@ def run_audit():
             # Check if table exists
             exists = pd.read_sql(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'", conn)
             if exists.empty:
-                audit_data.append({"Tabla": table, "Estado": "❌ No existe", "Registros": 0, "Años": "-", "Cobertura": "0%"})
-                continue
+                # Si no existe la tabla, verificar si es una vista
+                exists_view = pd.read_sql(f"SELECT name FROM sqlite_master WHERE type='view' AND name='{table}'", conn)
+                if exists_view.empty:
+                    audit_data.append({"Tabla": table, "Estado": "❌ No existe", "Registros": 0, "Años": "-", "Cobertura": "0%"})
+                    continue
                 
             # Count records
             count = pd.read_sql(f"SELECT COUNT(*) as count FROM {table}", conn).iloc[0]['count']
             
             if count == 0:
+                # Caso especial para fact_demografia: puede estar vacía si se usa fact_demografia_ampliada
+                if table == "fact_demografia":
+                    has_ampliada = pd.read_sql("SELECT COUNT(*) as count FROM fact_demografia_ampliada", conn).iloc[0]['count'] > 0
+                    if has_ampliada:
+                        audit_data.append({"Tabla": table, "Estado": "ℹ️ Usando Ampliada", "Registros": 0, "Años": "-", "Cobertura": "-"})
+                        continue
+                
                 audit_data.append({"Tabla": table, "Estado": "⚠️ Vacía", "Registros": 0, "Años": "-", "Cobertura": "0%"})
                 continue
             
             # Get years
-            year_col = "anio" if "anio" in pd.read_sql(f"PRAGMA table_info({table})", conn)['name'].values else "year"
-            years = pd.read_sql(f"SELECT MIN({year_col}) as min_y, MAX({year_col}) as max_y FROM {table}", conn).iloc[0]
+            table_info = pd.read_sql(f"PRAGMA table_info({table})", conn)
+            year_col = "anio" if "anio" in table_info['name'].values else ("year" if "year" in table_info['name'].values else None)
             
-            # Coverage in latest year
-            latest_year = years['max_y']
-            coverage = pd.read_sql(f"SELECT COUNT(DISTINCT barrio_id) as count FROM {table} WHERE {year_col} = {latest_year}", conn).iloc[0]['count']
-            coverage_pct = (coverage / 73) * 100
-            
-            audit_data.append({
-                "Tabla": table,
-                "Estado": "✅ OK" if coverage_pct > 90 else "🟠 Parcial",
-                "Registros": count,
-                "Años": f"{years['min_y']}-{years['max_y']}",
-                "Cobertura": f"{coverage}/73 ({coverage_pct:.1f}%)"
-            })
+            if year_col:
+                years = pd.read_sql(f"SELECT MIN({year_col}) as min_y, MAX({year_col}) as max_y FROM {table}", conn).iloc[0]
+                # Coverage in latest year
+                latest_year = years['max_y']
+                coverage = pd.read_sql(f"SELECT COUNT(DISTINCT barrio_id) as count FROM {table} WHERE {year_col} = {latest_year}", conn).iloc[0]['count']
+                coverage_pct = (coverage / 73) * 100
+                
+                audit_data.append({
+                    "Tabla": table,
+                    "Estado": "✅ OK" if coverage_pct > 90 else "🟠 Parcial",
+                    "Registros": count,
+                    "Años": f"{years['min_y']}-{years['max_y']}",
+                    "Cobertura": f"{coverage}/73 ({coverage_pct:.1f}%)"
+                })
+            else:
+                audit_data.append({
+                    "Tabla": table,
+                    "Estado": "✅ OK",
+                    "Registros": count,
+                    "Años": "-",
+                    "Cobertura": "-"
+                })
         except Exception as e:
             audit_data.append({"Tabla": table, "Estado": f"❌ Error: {str(e)[:20]}", "Registros": 0, "Años": "-", "Cobertura": "0%"})
             
