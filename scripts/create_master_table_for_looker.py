@@ -26,6 +26,46 @@ import numpy as np
 import psycopg2
 from dotenv import load_dotenv
 
+# --- 1. DICCIONARIO DE INTELIGENCIA DE MERCADO ---
+# Define rangos lógicos y comportamientos esperados por barrio
+CONTEXT_RULES = {
+    # La Marina del Prat Vermell (Zona en desarrollo / Gentrificación)
+    '12': {
+        'name': 'la Marina del Prat Vermell',
+        'min_logic': 1200,  # Menos de esto suele ser suelo industrial/no habitable
+        'max_logic': 3500,  # Techo lógico actual
+        'risk_factor': 'GENTRIFICATION_AREA'
+    },
+    # Vallvidrera (Zona Heterogénea: Lujo vs Autoconstrucción)
+    '22': {
+        'name': 'Vallvidrera, el Tibidabo i les Planes',
+        'min_logic': 2500,  # Menos de esto suele ser sub-zona Les Planes
+        'max_logic': 8000,
+        'risk_factor': 'HIGH_HETEROGENEITY'
+    },
+    # Torre Baró (Zona Periférica / Impacto Obra Nueva)
+    '54': {
+        'name': 'Torre Baró',
+        'min_logic': 600,
+        'max_logic': 1800,  # Más de esto suele ser distorsión por Obra Nueva
+        'risk_factor': 'NEW_BUILD_DISTORTION'
+    }
+}
+
+# Rangos generales por distrito (fallback para validación de umbrales)
+DISTRICT_RULES = {
+    "Sarrià-Sant Gervasi": {"min": 2500, "max": 8000, "risk": "LUXURY_AREA"},
+    "Les Corts": {"min": 2500, "max": 7500, "risk": "LUXURY_AREA"},
+    "Eixample": {"min": 2000, "max": 6500, "risk": "CENTRAL_PREMIUM"},
+    "Nou Barris": {"min": 800, "max": 2800, "risk": "PERIPHERAL_LOW"},
+    "Sant Martí": {"min": 1500, "max": 5000, "risk": "DEVELOPING_TECH"},
+    "Ciutat Vella": {"min": 1800, "max": 6000, "risk": "TOURISM_IMPACT"},
+    "Sants-Montjuïc": {"min": 1500, "max": 4500, "risk": "MIXED_DEVELOPMENT"},
+    "Horta-Guinardó": {"min": 1500, "max": 4000, "risk": "RESIDENTIAL_STABLE"},
+    "Sant Andreu": {"min": 1500, "max": 3800, "risk": "RESIDENTIAL_UPCOMING"},
+    "Gràcia": {"min": 2000, "max": 5500, "risk": "GENTRIFIED_BOHEMIAN"}
+}
+
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -371,6 +411,65 @@ def create_master_table(conn) -> pd.DataFrame:
     return df
 
 
+def apply_quality_context(row):
+    """
+    Evalúa la calidad y el contexto de cada dato basándose en reglas de negocio.
+    Retorna una Serie con 3 nuevas columnas.
+    """
+    # 1. Normalizar inputs
+    codi = str(row.get('codi_barri', '')).split('.')[0]
+    distrito = row.get('distrito_nombre', '')
+    price = row.get('precio_m2_venta_promedio', 0)
+    n_count = row.get('num_registros_precios', 0)
+    
+    # 2. Valores por defecto
+    flags = []
+    confidence = 'HIGH'
+    context = 'STANDARD'
+    
+    # 3. Reglas Universales (N pequeño)
+    if pd.notna(n_count) and n_count < 5 and n_count > 0:
+        flags.append('LOW_SAMPLE_SIZE')
+        confidence = 'LOW'
+        
+    # 4. Reglas Específicas por Barrio (Contexto)
+    if codi in CONTEXT_RULES:
+        rule = CONTEXT_RULES[codi]
+        context = rule['risk_factor']
+        
+        # Validación de precios lógicos (si hay precio)
+        if pd.notna(price) and price > 0:
+            if price < rule['min_logic']:
+                flags.append('PRICE_BELOW_LOGIC')
+                if rule['risk_factor'] == 'HIGH_HETEROGENEITY':
+                    confidence = 'MEDIUM'
+                else:
+                    confidence = 'LOW'
+            elif price > rule['max_logic']:
+                flags.append('PRICE_ABOVE_LOGIC')
+                if rule['risk_factor'] == 'NEW_BUILD_DISTORTION':
+                    confidence = 'LOW'
+                    flags.append('LIKELY_NEW_BUILD')
+    
+    # 5. Fallback a Reglas de Distrito (si no hay reglas de barrio específicas)
+    elif distrito in DISTRICT_RULES:
+        dist_ctx = DISTRICT_RULES[distrito]
+        # context = dist_ctx['risk'] # Opcional: sobreescribir context con el del distrito
+        
+        if pd.notna(price) and price > 0:
+            if price < dist_ctx['min']:
+                flags.append('PRICE_BELOW_DISTRICT_MIN')
+                if confidence != 'LOW': confidence = 'MEDIUM'
+            elif price > dist_ctx['max']:
+                flags.append('PRICE_ABOVE_DISTRICT_MAX')
+                if confidence != 'LOW': confidence = 'MEDIUM'
+
+    # 6. Formateo final
+    flags_str = ' | '.join(flags) if flags else 'OK'
+    
+    return pd.Series([confidence, context, flags_str])
+
+
 def add_data_quality_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add data quality flags to identify missing data and data quality issues.
@@ -383,7 +482,17 @@ def add_data_quality_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
-    # Flag for missing price data
+    # 1. Aplicar Reglas de Calidad y Contexto Cualitativo (Nuevo)
+    logger.info("Aplicando reglas de calidad y contexto cualitativo...")
+    quality_columns = ['confidence_score', 'market_context', 'quality_flags']
+    df[quality_columns] = df.apply(apply_quality_context, axis=1)
+    
+    # Rellenar nulos para Looker
+    df['confidence_score'] = df['confidence_score'].fillna('HIGH')
+    df['market_context'] = df['market_context'].fillna('STANDARD')
+    df['quality_flags'] = df['quality_flags'].fillna('OK')
+    
+    # 2. Flags de datos faltantes (Originales)
     df['precio_venta_faltante'] = df['precio_m2_venta_promedio'].isna().astype(int)
     df['precio_alquiler_faltante'] = df['precio_mes_alquiler_promedio'].isna().astype(int)
     
@@ -501,7 +610,7 @@ def main() -> int:
         output_path = EXPORT_BASE / "master_table_barcelona_housing.csv"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        df_master.to_csv(output_path, index=False, encoding='utf-8', lineterminator='\n')
+        df_master.to_csv(output_path, index=False, encoding='utf-8-sig', lineterminator='\n')
         
         logger.info(f"\n✅ Master table exported: {output_path}")
         logger.info(f"   Rows: {len(df_master):,}")
