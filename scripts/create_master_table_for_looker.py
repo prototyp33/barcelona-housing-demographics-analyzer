@@ -139,7 +139,8 @@ def create_master_table(conn) -> pd.DataFrame:
             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY precio_mes_alquiler) AS precio_mes_alquiler_median,
             STDDEV(precio_mes_alquiler) AS precio_mes_alquiler_stddev,
             COUNT(precio_mes_alquiler) AS num_registros_alquiler,
-            COUNT(*) AS num_registros_precios
+            COUNT(*) AS num_registros_precios,
+            MAX(dataset_id) AS dataset_id
         FROM fact_precios
         WHERE precio_m2_venta IS NOT NULL OR precio_mes_alquiler IS NOT NULL
         GROUP BY barrio_id, anio
@@ -196,7 +197,8 @@ def create_master_table(conn) -> pd.DataFrame:
                 THEN (precio_mes_alquiler_stddev / precio_mes_alquiler_mean * 100)
                 ELSE NULL
             END AS cv_precio_alquiler,
-            num_registros_precios
+            num_registros_precios,
+            dataset_id
         FROM precios_stats
     ),
     
@@ -270,6 +272,7 @@ def create_master_table(conn) -> pd.DataFrame:
         p.usa_mediana_alquiler,
         p.cv_precio_venta,
         p.cv_precio_alquiler,
+        p.dataset_id,
         
         -- Demografía
         d.poblacion_total,
@@ -421,13 +424,18 @@ def apply_quality_context(row):
     distrito = row.get('distrito_nombre', '')
     price = row.get('precio_m2_venta_promedio', 0)
     n_count = row.get('num_registros_precios', 0)
+    dataset_id = row.get('dataset_id', '')
     
     # 2. Valores por defecto
     flags = []
     confidence = 'HIGH'
     context = 'STANDARD'
     
-    # 3. Reglas Universales (N pequeño)
+    # 3. Reglas Universales (N pequeño o Imputación)
+    if dataset_id == 'IMPUTACION_DISTRITO_RATIO':
+        flags.append('DISTRICT_IMPUTED')
+        confidence = 'MEDIUM'
+        
     if pd.notna(n_count) and n_count < 5 and n_count > 0:
         flags.append('LOW_SAMPLE_SIZE')
         confidence = 'LOW'
