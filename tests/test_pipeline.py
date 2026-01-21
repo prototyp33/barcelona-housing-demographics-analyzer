@@ -124,7 +124,6 @@ def raw_data_structure(
     }
 
 
-@pytest.mark.skip(reason="Requiere datos con estructura exacta del esquema real. Ver test_manifest_integration para tests de manifest.")
 def test_etl_creates_database(raw_data_structure: Dict[str, Path]) -> None:
     """
     Verifica que el ETL crea la base de datos SQLite correctamente.
@@ -148,7 +147,6 @@ def test_etl_creates_database(raw_data_structure: Dict[str, Path]) -> None:
     assert db_path.suffix == ".db", "El archivo no tiene extensión .db"
 
 
-@pytest.mark.skip(reason="Requiere datos con estructura exacta del esquema real.")
 def test_etl_creates_dim_barrios(raw_data_structure: Dict[str, Path]) -> None:
     """
     Verifica que el ETL crea la tabla dim_barrios con los barrios correctos.
@@ -173,12 +171,12 @@ def test_etl_creates_dim_barrios(raw_data_structure: Dict[str, Path]) -> None:
         assert len(df_barrios) > 0, "dim_barrios está vacía"
         
         # Verificar columnas esperadas
-        expected_columns = ["barrio_id", "codi_barri", "nom_barri", "distrito_id", "nom_districte"]
+        expected_columns = ["barrio_id", "codi_barri", "barrio_nombre", "distrito_id", "distrito_nombre"]
         for col in expected_columns:
             assert col in df_barrios.columns, f"Columna {col} no encontrada en dim_barrios"
         
         # Verificar que los barrios de prueba están presentes
-        barrio_names = df_barrios["nom_barri"].tolist()
+        barrio_names = df_barrios["barrio_nombre"].tolist()
         assert "el Raval" in barrio_names or any("raval" in b.lower() for b in barrio_names), \
             "Barrio 'el Raval' no encontrado"
             
@@ -186,7 +184,6 @@ def test_etl_creates_dim_barrios(raw_data_structure: Dict[str, Path]) -> None:
         conn.close()
 
 
-@pytest.mark.skip(reason="Requiere datos con estructura exacta del esquema real.")
 def test_etl_creates_fact_precios(raw_data_structure: Dict[str, Path]) -> None:
     """
     Verifica que el ETL crea la tabla fact_precios con datos de precios.
@@ -216,7 +213,6 @@ def test_etl_creates_fact_precios(raw_data_structure: Dict[str, Path]) -> None:
         conn.close()
 
 
-@pytest.mark.skip(reason="Requiere datos con estructura exacta del esquema real.")
 def test_etl_creates_fact_demografia(raw_data_structure: Dict[str, Path]) -> None:
     """
     Verifica que el ETL crea la tabla fact_demografia o fact_demografia_ampliada.
@@ -256,7 +252,6 @@ def test_etl_creates_fact_demografia(raw_data_structure: Dict[str, Path]) -> Non
         conn.close()
 
 
-@pytest.mark.skip(reason="Requiere datos con estructura exacta del esquema real.")
 def test_etl_registers_run(raw_data_structure: Dict[str, Path]) -> None:
     """
     Verifica que el ETL registra la ejecución en la tabla etl_runs.
@@ -628,10 +623,10 @@ class TestRunETL:
         processed_dir = raw_data_structure["processed_dir"]
 
         # Mock de las funciones de procesamiento para evitar errores
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_demografia"
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.prepare_fact_demografia"
         ) as mock_demo, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_precios"
+            "src.etl.pipeline.prepare_fact_precios"
         ) as mock_precios, patch(
             "src.etl.pipeline.validate_all_fact_tables"
         ) as mock_validate, patch(
@@ -699,10 +694,10 @@ class TestRunETL:
         raw_dir = raw_data_structure["raw_dir"]
         processed_dir = raw_data_structure["processed_dir"]
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_demografia"
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.prepare_fact_demografia"
         ) as mock_demo, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_precios"
+            "src.etl.pipeline.prepare_fact_precios"
         ) as mock_precios, patch(
             "src.etl.pipeline.validate_all_fact_tables"
         ) as mock_validate, patch(
@@ -778,7 +773,6 @@ class TestRunETL:
             finally:
                 conn.close()
 
-    @pytest.mark.skip(reason="Pre-existing: Mock data structure issue - See issue #TBD")
     def test_run_etl_uses_manifest_when_available(
         self,
         raw_data_structure: Dict[str, Path],
@@ -799,10 +793,10 @@ class TestRunETL:
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f)
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
-            "src.etl.pipeline.data_processing.prepare_demografia_ampliada"
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.prepare_demografia_ampliada"
         ) as mock_demo_amp, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_precios"
+            "src.etl.pipeline.prepare_fact_precios"
         ) as mock_precios, patch(
             "src.etl.pipeline.validate_all_fact_tables"
         ) as mock_validate, patch(
@@ -830,11 +824,22 @@ class TestRunETL:
             })
             mock_precios.return_value = pd.DataFrame()
             mock_validate.return_value = (
-                pd.DataFrame(),
-                None,
-                pd.DataFrame(),
-                None,
-                None,
+                pd.DataFrame(),  # fact_precios
+                pd.DataFrame(),  # fact_demografia
+                None,  # fact_demografia_ampliada
+                None,  # fact_renta
+                None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
                 [],
             )
 
@@ -878,10 +883,10 @@ class TestRunETL:
         if prices_file and prices_file.exists():
             prices_file.unlink()
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_demografia"
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.prepare_fact_demografia"
         ) as mock_demo, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_precios"
+            "src.etl.pipeline.prepare_fact_precios"
         ) as mock_precios, patch(
             "src.etl.pipeline.validate_all_fact_tables"
         ) as mock_validate, patch(
@@ -956,12 +961,12 @@ class TestRunETL:
         portaldades_dir = raw_dir / "portaldades"
         portaldades_dir.mkdir(parents=True, exist_ok=True)
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_demografia"
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.prepare_fact_demografia"
         ) as mock_demo, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_precios"
+            "src.etl.pipeline.prepare_fact_precios"
         ) as mock_precios, patch(
-            "src.etl.pipeline.data_processing.prepare_portaldades_precios"
+            "src.etl.pipeline.prepare_portaldades_precios"
         ) as mock_portaldades, patch(
             "src.etl.pipeline.validate_all_fact_tables"
         ) as mock_validate, patch(
@@ -1029,7 +1034,6 @@ class TestRunETL:
             # Verificar que se llamó a prepare_portaldades_precios
             mock_portaldades.assert_called_once()
 
-    @pytest.mark.skip(reason="Pre-existing: Mock data missing 'Valor' column - See issue #TBD")
     def test_run_etl_handles_errors_gracefully(
         self,
         raw_data_structure: Dict[str, Path],
@@ -1038,7 +1042,7 @@ class TestRunETL:
         raw_dir = raw_data_structure["raw_dir"]
         processed_dir = raw_data_structure["processed_dir"]
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim:
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim:
             # Hacer que prepare_dim_barrios lance una excepción después de que se cree la conexión
             # Necesitamos que el esquema se cree primero para que el registro funcione
             call_count = 0
@@ -1092,7 +1096,6 @@ class TestRunETL:
                 finally:
                     conn.close()
 
-    @pytest.mark.skip(reason="Pre-existing: Test data structure validation issue - See issue #TBD")
     def test_run_etl_creates_all_tables(
         self,
         raw_data_structure: Dict[str, Path],
@@ -1101,10 +1104,10 @@ class TestRunETL:
         raw_dir = raw_data_structure["raw_dir"]
         processed_dir = raw_data_structure["processed_dir"]
 
-        with patch("src.etl.pipeline.data_processing.prepare_dim_barrios") as mock_dim, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_demografia"
+        with patch("src.etl.pipeline.prepare_dim_barrios") as mock_dim, patch(
+            "src.etl.pipeline.prepare_fact_demografia"
         ) as mock_demo, patch(
-            "src.etl.pipeline.data_processing.prepare_fact_precios"
+            "src.etl.pipeline.prepare_fact_precios"
         ) as mock_precios, patch(
             "src.etl.pipeline.validate_all_fact_tables"
         ) as mock_validate, patch(
@@ -1138,9 +1141,20 @@ class TestRunETL:
             mock_validate.return_value = (
                 pd.DataFrame({"barrio_id": [1, 2], "anio": [2022, 2022], "precio_m2_venta": [3000.0, 4000.0]}),
                 pd.DataFrame({"barrio_id": [1, 2], "anio": [2022, 2022], "poblacion_total": [1000, 2000]}),
-                None,
-                None,
-                None,
+                None,  # fact_demografia_ampliada
+                None,  # fact_renta
+                None,  # fact_oferta_idealista
+                None,  # fact_regulacion
+                None,  # fact_presion_turistica
+                None,  # fact_seguridad
+                None,  # fact_ruido
+                None,  # fact_educacion
+                None,  # fact_movilidad
+                None,  # fact_vivienda_publica
+                None,  # fact_renta_avanzada
+                None,  # fact_catastro_avanzado
+                None,  # fact_hogares_avanzado
+                None,  # fact_turismo_intensidad
                 [],
             )
 

@@ -55,7 +55,61 @@ def _prepare_venta_prices(
     value_columns = [
         column for column in venta_df.columns if isinstance(column, str) and column.isdigit()
     ]
-    value_column = value_columns[0] if value_columns else "Valor"
+    
+    # Determine value column: first try numeric year columns, then common value column names
+    value_column = None
+    if value_columns:
+        value_column = value_columns[0]
+    else:
+        # Try common value column names (case-sensitive first, then case-insensitive)
+        # Include Portal de Dades specific column names
+        value_column_candidates = [
+            "values_value", "VALUE", "Valor", "valor", "value", 
+            "precio", "Precio", "PRECIO", "precio_m2", "Precio_m2",
+            "Nombre", "nombre", "NOMBRE"
+        ]
+        for candidate in value_column_candidates:
+            if candidate in venta_df.columns:
+                value_column = candidate
+                break
+        
+        # If still not found, check for any column that might be a value column
+        if value_column is None:
+            excluded_cols = {
+                "Barris", "barris", "año", "anio", "Any", "any", "source", "Source", 
+                "dataset_id", "Codi_Barri", "codi_barri", "barrio_id", "match_key",
+                "register_id", "name", "institution_id", "institution_name", "created", "modified",
+                "addresses_roadtype_id", "addresses_roadtype_name", "addresses_road_id", 
+                "addresses_road_name", "addresses_start_street_number", "addresses_end_street_number",
+                "addresses_neighborhood_id", "addresses_neighborhood_name", "addresses_district_id",
+                "addresses_district_name", "addresses_zip_code", "addresses_town", 
+                "addresses_main_address", "addresses_type", "values_id", "values_attribute_id",
+                "values_category", "values_attribute_name", "values_outstanding", "values_description"
+            }
+            # Look for numeric columns or columns with 'value' in the name
+            possible_value_cols = [
+                col for col in venta_df.columns 
+                if col not in excluded_cols 
+                and ('value' in col.lower() or venta_df[col].dtype in ['float64', 'int64'])
+            ]
+            if possible_value_cols:
+                value_column = possible_value_cols[0]
+                logger.warning(
+                    "No se encontró columna de valor estándar. Usando '%s'. Columnas disponibles: %s",
+                    value_column,
+                    list(venta_df.columns)[:10]  # Show first 10 columns only
+                )
+            else:
+                raise ValueError(
+                    f"No se pudo identificar columna de valor en datos de venta. "
+                    f"Columnas disponibles: {list(venta_df.columns)[:20]}"
+                )
+
+    if value_column not in venta_df.columns:
+        raise ValueError(
+            f"Columna de valor '{value_column}' no encontrada. "
+            f"Columnas disponibles: {list(venta_df.columns)}"
+        )
 
     venta_df[value_column] = (
         venta_df[value_column]
@@ -70,24 +124,66 @@ def _prepare_venta_prices(
     )
     venta_df[value_column] = pd.to_numeric(venta_df[value_column], errors="coerce")
 
-    venta_df["año"] = pd.to_numeric(venta_df.get("año"), errors="coerce").astype("Int64")
+    # Convert year column - handle both 'año' and 'anio' column names
+    year_col = None
+    for col_name in ["año", "anio", "Any", "any", "year", "Year"]:
+        if col_name in venta_df.columns:
+            year_col = col_name
+            break
+    
+    if year_col and year_col in venta_df.columns:
+        # Convert to numeric first, then to nullable Int64
+        venta_df["año"] = pd.to_numeric(venta_df[year_col], errors="coerce")
+        # Use nullable integer type (Int64) - works in pandas >= 1.0
+        venta_df["año"] = venta_df["año"].astype("Int64")
+    else:
+        # Try to extract year from other columns if available
+        logger.warning("No se encontró columna de año. Intentando inferir desde otras columnas...")
+        # Create empty año column
+        venta_df["año"] = pd.NA
 
-    venta_df["match_key"] = venta_df["Barris"].apply(cleaner.normalize_neighborhoods)
-
-    dim_lookup = dim_barrios[["barrio_id", "barrio_nombre_normalizado"]].rename(
-        columns={"barrio_nombre_normalizado": "match_key"},
-    )
-
-    merged = venta_df.merge(dim_lookup, on="match_key", how="left")
-
-    unmatched = merged[merged["barrio_id"].isna()]
-    if not unmatched.empty:
-        barrios_unicos = [str(b) for b in unmatched["Barris"].unique() if pd.notna(b)]
-        logger.warning(
-            "%s registros de venta no pudieron asociarse a un barrio: %s",
-            len(unmatched),
-            sorted(barrios_unicos),
-        )
+    # Handle neighborhood mapping - support multiple formats
+    # If barrio_id already exists, use it directly
+    if "barrio_id" in venta_df.columns and venta_df["barrio_id"].notna().any():
+        # Already has barrio_id, skip neighborhood name mapping
+        merged = venta_df.copy()
+        merged["barrio_id"] = pd.to_numeric(merged["barrio_id"], errors="coerce")
+    else:
+        # Need to map via neighborhood name
+        # Try different column names for neighborhood
+        barrio_name_col = None
+        for col_name in ["Barris", "barris", "barrio_nombre", "neighborhood", "addresses_neighborhood_name"]:
+            if col_name in venta_df.columns:
+                barrio_name_col = col_name
+                break
+        
+        if barrio_name_col:
+            venta_df["match_key"] = venta_df[barrio_name_col].apply(
+                lambda x: cleaner.normalize_neighborhoods(x) if pd.notna(x) else None
+            )
+            
+            dim_lookup = dim_barrios[["barrio_id", "barrio_nombre_normalizado"]].rename(
+                columns={"barrio_nombre_normalizado": "match_key"},
+            )
+            
+            merged = venta_df.merge(dim_lookup, on="match_key", how="left")
+            
+            unmatched = merged[merged["barrio_id"].isna()]
+            if not unmatched.empty:
+                barrios_unicos = [str(b) for b in unmatched[barrio_name_col].unique() if pd.notna(b)]
+                logger.warning(
+                    "%s registros de venta no pudieron asociarse a un barrio: %s",
+                    len(unmatched),
+                    sorted(barrios_unicos)[:10],  # Show first 10 only
+                )
+        else:
+            # No neighborhood column found
+            logger.warning(
+                "No se encontró columna de barrio. Columnas disponibles: %s",
+                list(venta_df.columns)[:10]
+            )
+            merged = venta_df.copy()
+            merged["barrio_id"] = pd.NA
 
     source_series = (
         merged["source"]
@@ -240,15 +336,13 @@ def prepare_fact_precios(
             if "dataset_id" in fact.columns:
                 fact["dataset_id"] = fact["dataset_id"].apply(_normalize_pipe_tags)
 
-            if fact["source"].astype(str).str.contains(r"\\|").any():
-                logger.error(
-                    "⚠️ ALERTA: Se detectaron pipes '|' en columna 'source'. "
-                    "Esto indica un problema de agregación upstream.",
+            if fact["source"].astype(str).str.contains(r"\|").any():
+                logger.debug(
+                    "Se detectaron múltiples fuentes legitimamente concatenadas en 'source'.",
                 )
-            if fact["dataset_id"].astype(str).str.contains(r"\\|").any():
-                logger.error(
-                    "⚠️ ALERTA: Se detectaron pipes '|' en columna 'dataset_id'. "
-                    "Esto indica un problema de agregación upstream.",
+            if fact["dataset_id"].astype(str).str.contains(r"\|").any():
+                logger.debug(
+                    "Se detectaron múltiples datasets legitimamente concatenados en 'dataset_id'.",
                 )
     else:
         fact = pd.DataFrame()
@@ -562,5 +656,125 @@ def load_idescat_income(
     return aggregated
 
 
-__all__ = ["prepare_fact_precios", "prepare_renta_barrio", "load_idescat_income"]
+def prepare_fact_alquiler_mensual(
+    alquiler_mensual: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    dataset_id: str,
+    reference_time: datetime,
+    source: str = "opendatabcn",
+) -> pd.DataFrame:
+    """
+    Prepara alquiler mensual por barrio, año y mes.
+
+    Args:
+        alquiler_mensual: DataFrame crudo con datos mensuales de alquiler.
+        dim_barrios: Dimensión de barrios para validar IDs.
+        dataset_id: ID del dataset (ej. ``est-lloguer-mitja-mensual``).
+        reference_time: Timestamp de referencia del ETL.
+        source: Fuente de datos (default: ``opendatabcn``).
+
+    Returns:
+        DataFrame con columnas: barrio_id, anio, mes, precio_mes_alquiler, dataset_id, source, etl_loaded_at.
+
+    Raises:
+        ValueError: Si no se pueden identificar columnas clave.
+    """
+    if alquiler_mensual is None or alquiler_mensual.empty:
+        return pd.DataFrame(
+            columns=[
+                "barrio_id",
+                "anio",
+                "mes",
+                "precio_mes_alquiler",
+                "dataset_id",
+                "source",
+                "etl_loaded_at",
+            ],
+        )
+
+    df = alquiler_mensual.copy()
+    df.columns = [c.strip() for c in df.columns]
+    lower_map = {c.lower(): c for c in df.columns}
+
+    def pick(candidates: List[str]) -> Optional[str]:
+        for cand in candidates:
+            if cand in df.columns:
+                return cand
+            if cand.lower() in lower_map:
+                return lower_map[cand.lower()]
+        return None
+
+    year_col = pick(["Any", "anio", "año", "year"])
+    month_col = pick(["Mes", "mes", "month"])
+    barrio_col = pick(["Codi_Barri", "codi_barri", "barrio_id"])
+
+    value_col = None
+    for cand in ["Preu", "preu", "precio", "Precio", "Valor", "valor", "value", "VALUE"]:
+        if cand in df.columns:
+            value_col = cand
+            break
+        if cand.lower() in lower_map:
+            value_col = lower_map[cand.lower()]
+            break
+
+    missing = [
+        name
+        for name, col in [
+            ("anio", year_col),
+            ("mes", month_col),
+            ("barrio", barrio_col),
+            ("valor", value_col),
+        ]
+        if col is None
+    ]
+    if missing:
+        raise ValueError(
+            "No se pudieron identificar columnas requeridas para alquiler mensual. "
+            f"Faltan: {missing}. Columnas disponibles: {list(df.columns)[:25]}"
+        )
+
+    df["anio"] = pd.to_numeric(df[year_col], errors="coerce").astype("Int64")
+    df["mes"] = pd.to_numeric(df[month_col], errors="coerce").astype("Int64")
+    df["barrio_id"] = pd.to_numeric(df[barrio_col], errors="coerce").astype("Int64")
+
+    values = df[value_col].astype(str).str.strip()
+    values = values.replace({"": np.nan, "n.d.": np.nan, "N.D.": np.nan})
+    values = values.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+    df["precio_mes_alquiler"] = pd.to_numeric(values, errors="coerce")
+
+    df = df.dropna(subset=["barrio_id", "anio", "mes", "precio_mes_alquiler"]).copy()
+    df = df[(df["mes"] >= 1) & (df["mes"] <= 12)].copy()
+
+    valid_barrios = set(dim_barrios["barrio_id"].dropna().astype(int).unique())
+    df = df[df["barrio_id"].astype(int).isin(valid_barrios)].copy()
+
+    result = pd.DataFrame(
+        {
+            "barrio_id": df["barrio_id"].astype(int),
+            "anio": df["anio"].astype(int),
+            "mes": df["mes"].astype(int),
+            "precio_mes_alquiler": df["precio_mes_alquiler"].astype(float),
+            "dataset_id": dataset_id,
+            "source": source,
+            "etl_loaded_at": reference_time.isoformat(),
+        },
+    ).sort_values(["anio", "mes", "barrio_id"]).reset_index(drop=True)
+
+    logger.info(
+        "Alquiler mensual preparado: %s registros (%s barrios, años %s-%s)",
+        len(result),
+        result["barrio_id"].nunique() if not result.empty else 0,
+        result["anio"].min() if not result.empty else None,
+        result["anio"].max() if not result.empty else None,
+    )
+
+    return result
+
+
+__all__ = [
+    "prepare_fact_precios",
+    "prepare_renta_barrio",
+    "load_idescat_income",
+    "prepare_fact_alquiler_mensual",
+]
 

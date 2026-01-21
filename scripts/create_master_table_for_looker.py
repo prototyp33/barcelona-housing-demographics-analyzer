@@ -66,6 +66,19 @@ DISTRICT_RULES = {
     "Gràcia": {"min": 2000, "max": 5500, "risk": "GENTRIFIED_BOHEMIAN"}
 }
 
+# Mapping de IDs crípticos a nombres legibles
+DATASET_MAPPING = {
+    'u25rr7oxh6': 'VENTA_REGISTRADA_M2',  # Precio compraventa registrado (Portal Dades)
+    'mrslyp5pcq': 'VENTA_POR_TIPO_M2',     # Precio por tipo de vivienda (Portal Dades)
+    'bhl3ulphi5': 'VENTA_OFERTA_M2',       # Precio oferta Idealista (Portal Dades)
+    'b37xv8wcjh': 'ALQUILER_MENSUAL',      # Alquiler mensual Incasòl (Portal Dades)
+    'IMPUTACION_DISTRITO_RATIO': 'IMPUTACION_DISTRITO',
+    'ETL_BACKFILLING': 'IMPUTACION_DISTRITO',
+    'bxtvnxvukh': 'VENTA_POR_TIPO_M2_ALT',
+    'idjhkx1ruj': 'VENTA_POR_TIPO_M2_ALT',
+    'cq4causxvu': 'VENTA_REGISTRADA_M2_ALT'
+}
+
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -202,6 +215,40 @@ def create_master_table(conn) -> pd.DataFrame:
         FROM precios_stats
     ),
     
+    -- METRICAS DE GAP DE NEGOCIACION (NUEVO)
+    gap_raw AS (
+        SELECT 
+            barrio_id,
+            anio,
+            AVG(CASE WHEN dataset_id = 'bhl3ulphi5' THEN precio_m2_venta END) AS asking_price_m2,
+            AVG(CASE WHEN dataset_id IN ('u25rr7oxh6', 'mrslyp5pcq') THEN precio_m2_venta END) AS transaction_price_m2
+        FROM fact_precios
+        WHERE precio_m2_venta IS NOT NULL
+        GROUP BY barrio_id, anio
+    ),
+    
+    -- VOLUMEN DE ANUNCIOS (NUEVO)
+    volume_agg AS (
+        SELECT 
+            barrio_id,
+            anio,
+            AVG(num_anuncios) AS avg_num_anuncios_venta
+        FROM fact_oferta_idealista
+        WHERE operacion = 'sale'
+        GROUP BY barrio_id, anio
+    ),
+
+    -- RENTA AVANZADA (NUEVO)
+    renta_avanzada_agg AS (
+        SELECT 
+            barrio_id,
+            anio,
+            renta_bruta_llar,
+            indice_gini,
+            ratio_p80_p20
+        FROM fact_renta_avanzada
+    ),
+    
     -- Turismo agregado por barrio y año
     turismo_agg AS (
         SELECT 
@@ -262,7 +309,7 @@ def create_master_table(conn) -> pd.DataFrame:
         b.area_km2,
         
         -- Año
-        p.anio,
+        years.anio,
         
         -- Precios
         p.precio_m2_venta_promedio,
@@ -273,6 +320,11 @@ def create_master_table(conn) -> pd.DataFrame:
         p.cv_precio_venta,
         p.cv_precio_alquiler,
         p.dataset_id,
+
+        -- Gap de Negociación (Nuevas columnas)
+        g.asking_price_m2,
+        g.transaction_price_m2,
+        v.avg_num_anuncios_venta,
         
         -- Demografía
         d.poblacion_total,
@@ -281,7 +333,12 @@ def create_master_table(conn) -> pd.DataFrame:
         d.grupos_edad_distintos,
         d.nacionalidades_distintas,
         
-        -- Renta (último año disponible por barrio)
+        -- Renta Avanzada (Nuevas columnas)
+        ra.renta_bruta_llar,
+        ra.indice_gini,
+        ra.ratio_p80_p20,
+        
+        -- Renta Básica (Fallback/Legacy)
         r.renta_mediana,
         r.renta_promedio,
         r.renta_euros,
@@ -325,12 +382,27 @@ def create_master_table(conn) -> pd.DataFrame:
         ON b.barrio_id = p.barrio_id 
         AND years.anio = p.anio
     
+    -- Join con Gap (NUEVO)
+    LEFT JOIN gap_raw g
+        ON b.barrio_id = g.barrio_id
+        AND years.anio = g.anio
+
+    -- Join con Volumen (NUEVO)
+    LEFT JOIN volume_agg v
+        ON b.barrio_id = v.barrio_id
+        AND years.anio = v.anio
+
+    -- Join con Renta Avanzada (NUEVO)
+    LEFT JOIN renta_avanzada_agg ra
+        ON b.barrio_id = ra.barrio_id
+        AND years.anio = ra.anio
+
     -- Join con demografía
     LEFT JOIN demografia_agg d 
         ON b.barrio_id = d.barrio_id 
         AND years.anio = d.anio
     
-    -- Join con renta (último año disponible)
+    -- Join con renta básica (último año disponible)
     LEFT JOIN LATERAL (
         SELECT renta_mediana, renta_promedio, renta_euros
         FROM fact_renta
@@ -390,7 +462,48 @@ def create_master_table(conn) -> pd.DataFrame:
     # Clean column names
     df.columns = df.columns.str.replace(' ', '_').str.lower().str.strip()
     
-    # Calculate derived metrics
+    # --- 1. METRICAS DE GAP DE NEGOCIACION (POST-PROCESAMIENTO) ---
+    logger.info("Calculando métricas de Gap de Negociación...")
+    df['negotiation_gap_absolute'] = df['asking_price_m2'] - df['transaction_price_m2']
+    df['negotiation_gap_pct'] = (df['negotiation_gap_absolute'] / df['asking_price_m2']) * 100
+    
+    # Flags de calidad para el Gap
+    VOLUME_THRESHOLD = 15
+    GAP_UPPER_BOUND = 50.0
+    GAP_LOWER_BOUND = -40.0
+    
+    df['negotiation_low_volume'] = (df['avg_num_anuncios_venta'] < VOLUME_THRESHOLD) | df['avg_num_anuncios_venta'].isna()
+    df['negotiation_extreme_gap'] = (df['negotiation_gap_pct'] > GAP_UPPER_BOUND) | (df['negotiation_gap_pct'] < GAP_LOWER_BOUND)
+    
+    # --- 2. METRICAS DE GENTRIFICACION (POST-PROCESAMIENTO) ---
+    logger.info("Calculando métricas de Riesgo de Gentrificación...")
+    
+    # Calcular incremento de alquiler (comparando con 2 años atrás si es posible)
+    df = df.sort_values(['barrio_id', 'anio'])
+    df['precio_alquiler_prev_2y'] = df.groupby('barrio_id')['precio_mes_alquiler_promedio'].shift(2)
+    df['gentrification_rent_increase_pct'] = ((df['precio_mes_alquiler_promedio'] - df['precio_alquiler_prev_2y']) / df['precio_alquiler_prev_2y']) * 100
+    
+    # Lógica del Semáforo
+    RENT_INCREASE_HIGH = 10.0
+    GINI_HIGH = 35.0
+    INCOME_VULNERABLE = 60000 # Umbral de vulnerabilidad por hogar
+    
+    def calculate_gent_risk(row):
+        if pd.isna(row['renta_bruta_llar']) or pd.isna(row['gentrification_rent_increase_pct']):
+            return 'DESCONOCIDO ⚪'
+            
+        is_vulnerable = row['renta_bruta_llar'] < INCOME_VULNERABLE
+        high_increase = row['gentrification_rent_increase_pct'] > RENT_INCREASE_HIGH
+        high_gini = row['indice_gini'] > GINI_HIGH
+        
+        if is_vulnerable and high_increase: return 'CRÍTICO 🔴'
+        if high_increase or (is_vulnerable and high_gini): return 'ALTO 🟠'
+        if high_gini or is_vulnerable: return 'MEDIO 🟡'
+        return 'BAJO 🟢'
+        
+    df['gentrification_risk_level'] = df.apply(calculate_gent_risk, axis=1)
+
+    # --- 3. METRICAS DERIVADAS EXISTENTES ---
     if 'poblacion_total' in df.columns and 'area_km2' in df.columns:
         df['densidad_poblacion'] = df['poblacion_total'] / df['area_km2'].replace(0, None)
     
@@ -403,6 +516,23 @@ def create_master_table(conn) -> pd.DataFrame:
         df['usa_mediana'] = ((df['usa_mediana_venta'] == 1) | (df['usa_mediana_alquiler'] == 1)).astype(int)
         logger.info(f"Alta variabilidad detectada: {df['usa_mediana'].sum()} registros usan mediana")
     
+    # Refinar dataset_id y añadir data_source legible
+    if 'dataset_id' in df.columns:
+        df['data_source'] = df['dataset_id'].map(DATASET_MAPPING).fillna('OTRAS_FUENTES')
+        # Limpiar el dataset_id original para que no sea críptico en Looker
+        df['dataset_id_raw'] = df['dataset_id']
+        df['dataset_id'] = df['data_source']
+
+    # Aplicar suavizado temporal (Moving Average de 3 años) para tendencias de mercado
+    logger.info("Calculando precios suavizados (Moving Average 3 años)...")
+    df = df.sort_values(['barrio_id', 'anio'])
+    df['precio_m2_venta_suave'] = df.groupby('barrio_id')['precio_m2_venta_promedio'].transform(
+        lambda x: x.rolling(window=3, min_periods=1, center=True).mean()
+    )
+    df['precio_alquiler_suave'] = df.groupby('barrio_id')['precio_mes_alquiler_promedio'].transform(
+        lambda x: x.rolling(window=3, min_periods=1, center=True).mean()
+    )
+
     # Add data quality flags
     df = add_data_quality_flags(df)
     
@@ -432,7 +562,7 @@ def apply_quality_context(row):
     context = 'STANDARD'
     
     # 3. Reglas Universales (N pequeño o Imputación)
-    if dataset_id == 'IMPUTACION_DISTRITO_RATIO':
+    if dataset_id in ['IMPUTACION_DISTRITO', 'IMPUTACION_DISTRITO_RATIO']:
         flags.append('DISTRICT_IMPUTED')
         confidence = 'MEDIUM'
         
@@ -661,6 +791,8 @@ def main() -> int:
         logger.info("   • Data quality flags added (completitud_datos, tiene_anomalias)")
         logger.info("   • Anomaly detection (cambio_extremo_*, outlier_*)")
         logger.info("   • Missing data flags (precio_venta_faltante, etc.)")
+        logger.info("   • Refined data sources (dataset_id, data_source)")
+        logger.info("   • Market trends (precio_m2_venta_suave, precio_alquiler_suave)")
         
         return 0
         

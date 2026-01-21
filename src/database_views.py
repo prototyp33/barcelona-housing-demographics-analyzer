@@ -529,26 +529,293 @@ def create_analytical_views(conn: sqlite3.Connection) -> None:
             AND s_actual.anio = (SELECT MAX(anio) FROM fact_seguridad WHERE barrio_id = db.barrio_id)
         WHERE p_actual.precio_m2_venta IS NOT NULL;
         """,
-        # Correlaciones cruzadas (preparado para análisis estadístico)
+        # Vistas base para visualizaciones (alquiler mensual/anual y métricas housing)
+        """
+        DROP VIEW IF EXISTS v_alquiler_mensual;
+        CREATE VIEW v_alquiler_mensual AS
+        SELECT
+            db.barrio_id,
+            db.barrio_nombre,
+            db.distrito_nombre,
+            t.time_id,
+            am.anio,
+            am.mes,
+            t.periodo AS year_month,
+            AVG(am.precio_mes_alquiler) AS precio_mes_alquiler,
+            COUNT(*) AS num_observaciones
+        FROM fact_alquiler_mensual am
+        INNER JOIN dim_barrios db ON db.barrio_id = am.barrio_id
+        LEFT JOIN dim_tiempo t ON t.anio = am.anio AND t.mes = am.mes AND t.periodo = printf('%04d-%02d', am.anio, am.mes)
+        WHERE am.precio_mes_alquiler IS NOT NULL
+        GROUP BY db.barrio_id, db.barrio_nombre, db.distrito_nombre, t.time_id, am.anio, am.mes, t.periodo
+        ORDER BY db.barrio_id, am.anio, am.mes;
+        """,
+        """
+        DROP VIEW IF EXISTS v_alquiler_anual;
+        CREATE VIEW v_alquiler_anual AS
+        SELECT
+            barrio_id,
+            barrio_nombre,
+            distrito_nombre,
+            anio,
+            AVG(precio_mes_alquiler) AS precio_mes_alquiler,
+            COUNT(DISTINCT mes) AS meses_con_datos
+        FROM v_alquiler_mensual
+        GROUP BY barrio_id, barrio_nombre, distrito_nombre, anio
+        ORDER BY barrio_id, anio;
+        """,
+        """
+        DROP VIEW IF EXISTS v_precios_anual;
+        CREATE VIEW v_precios_anual AS
+        WITH venta AS (
+            SELECT barrio_id, anio, AVG(precio_m2_venta) AS precio_m2_venta
+            FROM fact_precios
+            WHERE precio_m2_venta IS NOT NULL
+            GROUP BY barrio_id, anio
+        )
+        SELECT
+            db.barrio_id,
+            db.barrio_nombre,
+            db.distrito_nombre,
+            y.anio,
+            v.precio_m2_venta,
+            a.precio_mes_alquiler,
+            a.meses_con_datos AS alquiler_meses_con_datos
+        FROM dim_barrios db
+        INNER JOIN (
+            SELECT barrio_id, anio FROM venta
+            UNION
+            SELECT barrio_id, anio FROM v_alquiler_anual
+        ) y ON y.barrio_id = db.barrio_id
+        LEFT JOIN venta v ON v.barrio_id = y.barrio_id AND v.anio = y.anio
+        LEFT JOIN v_alquiler_anual a ON a.barrio_id = y.barrio_id AND a.anio = y.anio
+        ORDER BY db.barrio_id, y.anio;
+        """,
+        """
+        DROP VIEW IF EXISTS v_metricas_housing;
+        CREATE VIEW v_metricas_housing AS
+        SELECT
+            p.barrio_id,
+            p.barrio_nombre,
+            p.distrito_nombre,
+            p.anio,
+            p.precio_m2_venta,
+            p.precio_mes_alquiler,
+            r.renta_euros,
+            r.renta_mediana,
+            -- Métricas (con fallback renta_euros si renta_mediana no está)
+            CASE
+                WHEN COALESCE(r.renta_mediana, r.renta_euros) > 0 AND p.precio_m2_venta IS NOT NULL
+                THEN p.precio_m2_venta / (COALESCE(r.renta_mediana, r.renta_euros) / 12.0)
+                ELSE NULL
+            END AS ratio_precio_renta_mensual,
+            CASE
+                WHEN p.precio_mes_alquiler > 0 AND COALESCE(r.renta_mediana, r.renta_euros) > 0
+                THEN (p.precio_mes_alquiler * 12.0) / COALESCE(r.renta_mediana, r.renta_euros) * 100.0
+                ELSE NULL
+            END AS pct_renta_destinada_alquiler,
+            CASE
+                WHEN COALESCE(r.renta_mediana, r.renta_euros) > 0 AND p.precio_mes_alquiler > 0
+                THEN COALESCE(r.renta_mediana, r.renta_euros) / (p.precio_mes_alquiler * 12.0)
+                ELSE NULL
+            END AS affordability_index,
+            d.poblacion_total,
+            d.edad_media,
+            d.pct_mayores_65
+        FROM v_precios_anual p
+        LEFT JOIN fact_renta r ON r.barrio_id = p.barrio_id AND r.anio = p.anio
+        LEFT JOIN fact_demografia d ON d.barrio_id = p.barrio_id AND d.anio = p.anio
+        ORDER BY p.barrio_id, p.anio;
+        """,
+        # Modelo estrella (BI): dims + facts con claves `*_id` y medidas (sin nombres repetidos)
+        """
+        DROP VIEW IF EXISTS v_dim_barrios_star;
+        CREATE VIEW v_dim_barrios_star AS
+        SELECT
+            barrio_id,
+            barrio_nombre,
+            distrito_nombre,
+            codi_districte,
+            codi_barri,
+            geometry_json
+        FROM dim_barrios;
+        """,
+        """
+        DROP VIEW IF EXISTS v_dim_tiempo_star;
+        CREATE VIEW v_dim_tiempo_star AS
+        SELECT
+            time_id,
+            periodo,
+            anio,
+            trimestre,
+            mes,
+            year_quarter,
+            year_month,
+            estacion,
+            fecha_inicio,
+            fecha_fin
+        FROM dim_tiempo;
+        """,
+        """
+        DROP VIEW IF EXISTS v_fact_housing_anual_star;
+        CREATE VIEW v_fact_housing_anual_star AS
+        SELECT
+            mh.barrio_id,
+            t.time_id,
+            mh.anio,
+            mh.precio_m2_venta,
+            mh.precio_mes_alquiler,
+            mh.renta_euros,
+            mh.renta_mediana,
+            mh.ratio_precio_renta_mensual,
+            mh.pct_renta_destinada_alquiler,
+            mh.affordability_index,
+            mh.poblacion_total,
+            mh.edad_media,
+            mh.pct_mayores_65
+        FROM v_metricas_housing mh
+        INNER JOIN dim_tiempo t
+            ON t.periodo = printf('%04d', mh.anio)
+           AND t.mes IS NULL
+           AND t.trimestre IS NULL;
+        """,
+        """
+        DROP VIEW IF EXISTS v_fact_alquiler_mensual_star;
+        CREATE VIEW v_fact_alquiler_mensual_star AS
+        SELECT
+            am.barrio_id,
+            t.time_id,
+            am.anio,
+            am.mes,
+            am.precio_mes_alquiler,
+            am.dataset_id,
+            am.source
+        FROM fact_alquiler_mensual am
+        INNER JOIN dim_tiempo t
+            ON t.periodo = printf('%04d-%02d', am.anio, am.mes)
+           AND t.mes = am.mes;
+        """,
+        # Vista consolidada de economía (nueva - para análisis de correlaciones económicas)
+        """
+        DROP VIEW IF EXISTS v_economia_consolidada;
+        CREATE VIEW v_economia_consolidada AS
+        WITH venta AS (
+            SELECT barrio_id, anio, AVG(precio_m2_venta) AS precio_m2_venta
+            FROM fact_precios
+            WHERE precio_m2_venta IS NOT NULL
+            GROUP BY barrio_id, anio
+        ),
+        alquiler AS (
+            SELECT barrio_id, anio, AVG(precio_mes_alquiler) AS precio_mes_alquiler
+            FROM fact_alquiler_mensual
+            WHERE precio_mes_alquiler IS NOT NULL
+            GROUP BY barrio_id, anio
+        ),
+        years AS (
+            SELECT barrio_id, anio FROM venta
+            UNION
+            SELECT barrio_id, anio FROM alquiler
+        )
+        SELECT
+            db.barrio_id,
+            db.barrio_nombre,
+            db.distrito_nombre,
+            y.anio,
+            -- Variables económicas básicas
+            v.precio_m2_venta AS precio_m2_venta,
+            a.precio_mes_alquiler AS precio_mes_alquiler,
+            -- Renta básica
+            AVG(r.renta_euros) AS renta_euros,
+            AVG(r.renta_promedio) AS renta_promedio,
+            AVG(r.renta_mediana) AS renta_mediana,
+            -- Renta avanzada (desigualdad)
+            AVG(ra.renta_bruta_llar) AS renta_bruta_llar,
+            AVG(ra.indice_gini) AS indice_gini,
+            AVG(ra.ratio_p80_p20) AS ratio_p80_p20,
+            -- Desempleo
+            AVG(des.tasa_desempleo_estimada) AS tasa_desempleo,
+            AVG(des.num_desempleados) AS num_desempleados,
+            -- Métricas derivadas económicas
+            CASE 
+                WHEN COALESCE(AVG(r.renta_mediana), AVG(r.renta_euros)) > 0 AND v.precio_m2_venta IS NOT NULL
+                THEN v.precio_m2_venta / (COALESCE(AVG(r.renta_mediana), AVG(r.renta_euros)) / 12.0)
+                ELSE NULL 
+            END AS ratio_precio_renta_mensual,
+            CASE 
+                WHEN a.precio_mes_alquiler > 0 AND COALESCE(AVG(r.renta_mediana), AVG(r.renta_euros)) > 0
+                THEN (a.precio_mes_alquiler * 12.0) / COALESCE(AVG(r.renta_mediana), AVG(r.renta_euros)) * 100.0
+                ELSE NULL 
+            END AS pct_renta_destinada_alquiler,
+            CASE 
+                WHEN COALESCE(AVG(r.renta_mediana), AVG(r.renta_euros)) > 0 AND a.precio_mes_alquiler > 0
+                THEN COALESCE(AVG(r.renta_mediana), AVG(r.renta_euros)) / (a.precio_mes_alquiler * 12.0)
+                ELSE NULL 
+            END AS affordability_index,
+            -- Variables demográficas (para correlaciones)
+            AVG(d.poblacion_total) AS poblacion_total,
+            AVG(d.edad_media) AS edad_media,
+            AVG(d.densidad_hab_km2) AS densidad_hab_km2,
+            AVG(d.porc_inmigracion) AS porc_inmigracion,
+            AVG(d.pct_mayores_65) AS pct_mayores_65,
+            -- Variables de hogares (económicas)
+            AVG(ha.promedio_personas_por_hogar) AS promedio_personas_por_hogar,
+            AVG(ha.pct_hogares_unipersonales) AS pct_hogares_unipersonales,
+            AVG(ha.pct_hogares_nacionalidad_extranjera) AS pct_hogares_extranjeros,
+            AVG(ha.pct_presencia_mujeres) AS pct_presencia_mujeres,
+            -- Variables de catastro (económicas)
+            AVG(ca.superficie_media_m2) AS superficie_media_m2,
+            AVG(ca.pct_propietarios_extranjeros) AS pct_propietarios_extranjeros,
+            AVG(ca.antiguedad_media_bloque) AS antiguedad_media_bloque
+        FROM dim_barrios db
+        INNER JOIN years y ON y.barrio_id = db.barrio_id
+        LEFT JOIN venta v ON v.barrio_id = y.barrio_id AND v.anio = y.anio
+        LEFT JOIN alquiler a ON a.barrio_id = y.barrio_id AND a.anio = y.anio
+        LEFT JOIN fact_demografia d ON db.barrio_id = d.barrio_id AND y.anio = d.anio
+        LEFT JOIN fact_renta r ON db.barrio_id = r.barrio_id AND y.anio = r.anio
+        LEFT JOIN fact_renta_avanzada ra ON db.barrio_id = ra.barrio_id AND y.anio = ra.anio
+        LEFT JOIN fact_desempleo des ON db.barrio_id = des.barrio_id AND y.anio = des.anio
+        LEFT JOIN fact_hogares_avanzado ha ON db.barrio_id = ha.barrio_id AND y.anio = ha.anio
+        LEFT JOIN fact_catastro_avanzado ca ON db.barrio_id = ca.barrio_id AND y.anio = ca.anio
+        GROUP BY db.barrio_id, db.barrio_nombre, db.distrito_nombre, y.anio
+        ORDER BY db.barrio_id, y.anio;
+        """,
+        # Correlaciones cruzadas (mejorada - incluye todos los indicadores económicos)
         """
         DROP VIEW IF EXISTS v_correlaciones_cruzadas;
         CREATE VIEW v_correlaciones_cruzadas AS
         SELECT 
             db.barrio_id,
             db.barrio_nombre,
+            db.distrito_nombre,
             p.anio,
-            -- Variables económicas
+            -- Variables económicas (completas)
             AVG(p.precio_m2_venta) AS precio_m2_venta,
             AVG(p.precio_mes_alquiler) AS precio_mes_alquiler,
             AVG(r.renta_mediana) AS renta_mediana,
+            AVG(ra.renta_bruta_llar) AS renta_bruta_llar,
+            AVG(ra.indice_gini) AS indice_gini,
+            AVG(ra.ratio_p80_p20) AS ratio_p80_p20,
+            AVG(des.tasa_desempleo_estimada) AS tasa_desempleo,
+            -- Métricas derivadas económicas
+            CASE 
+                WHEN AVG(r.renta_mediana) > 0 
+                THEN AVG(p.precio_m2_venta) / (AVG(r.renta_mediana) / 12.0)
+                ELSE NULL 
+            END AS ratio_precio_renta_mensual,
+            CASE 
+                WHEN AVG(p.precio_mes_alquiler) > 0 AND AVG(r.renta_mediana) > 0
+                THEN (AVG(p.precio_mes_alquiler) * 12.0) / AVG(r.renta_mediana) * 100.0
+                ELSE NULL 
+            END AS pct_renta_destinada_alquiler,
             -- Variables demográficas
             AVG(d.poblacion_total) AS poblacion_total,
             AVG(d.edad_media) AS edad_media,
             AVG(d.densidad_hab_km2) AS densidad_hab_km2,
             AVG(d.porc_inmigracion) AS porc_inmigracion,
+            AVG(d.pct_mayores_65) AS pct_mayores_65,
             -- Variables de regulación
             AVG(reg.indice_referencia_alquiler) AS indice_referencia_alquiler,
-            AVG(reg.num_licencias_vut) AS num_licencias_vut,
+            AVG(reg.zona_tensionada) AS zona_tensionada,
             -- Variables de presión turística
             AVG(pt.num_listings_airbnb) AS num_listings_airbnb,
             AVG(pt.pct_entire_home) AS pct_entire_home,
@@ -563,12 +830,14 @@ def create_analytical_views(conn: sqlite3.Connection) -> None:
         INNER JOIN fact_precios p ON db.barrio_id = p.barrio_id
         LEFT JOIN fact_demografia d ON db.barrio_id = d.barrio_id AND p.anio = d.anio
         LEFT JOIN fact_renta r ON db.barrio_id = r.barrio_id AND p.anio = r.anio
+        LEFT JOIN fact_renta_avanzada ra ON db.barrio_id = ra.barrio_id AND p.anio = ra.anio
+        LEFT JOIN fact_desempleo des ON db.barrio_id = des.barrio_id AND p.anio = des.anio
         LEFT JOIN fact_regulacion reg ON db.barrio_id = reg.barrio_id AND p.anio = reg.anio
         LEFT JOIN fact_presion_turistica pt ON db.barrio_id = pt.barrio_id AND p.anio = pt.anio
         LEFT JOIN fact_seguridad s ON db.barrio_id = s.barrio_id AND p.anio = s.anio
         LEFT JOIN fact_ruido ru ON db.barrio_id = ru.barrio_id AND p.anio = ru.anio
         WHERE p.precio_m2_venta IS NOT NULL
-        GROUP BY db.barrio_id, db.barrio_nombre, p.anio
+        GROUP BY db.barrio_id, db.barrio_nombre, db.distrito_nombre, p.anio
         ORDER BY db.barrio_id, p.anio;
         """,
     ]

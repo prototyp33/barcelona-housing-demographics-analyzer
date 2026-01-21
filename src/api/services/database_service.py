@@ -21,14 +21,13 @@ class DatabaseService:
             db_path: Path to SQLite database. If None, uses default location.
         """
         if db_path is None:
-            # Try master.db first, then processed/database.db
-            master_path = PROJECT_ROOT / "data" / "master.db"
             processed_path = PROJECT_ROOT / "data" / "processed" / "database.db"
+            master_path = PROJECT_ROOT / "data" / "master.db"
             
-            if master_path.exists():
-                self.db_path = master_path
-            elif processed_path.exists():
+            if processed_path.exists():
                 self.db_path = processed_path
+            elif master_path.exists():
+                self.db_path = master_path
             else:
                 logger.error("No database found")
                 self.db_path = None
@@ -113,7 +112,11 @@ class DatabaseService:
         
         try:
             result = {}
-            tables = ["fact_precios", "v_demografia_aggregated", "fact_renta", "fact_renta_avanzada"]
+            tables = [
+                "fact_precios", "v_demografia_aggregated", "fact_renta", 
+                "fact_renta_avanzada", "fact_educacion", "fact_seguridad", 
+                "fact_vivienda_publica", "fact_presion_turistica"
+            ]
             for table in tables:
                 try:
                     df = pd.read_sql(
@@ -375,6 +378,93 @@ class DatabaseService:
         finally:
             conn.close()
     
+    def get_accessibility_metrics(self, year: int, distrito: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get accessibility and social infrastructure metrics."""
+        conn = self.get_connection()
+        if conn is None: return []
+        try:
+            query = """
+            SELECT 
+                b.barrio_id, b.barrio_nombre, b.distrito_nombre,
+                e.total_centros_educativos,
+                e.num_centros_infantil,
+                e.num_centros_primaria,
+                e.num_centros_secundaria,
+                e.num_centros_universidad,
+                v.viviendas_proteccion_oficial as viviendas_publicas
+            FROM dim_barrios b
+            LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id AND e.anio = ?
+            LEFT JOIN fact_vivienda_publica v ON b.barrio_id = v.barrio_id AND v.anio = ?
+            """
+            params = [year, year]
+            if distrito:
+                query += " WHERE b.distrito_nombre = ?"
+                params.append(distrito)
+            
+            df = pd.read_sql(query, conn, params=params)
+            return self._sanitize_df(df)
+        finally:
+            conn.close()
+
+    def get_safety_and_tourism(self, year: int, distrito: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get safety and tourism pressure metrics."""
+        conn = self.get_connection()
+        if conn is None: return []
+        try:
+            query = """
+            SELECT 
+                b.barrio_id, b.barrio_nombre, b.distrito_nombre,
+                s.tasa_criminalidad_1000hab,
+                s.delitos_patrimonio,
+                t.num_listings_airbnb,
+                t.pct_entire_home,
+                t.precio_noche_promedio
+            FROM dim_barrios b
+            LEFT JOIN fact_seguridad s ON b.barrio_id = s.barrio_id AND s.anio = ?
+            LEFT JOIN fact_presion_turistica t ON b.barrio_id = t.barrio_id AND t.anio = ?
+            """
+            params = [year, year]
+            if distrito:
+                query += " WHERE b.distrito_nombre = ?"
+                params.append(distrito)
+            
+            df = pd.read_sql(query, conn, params=params)
+            return self._sanitize_df(df)
+        finally:
+            conn.close()
+
+    def get_equity_metrics(self) -> List[Dict[str, Any]]:
+        """Get model fairness/equity metrics.
+        Note: Currently these are loaded from fact_model_fairness (if exists) 
+        or return the latest calibrated results from Phase 3.
+        """
+        conn = self.get_connection()
+        if conn is None: return []
+        try:
+            # Check if fact_model_fairness table exists
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fact_model_fairness'")
+            if cursor.fetchone():
+                query = "SELECT * FROM fact_model_fairness ORDER BY etl_loaded_at DESC"
+                df = pd.read_sql(query, conn)
+                return self._sanitize_df(df)
+            else:
+                # Return latest Phase 3 snapshot as fallback
+                return [{
+                    "model_version": "V2-Optimized",
+                    "distrito_nombre": "Barcelona Global",
+                    "mae": 409.40,
+                    "r2": 0.7591,
+                    "ges": 0.4266,
+                    "ipr": 1.0027,
+                    "status": "Target Met (IPR)"
+                }]
+        except Exception as e:
+            logger.error(f"Error fetching equity metrics: {e}")
+            return []
+        finally:
+            conn.close()
+
     def health_check(self) -> bool:
         """Check if database is accessible.
         

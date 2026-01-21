@@ -17,14 +17,14 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from src.app.config import COLOR_SCALES
-from src.app.data_loader import load_demografia, load_precios
-from src.app.styles import apply_plotly_theme, render_gradient_kpi, render_ranking_item
+from src.app.data_loader import get_geojson, load_demografia, load_precios
+from src.app.styles import apply_plotly_theme, render_responsive_kpi_grid, render_ranking_item, KPIMetric
 from src.app.components import render_empty_state
 
 
 def render_demographic_kpis(year: int = 2022) -> None:
     """
-    Renderiza KPIs principales de demografía con gradientes mesh.
+    Renderiza KPIs principales de demografía con grid responsive (v1.1 SSOT).
     
     Args:
         year: Año a consultar
@@ -43,31 +43,21 @@ def render_demographic_kpis(year: int = 2022) -> None:
     avg_envejecimiento = df_demo["indice_envejecimiento"].mean()
     avg_juventud = df_demo["pct_menores_15"].mean()
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        render_gradient_kpi(
+    demo_kpis = [
+        KPIMetric(
             title="Índice de Envejecimiento",
             value=avg_envejecimiento,
-            gradient="warm",
-            delta="Promedio de todos los barrios",
-        )
-        st.caption(
-            "Un índice >100 indica más población ≥65 años que <15 años. "
-            "Valores altos sugieren envejecimiento demográfico."
-        )
-    
-    with col2:
-        render_gradient_kpi(
+            style="warm",
+            delta="Media BCN",
+        ),
+        KPIMetric(
             title="% Población Joven (<15 años)",
-            value=avg_juventud,
-            gradient="cool",
-            delta="Promedio de todos los barrios",
+            value=f"{avg_juventud:.1f}%",
+            style="cool",
+            delta="Media BCN",
         )
-        st.caption(
-            "Porcentaje de población menor de 15 años. "
-            "Valores altos indican barrios con familias jóvenes."
-        )
+    ]
+    render_responsive_kpi_grid(demo_kpis)
 
 
 def render_price_vs_age_correlation(year: int = 2022) -> None:
@@ -203,12 +193,12 @@ def render_price_vs_age_correlation(year: int = 2022) -> None:
 
 def render_aging_map(year: int = 2022) -> None:
     """
-    Renderiza mapa choropleth de índice de envejecimiento.
+    Renderiza mapa choropleth de índice de envejecimiento (v1.1 SSOT).
     
     Args:
         year: Año a consultar
     """
-    from src.app.data_loader import build_geojson
+    from src.app.config import MAPBOX_CONFIG
     
     df_demo = load_demografia(year)
     df_precios = load_precios(year)
@@ -221,7 +211,7 @@ def render_aging_map(year: int = 2022) -> None:
         )
         return
     
-    # Merge con geometrías
+    # Merge con datos necesarios
     df_merged = df_precios.merge(
         df_demo[["barrio_id", "indice_envejecimiento", "pct_mayores_65"]],
         on="barrio_id",
@@ -231,21 +221,26 @@ def render_aging_map(year: int = 2022) -> None:
     if df_merged.empty:
         return
     
-    geojson = build_geojson(df_merged)
+    geojson = get_geojson()
     
     st.subheader("Mapa de Envejecimiento Demográfico")
-    st.caption(
-        "Visualización espacial del índice de envejecimiento por barrio. "
-        "Colores más oscuros indican mayor proporción de población mayor."
-    )
     
-    fig = px.choropleth(
+    # Clipping de outliers (v1.1 SSOT)
+    q05 = df_merged['indice_envejecimiento'].quantile(0.05)
+    q95 = df_merged['indice_envejecimiento'].quantile(0.95)
+    
+    fig = px.choropleth_map(
         df_merged,
         geojson=geojson,
         locations="barrio_id",
         featureidkey="properties.barrio_id",
         color="indice_envejecimiento",
+        range_color=[q05, q95],
         color_continuous_scale="Reds",  # Rojo = más envejecido
+        map_style=MAPBOX_CONFIG["map_style"],
+        zoom=MAPBOX_CONFIG["zoom"],
+        center=MAPBOX_CONFIG["center"],
+        opacity=MAPBOX_CONFIG["opacity"],
         hover_data={
             "barrio_nombre": True,
             "distrito_nombre": True,
@@ -259,7 +254,6 @@ def render_aging_map(year: int = 2022) -> None:
         title=f"Índice de Envejecimiento por Barrio ({year})",
     )
     
-    fig.update_geos(fitbounds="locations", visible=False)
     apply_plotly_theme(fig)
     fig.update_layout(margin=dict(r=0, t=60, l=0, b=0), height=500)
     
@@ -352,10 +346,15 @@ def render_gentrification_analysis(year: int = 2023) -> None:
     st.plotly_chart(fig, width='stretch', key="scatter_educ_gentrif")
 
 
-def render(year: int = 2023) -> None:
+def render(year: Optional[int] = None) -> None:
     """
     Renderiza la vista completa de Demografía mejorada.
     """
+    if year is None:
+        from src.app.data_loader import load_available_years
+        years_info = load_available_years()
+        year = years_info.get("fact_demografia", {}).get("max") or 2022
+
     st.header("Radiografía Demográfica y Social")
     st.markdown(
         "Análisis de la estructura social de Barcelona. "

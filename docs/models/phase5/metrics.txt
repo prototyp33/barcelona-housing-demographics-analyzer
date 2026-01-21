@@ -1,0 +1,5 @@
+Timestamp: 2026-01-21 14:58:30.257577
+R2Score: 0.8984
+MAE: 212.22
+IPR: 1.1953
+Features: ['renta_mediana', 'num_listings_airbnb', 'renta_x_access', 'porc_inmigracion', 'edad_media', 'pct_mayores_65', 'poblacion_total', 'total_centros_educativos', 'access_score', 'dist_metro_m']

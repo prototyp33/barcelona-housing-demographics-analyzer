@@ -13,6 +13,7 @@ from __future__ import annotations
 from src.etl.transformations.dimensions import prepare_dim_barrios
 from src.etl.transformations.demographics import (
     enrich_fact_demografia,
+    populate_fact_demografia_from_ampliada,
     prepare_demografia_ampliada,
     prepare_fact_demografia,
 )
@@ -21,6 +22,7 @@ from src.etl.transformations.enrichment import (
     prepare_portaldades_precios,
 )
 from .etl.transformations.market import prepare_fact_precios, prepare_renta_barrio
+from .etl.transformations.market import prepare_fact_alquiler_mensual
 from .etl.transformations.advanced_analysis import (
     prepare_fact_renta_avanzada,
     prepare_fact_catastro_avanzado,
@@ -35,9 +37,11 @@ __all__ = [
     "prepare_fact_demografia",
     "enrich_fact_demografia",
     "prepare_demografia_ampliada",
+    "populate_fact_demografia_from_ampliada",
     # Mercado
     "prepare_fact_precios",
     "prepare_renta_barrio",
+    "prepare_fact_alquiler_mensual",
     # Enriquecimientos de mercado
     "prepare_portaldades_precios",
     "prepare_idealista_oferta",

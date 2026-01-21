@@ -1,0 +1,106 @@
+name: Fairness & Equity Monitor
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/etl/transformations/**"
+      - "scripts/verify_equity.py"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  fairness-audit:
+    name: ⚖️ Fairness Audit (IPR Gate)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-fairness-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+          restore-keys: |
+            pip-fairness-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install xgboost scikit-learn pandas numpy
+
+      - name: Initialize Mock Data for Verification
+        run: |
+          # Create a minimal processed database if it doesn't exist
+          # This allows the CI to run even without full data access
+          mkdir -p data/processed
+          python -c "
+          import sqlite3
+          import pandas as pd
+          import numpy as np
+          conn = sqlite3.connect('data/processed/database.db')
+
+          # Create minimal dim_barrios
+          pd.DataFrame({
+              'barrio_id': range(1, 74),
+              'barrio_nombre': [f'Barrio {i}' for i in range(1, 74)],
+              'distrito_nombre': (['Eixample']*10 + ['Nou Barris']*10 + ['Sants']*54)[:73]
+          }).to_sql('dim_barrios', conn, index=False)
+
+          # Create minimal fact_precios
+          pd.DataFrame({
+              'barrio_id': range(1, 74),
+              'anio': [2023]*73,
+              'precio_m2_venta': np.random.uniform(2000, 6000, 73)
+          }).to_sql('fact_precios', conn, index=False)
+
+          # Create minimal fact_renta
+          pd.DataFrame({
+              'barrio_id': range(1, 74),
+              'anio': [2022]*73,
+              'renta_mediana': np.random.uniform(15000, 45000, 73)
+          }).to_sql('fact_renta', conn, index=False)
+
+          # Create minimal fact_movilidad
+          pd.DataFrame({
+              'barrio_id': range(1, 74),
+              'dist_metro_m': np.random.uniform(100, 1000, 73),
+              'access_score': np.random.uniform(0.1, 0.9, 73)
+          }).to_sql('fact_movilidad', conn, index=False)
+
+          # Create v_demografia_aggregated (as a table for the check)
+          pd.DataFrame({
+              'barrio_id': range(1, 74),
+              'anio': [2025]*73,
+              'poblacion_total': [5000]*73,
+              'edad_media': [40]*73,
+              'porc_inmigracion': [0.1]*73,
+              'pct_mayores_65': [0.2]*73,
+              'pct_menores_15': [0.15]*73
+          }).to_sql('v_demografia_aggregated', conn, index=False)
+
+          conn.close()
+          "
+
+      - name: Run Fairness Verification script
+        run: python scripts/verify_equity.py
+
+      - name: Upload Audit Results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fairness-results
+          path: data/processed/database.db
+          retention-days: 7

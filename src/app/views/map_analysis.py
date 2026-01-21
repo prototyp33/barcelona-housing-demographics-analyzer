@@ -9,10 +9,10 @@ from __future__ import annotations
 import plotly.express as px
 import streamlit as st
 
-from src.app.config import COLOR_SCALES, VIVIENDA_TIPO_M2
+from src.app.config import COLOR_SCALES, VIVIENDA_TIPO_M2, MAPBOX_CONFIG
 from src.app.utils import format_smart_currency, get_noise_level_color, PROFESSIONAL_COLORS
 from src.app.data_loader import (
-    build_geojson,
+    get_geojson,
     load_affordability_data,
     load_precios,
     load_temporal_comparison,
@@ -44,15 +44,24 @@ def render_price_map(
         )
         return
     
-    geojson = build_geojson(df)
+    geojson = get_geojson()
     
-    fig = px.choropleth(
+    # Clipping de outliers (v1.1 SSOT)
+    q05 = df['avg_precio_m2'].quantile(0.05)
+    q95 = df['avg_precio_m2'].quantile(0.95)
+    
+    fig = px.choropleth_map(
         df,
         geojson=geojson,
         locations="barrio_id",
         featureidkey="properties.barrio_id",
         color="avg_precio_m2",
+        range_color=[q05, q95],
         color_continuous_scale=COLOR_SCALES["prices"],
+        map_style=MAPBOX_CONFIG["map_style"],
+        zoom=MAPBOX_CONFIG["zoom"],
+        center=MAPBOX_CONFIG["center"],
+        opacity=MAPBOX_CONFIG["opacity"],
         hover_data={
             "barrio_nombre": True,
             "distrito_nombre": True,
@@ -62,7 +71,6 @@ def render_price_map(
         title=f"Precio de Vivienda por Barrio ({year})",
     )
     
-    fig.update_geos(fitbounds="locations", visible=False)
     fig.update_layout(margin=dict(r=0, t=60, l=0, b=0), height=500)
     
     st.plotly_chart(fig, key=key)
@@ -70,7 +78,12 @@ def render_price_map(
 
 def render_snapshot(year: int = 2022, key: str | None = None) -> None:
     """
-    Renderiza un mapa 'snapshot' simplificado para el Dashboard Principal.
+    Renderiza un mapa 'snapshot' mejorado para el Dashboard Principal.
+    
+    Mejoras:
+    - Leyenda de colores visible con etiquetas claras
+    - Hover data con barrio_nombre y valor exacto
+    - Mejor styling sin bordes, con sombra suave
     
     Args:
         year: Año a mostrar.
@@ -86,32 +99,82 @@ def render_snapshot(year: int = 2022, key: str | None = None) -> None:
         )
         return
     
-    geojson = build_geojson(df)
+    geojson = get_geojson()
     
-    fig = px.choropleth(
+    # Clipping de outliers (v1.1 SSOT)
+    q05 = df['avg_precio_m2'].quantile(0.05)
+    q95 = df['avg_precio_m2'].quantile(0.95)
+    
+    # Nota: load_precios ya incluye barrio_nombre, pero verificamos por seguridad
+    if 'barrio_nombre' not in df.columns:
+        from src.app.data_loader import load_barrios
+        barrios_df = load_barrios()
+        df = df.merge(barrios_df[['barrio_id', 'barrio_nombre']], on='barrio_id', how='left')
+    
+    fig = px.choropleth_map(
         df,
         geojson=geojson,
         locations="barrio_id",
         featureidkey="properties.barrio_id",
         color="avg_precio_m2",
+        range_color=[q05, q95],
         color_continuous_scale=COLOR_SCALES["prices"],
+        map_style=MAPBOX_CONFIG["map_style"],
+        zoom=MAPBOX_CONFIG["zoom"] - 1, # Un poco más alejado para el snapshot
+        center=MAPBOX_CONFIG["center"],
+        opacity=MAPBOX_CONFIG["opacity"],
+        hover_data={
+            "barrio_nombre": True,
+            "avg_precio_m2": ":,.0f",
+        },
+        labels={
+            "avg_precio_m2": "Precio (€/m²)",
+            "barrio_nombre": "Barrio",
+        },
     )
     
-    fig.update_geos(
-        fitbounds="locations",
-        visible=False,
-    )
-    
+    # Mejorar layout con leyenda visible y mejor styling
     fig.update_layout(
-        margin=dict(r=0, t=0, l=0, b=0),
-        height=150,
+        margin=dict(r=10, t=10, l=10, b=50),  # Más espacio abajo para la leyenda
+        height=450,
         dragmode=False,
-        coloraxis_showscale=False,
+        coloraxis_showscale=True,  # Mostrar leyenda de colores
+        coloraxis_colorbar=dict(
+            title=dict(text="Precio (€/m²)", font=dict(size=12)),
+            len=0.4,  # Longitud de la barra
+            y=0.05,   # Posición vertical (abajo)
+            x=0.95,   # Posición horizontal (derecha)
+            thickness=15,
+            tickformat=",.0f",
+            tickfont=dict(size=10),
+        ),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
+        autosize=True,
     )
     
-    st.plotly_chart(fig, key=key, config={"displayModeBar": False})
+    # CSS para mejorar el contenedor del mapa (sin bordes, con sombra suave)
+    st.markdown(
+        '''<style>
+        div[data-testid="stPlotlyChart"] {
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        div[data-testid="stPlotlyChart"] iframe {
+            border: none !important;
+        }
+        </style>''',
+        unsafe_allow_html=True
+    )
+    
+    # Usar container width para mejor fit
+    st.plotly_chart(
+        fig, 
+        key=key, 
+        config={"displayModeBar": False, "responsive": True}, 
+        width='stretch'
+    )
 
 
 def render_affordability_map(year: int = 2022, key: str | None = None) -> None:
@@ -132,15 +195,24 @@ def render_affordability_map(year: int = 2022, key: str | None = None) -> None:
         )
         return
     
-    geojson = build_geojson(df)
+    geojson = get_geojson()
     
-    fig = px.choropleth(
+    # Clipping de outliers (v1.1 SSOT)
+    q05 = df['effort_ratio'].quantile(0.05)
+    q95 = df['effort_ratio'].quantile(0.95)
+    
+    fig = px.choropleth_map(
         df,
         geojson=geojson,
         locations="barrio_id",
         featureidkey="properties.barrio_id",
         color="effort_ratio",
+        range_color=[q05, q95],
         color_continuous_scale=COLOR_SCALES["effort"],
+        map_style=MAPBOX_CONFIG["map_style"],
+        zoom=MAPBOX_CONFIG["zoom"],
+        center=MAPBOX_CONFIG["center"],
+        opacity=MAPBOX_CONFIG["opacity"],
         hover_data={
             "barrio_nombre": True,
             "distrito_nombre": True,
@@ -156,7 +228,6 @@ def render_affordability_map(year: int = 2022, key: str | None = None) -> None:
         title=f"Esfuerzo de Compra ({year})<br><sup>Rentas anuales necesarias para comprar {VIVIENDA_TIPO_M2} m²</sup>",
     )
     
-    fig.update_geos(fitbounds="locations", visible=False)
     fig.update_layout(margin=dict(r=0, t=80, l=0, b=0), height=500)
     
     st.plotly_chart(fig, key=key)
@@ -185,15 +256,24 @@ def render_change_map(
         )
         return
     
-    geojson = build_geojson(df)
+    geojson = get_geojson()
     
-    fig = px.choropleth(
+    # Clipping de outliers (v1.1 SSOT)
+    q05 = df['var_precio_pct'].quantile(0.05)
+    q95 = df['var_precio_pct'].quantile(0.95)
+    
+    fig = px.choropleth_map(
         df,
         geojson=geojson,
         locations="barrio_id",
         featureidkey="properties.barrio_id",
         color="var_precio_pct",
+        range_color=[q05, q95],
         color_continuous_scale=COLOR_SCALES["change"],
+        map_style=MAPBOX_CONFIG["map_style"],
+        zoom=MAPBOX_CONFIG["zoom"],
+        center=MAPBOX_CONFIG["center"],
+        opacity=MAPBOX_CONFIG["opacity"],
         hover_data={
             "barrio_nombre": True,
             "distrito_nombre": True,
@@ -211,7 +291,6 @@ def render_change_map(
         title=f"Variación de Precios ({year_start} → {year_end})<br><sup>Rojo = mayor incremento | Verde = menor incremento</sup>",
     )
     
-    fig.update_geos(fitbounds="locations", visible=False)
     fig.update_layout(margin=dict(r=0, t=80, l=0, b=0), height=500)
     
     st.plotly_chart(fig, key=key)
@@ -244,7 +323,7 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
             return
         
         color_col = "avg_precio_m2"
-        color_scale = ["#E3F2FD", "#90CAF9", "#42A5F5", "#1E88E5", "#0D47A1"] # Azules profesionales
+        color_scale = COLOR_SCALES["prices"] # Viridis (Accesible)
         title = f"Mapa de Precios de Venta ({year})"
         legend_title = "€/m²"
         
@@ -257,12 +336,8 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
             df = df[df['distrito_nombre'] == distrito_filter]
             
         color_col = "nivel_ruido"
-        # Semáforo Inverso (Verde es bajo ruido, Rojo es alto)
-        color_scale = [
-            (0.0, PROFESSIONAL_COLORS['success']),
-            (0.55, PROFESSIONAL_COLORS['warning']),
-            (1.0, PROFESSIONAL_COLORS['danger'])
-        ]
+        # Usar escala divergente segura para riesgo/esfuerzo (v1.1 SSOT)
+        color_scale = COLOR_SCALES["effort"] # RdYlBu_r
         title = "Mapa de Contaminación Acústica (Lden)"
         legend_title = "dB"
         df['tooltip_val'] = df[color_col].apply(lambda x: f"{x:.1f} dB")
@@ -273,7 +348,7 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
             df = df[df['distrito_nombre'] == distrito_filter]
             
         color_col = "m2_zonas_verdes"
-        color_scale = ["#E8F5E9", "#81C784", "#4CAF50", "#2E7D32", "#1B5E20"] # Verdes
+        color_scale = "Viridis" # Neutral/Volumen
         title = "Mapa de Zonas Verdes por Barrio"
         legend_title = "m²"
         df['tooltip_val'] = df[color_col].apply(lambda x: f"{x:,.0f} m²")
@@ -283,28 +358,37 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
         df = load_gentrification_risk_metrics(year)
         # Recuperar nombres y geometrías
         df_b = load_precios(year) 
-        df = df.merge(df_b[['barrio_id', 'barrio_nombre', 'distrito_nombre', 'geometry_json']], on='barrio_id')
+        df = df.merge(df_b[['barrio_id', 'barrio_nombre', 'distrito_nombre']], on='barrio_id')
         
         if distrito_filter:
             df = df[df['distrito_nombre'] == distrito_filter]
             
         color_col = "score_gentrificacion"
-        color_scale = "Purples" # Escala de transformación
+        color_scale = COLOR_SCALES["yield"] # Spectral (Accesible)
         title = "Índice de Riesgo de Gentrificación"
         legend_title = "Score (0-100)"
         df['tooltip_val'] = df[color_col].apply(lambda x: f"Riesgo: {x:.1f}/100")
 
     # 3. Construir GeoJSON
-    geojson = build_geojson(df)
+    geojson = get_geojson()
+    
+    # Clipping de outliers (v1.1 SSOT)
+    q05 = df[color_col].quantile(0.05)
+    q95 = df[color_col].quantile(0.95)
     
     # 4. Crear Mapa
-    fig = px.choropleth(
+    fig = px.choropleth_map(
         df,
         geojson=geojson,
         locations="barrio_id",
         featureidkey="properties.barrio_id",
         color=color_col,
+        range_color=[q05, q95],
         color_continuous_scale=color_scale,
+        map_style=MAPBOX_CONFIG["map_style"],
+        zoom=MAPBOX_CONFIG["zoom"],
+        center=MAPBOX_CONFIG["center"],
+        opacity=MAPBOX_CONFIG["opacity"],
         hover_data={
             "barrio_id": False,
             "barrio_nombre": True,
@@ -316,7 +400,6 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
         title=title,
     )
     
-    fig.update_geos(fitbounds="locations", visible=False)
     fig.update_layout(
         margin=dict(r=0, t=60, l=0, b=0), 
         height=600,

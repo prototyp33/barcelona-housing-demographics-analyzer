@@ -18,6 +18,9 @@ from .routers import (
     investment_router,
     clusters_router,
     stats_router,
+    schema_health_router,
+    accessibility_router,
+    equity_router,
 )
 from .models import HealthResponse, ErrorResponse
 from .services import get_model_service, get_db_service
@@ -75,6 +78,18 @@ tags_metadata = [
     {
         "name": "stats",
         "description": "General statistics, KPIs and aggregated data tables for analysis.",
+    },
+    {
+        "name": "Schema Health",
+        "description": "Database schema health monitoring and metrics. Track data quality, coverage, and schema changes over time.",
+    },
+    {
+        "name": "accessibility",
+        "description": "Social infrastructure and accessibility metrics. Education centers and public housing availability.",
+    },
+    {
+        "name": "equity",
+        "description": "Model fairness and equity metrics (IPR, GES, MAE). Track fairness across districts.",
     },
 ]
 
@@ -371,6 +386,9 @@ app.include_router(predictions_router)
 app.include_router(investment_router)
 app.include_router(clusters_router)
 app.include_router(stats_router)
+app.include_router(schema_health_router)
+app.include_router(accessibility_router)
+app.include_router(equity_router)
 
 
 # Health check endpoint

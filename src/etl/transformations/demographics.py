@@ -35,13 +35,33 @@ def prepare_fact_demografia(
     # Normalización agresiva: minúsculas y sin espacios
     df.columns = [c.strip().lower() for c in df.columns]
     
+    # Manejar caso especial: si hay tanto "data_referencia" como "año"
+    # Si "año" ya es numérico y tiene valores, usarlo directamente
+    # Si no, extraer de "data_referencia"
+    if "data_referencia" in df.columns and "año" in df.columns:
+        # Verificar si "año" es numérico y tiene valores válidos
+        año_is_numeric = pd.api.types.is_numeric_dtype(df["año"])
+        año_has_values = not df["año"].isna().all()
+        
+        if año_is_numeric and año_has_values:
+            # "año" ya es numérico y tiene valores, eliminar "data_referencia"
+            df = df.drop(columns=["data_referencia"])
+        else:
+            # Extraer año de Data_Referencia y reemplazar "año"
+            try:
+                df["año"] = pd.to_datetime(df["data_referencia"], errors="coerce").dt.year
+                df = df.drop(columns=["data_referencia"], errors="ignore")
+            except Exception:
+                # Si falla, mantener "año" original
+                df = df.drop(columns=["data_referencia"], errors="ignore")
+    
     rename_map = {
-        "any": "año", "data_referencia": "año", "año": "año", "anio": "año",
+        "any": "año", "data_referencia": "año", "anio": "año",
         "codi_barri": "Codi_Barri", "barrio_id": "Codi_Barri",
         "sexe": "SEXE", "sexo": "SEXE", "valor": "Valor"
     }
     for col_old, col_new in rename_map.items():
-        if col_old in df.columns:
+        if col_old in df.columns and col_new not in df.columns:
             df = df.rename(columns={col_old: col_new})
 
     # Eliminar columnas duplicadas (especialmente 'año' si existía Data_Referencia y Any)
@@ -962,10 +982,105 @@ def prepare_demografia_ampliada(
     return aggregated
 
 
+def populate_fact_demografia_from_ampliada(
+    fact_demografia_ampliada: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    reference_time: datetime,
+) -> pd.DataFrame:
+    """
+    Pobla fact_demografia desde fact_demografia_ampliada agregando datos.
+    
+    Agrega los datos desagregados de fact_demografia_ampliada para crear
+    registros agregados en fact_demografia con las métricas principales.
+    
+    Args:
+        fact_demografia_ampliada: DataFrame con datos desagregados por sexo, edad y nacionalidad
+        dim_barrios: DataFrame con dimensión de barrios
+        reference_time: Timestamp de referencia para etl_loaded_at
+        
+    Returns:
+        DataFrame con datos agregados para fact_demografia
+    """
+    if fact_demografia_ampliada.empty:
+        logger.warning("fact_demografia_ampliada está vacía, no se puede poblar fact_demografia")
+        return pd.DataFrame()
+    
+    df_ampliada = fact_demografia_ampliada.copy()
+    
+    # Agregar por barrio y año
+    aggregated = df_ampliada.groupby(['barrio_id', 'anio']).agg({
+        'poblacion': 'sum',
+        'dataset_id': 'first',
+        'source': 'first',
+    }).reset_index()
+    
+    # Calcular poblacion_hombres y poblacion_mujeres
+    hombres = df_ampliada[df_ampliada['sexo'] == 'hombre'].groupby(['barrio_id', 'anio'])['poblacion'].sum().reset_index()
+    hombres.columns = ['barrio_id', 'anio', 'poblacion_hombres']
+    
+    mujeres = df_ampliada[df_ampliada['sexo'] == 'mujer'].groupby(['barrio_id', 'anio'])['poblacion'].sum().reset_index()
+    mujeres.columns = ['barrio_id', 'anio', 'poblacion_mujeres']
+    
+    # Calcular pct_mayores_65
+    mayores_65 = df_ampliada[df_ampliada['grupo_edad'] == '65+'].groupby(['barrio_id', 'anio'])['poblacion'].sum().reset_index()
+    mayores_65.columns = ['barrio_id', 'anio', 'poblacion_mayores_65']
+    
+    # Merge todos los datos
+    fact = aggregated.merge(hombres, on=['barrio_id', 'anio'], how='left')
+    fact = fact.merge(mujeres, on=['barrio_id', 'anio'], how='left')
+    fact = fact.merge(mayores_65, on=['barrio_id', 'anio'], how='left')
+    
+    # Renombrar y calcular campos
+    fact = fact.rename(columns={'poblacion': 'poblacion_total'})
+    fact['poblacion_hombres'] = fact['poblacion_hombres'].fillna(0).astype(int)
+    fact['poblacion_mujeres'] = fact['poblacion_mujeres'].fillna(0).astype(int)
+    fact['poblacion_total'] = fact['poblacion_total'].fillna(0).astype(int)
+    
+    # Calcular porcentajes
+    fact['pct_mayores_65'] = (
+        fact.apply(
+            lambda row: (row['poblacion_mayores_65'] * 100.0 / row['poblacion_total'])
+            if row['poblacion_total'] > 0 and pd.notna(row['poblacion_mayores_65'])
+            else None,
+            axis=1
+        )
+    )
+    
+    # Campos que no podemos calcular desde fact_demografia_ampliada
+    fact['hogares_totales'] = None
+    fact['edad_media'] = None
+    fact['porc_inmigracion'] = None
+    fact['densidad_hab_km2'] = None
+    fact['pct_menores_15'] = None
+    fact['indice_envejecimiento'] = None
+    fact['etl_loaded_at'] = reference_time.isoformat()
+    
+    # Eliminar columna temporal
+    fact = fact.drop(columns=['poblacion_mayores_65'], errors='ignore')
+    
+    # Seleccionar columnas en el orden correcto
+    fact = fact[[
+        'barrio_id', 'anio', 'poblacion_total', 'poblacion_hombres', 'poblacion_mujeres',
+        'hogares_totales', 'edad_media', 'porc_inmigracion', 'densidad_hab_km2',
+        'pct_mayores_65', 'pct_menores_15', 'indice_envejecimiento',
+        'dataset_id', 'source', 'etl_loaded_at'
+    ]]
+    
+    logger.info(
+        "fact_demografia poblada desde ampliada: %s registros (años %s-%s)",
+        len(fact),
+        fact["anio"].min() if not fact.empty else None,
+        fact["anio"].max() if not fact.empty else None,
+    )
+    
+    return fact
+
+
 __all__ = [
     "prepare_fact_demografia",
     "enrich_fact_demografia",
     "prepare_demografia_ampliada",
+    "populate_fact_demografia_from_ampliada",
 ]
 
 

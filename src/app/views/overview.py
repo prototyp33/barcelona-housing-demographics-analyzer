@@ -15,7 +15,7 @@ import streamlit as st
 from src.app.config import COLORS, COLOR_SCALES
 from src.app.data_loader import load_kpis, load_precios, load_available_years
 from src.app.utils import format_smart_currency
-from src.app.styles import render_responsive_kpi_grid, apply_plotly_theme
+from src.app.styles import render_responsive_kpi_grid, apply_plotly_theme, KPIMetric
 from src.app.components import render_empty_state
 
 
@@ -24,34 +24,34 @@ def render_kpis() -> None:
     kpis = load_kpis()
     
     metrics_data = [
-        {
-            "title": "Total Barrios",
-            "value": kpis["total_barrios"],
-            "style": "white",
-            "delta": f"↑ {kpis['barrios_con_geometria']} con geometría",
-            "delta_color": "green",
-        },
-        {
-            "title": "Registros de Precios",
-            "value": f"{kpis['registros_precios']:,}",
-            "style": "warm",
-            "delta": f"{kpis['año_min']}-{kpis['año_max']}",
-        },
-        {
-            "title": "Precio Medio (Venta)",
-            "value": kpis.get('precio_medio_actual', 0.0),
-            "is_currency": True,
-            "unit": "€/m²",
-            "style": "cool",
-            "delta": f"vs {kpis.get('año_max', 2023)-1}: {((kpis.get('precio_medio_actual', 0)/kpis.get('precio_medio_anterior', 1))-1)*100:+.1f}%" if kpis.get('precio_medio_anterior') else None
-        },
-        {
-            "title": "Renta Media (Hogar)",
-            "value": kpis.get('renta_media_actual', 0.0),
-            "is_currency": True,
-            "style": "white",
-            "delta": "Dato más reciente (2022/23)"
-        },
+        KPIMetric(
+            title="Total Barrios",
+            value=kpis["total_barrios"],
+            style="white",
+            delta=f"↑ {kpis['barrios_con_geometria']} con geometría",
+            delta_color="green",
+        ),
+        KPIMetric(
+            title="Registros de Precios",
+            value=kpis['registros_precios'],
+            style="warm",
+            delta=f"{kpis['año_min']}-{kpis['año_max']}",
+        ),
+        KPIMetric(
+            title="Precio Medio (Venta)",
+            value=kpis.get('precio_medio_actual', 0.0),
+            is_currency=True,
+            unit="€/m²",
+            style="cool",
+            delta=f"vs {kpis.get('año_max', 2023)-1}: {((kpis.get('precio_medio_actual', 0)/kpis.get('precio_medio_anterior', 1))-1)*100:+.1f}%" if kpis.get('precio_medio_anterior') else None
+        ),
+        KPIMetric(
+            title="Renta Media (Hogar)",
+            value=kpis.get('renta_media_actual', 0.0),
+            is_currency=True,
+            style="white",
+            delta="Dato más reciente (2022/23)"
+        ),
     ]
     
     render_responsive_kpi_grid(metrics_data)
@@ -117,7 +117,7 @@ def render_price_evolution(
 
 
 def render_distrito_comparison(
-    year: int = 2022,
+    year: Optional[int] = None,
     distrito_filter: str | None = None,
     key: str | None = None,
 ) -> None:
@@ -125,10 +125,15 @@ def render_distrito_comparison(
     Renderiza comparación inteligente: Por Distrito (Global) o Por Barrio (Local).
     
     Args:
-        year: Año a mostrar.
+        year: Año a mostrar. Si es None, usa el más reciente.
         distrito_filter: Si es None, muestra ranking de distritos. Si existe, ranking de barrios.
         key: Clave única para el componente plotly_chart.
     """
+    if year is None:
+        from src.app.data_loader import load_available_years
+        years_info = load_available_years()
+        year = years_info.get("fact_precios", {}).get("max") or 2023
+
     df = load_precios(year)
     
     if df.empty:
@@ -208,7 +213,7 @@ def render_distrito_comparison(
 
 def render(
     distrito_filter: str | None = None,
-    year: int = 2022,
+    year: Optional[int] = None,
     key_prefix: str = "overview",
 ) -> None:
     """
@@ -216,20 +221,29 @@ def render(
     
     Args:
         distrito_filter: Filtro opcional por distrito.
-        year: Año seleccionado.
+        year: Año seleccionado. Si es None, usa el más reciente.
         key_prefix: Prefijo para claves únicas de componentes plotly.
     """
+    if year is None:
+        years_info = load_available_years()
+        year = years_info.get("fact_precios", {}).get("max") or 2023
+
     st.header("Visión General")
     
+    # Cargar metadatos para texto dinámico
+    years_info = load_available_years()
+    precios_max = years_info.get("fact_precios", {}).get("max") or 2023
+    renta_max = years_info.get("fact_renta", {}).get("max") or 2022
+
     info_html = dedent(
-        """
+        f"""
         <details class="bh-expander">
           <summary>Acerca de estos datos</summary>
           <div class="bh-expander-content">
             <h3>Fuentes de Datos</h3>
             <table>
               <tr><th>Fuente</th><th>Cobertura</th><th>Actualización</th></tr>
-              <tr><td><strong>Open Data BCN</strong></td><td>2015-2023</td><td>Anual</td></tr>
+              <tr><td><strong>Open Data BCN</strong></td><td>2015-{precios_max}</td><td>Anual</td></tr>
               <tr><td><strong>Portal de Dades BCN</strong></td><td>2012-2025</td><td>Trimestral</td></tr>
               <tr><td><strong>IDESCAT</strong></td><td>Censal</td><td>Quinquenal</td></tr>
             </table>
@@ -241,7 +255,7 @@ def render(
             </ul>
             <h3>Limitaciones</h3>
             <ul>
-              <li>Los datos de renta solo están disponibles para <strong>2022</strong>.</li>
+              <li>Los datos de renta solo están disponibles para <strong>{renta_max}</strong>.</li>
               <li>Las métricas de edad se propagan desde 2025 a años históricos.</li>
             </ul>
           </div>

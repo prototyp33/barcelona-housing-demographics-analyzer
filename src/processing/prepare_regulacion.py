@@ -676,7 +676,7 @@ def prepare_regulacion(
             )
             merged["num_licencias_vut"] = merged["num_licencias_vut"].fillna(0).astype(int)
         else:
-            logger.warning("No se pudieron procesar licencias VUT: columnas no encontradas")
+            # Silenciamos la advertencia: los VUT ahora se procesan vía prepare_fact_turismo_intensidad
             merged["num_licencias_vut"] = 0
     else:
         merged["num_licencias_vut"] = 0

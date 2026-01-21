@@ -13,7 +13,8 @@ Muestra un resumen completo del esquema de la base de datos incluyendo:
 import sys
 from pathlib import Path
 import sqlite3
-from typing import List, Dict, Tuple
+import argparse
+from typing import List, Dict, Tuple, Optional
 from datetime import datetime
 
 # Add project root to path
@@ -73,8 +74,135 @@ def get_barrio_coverage(conn: sqlite3.Connection, table_name: str) -> Tuple[int,
     except:
         return (0, 73)
 
+def export_markdown(conn: sqlite3.Connection, output_path: str):
+    """Genera un reporte del esquema en formato Markdown y lo guarda en un archivo."""
+    lines = []
+    lines.append("# Reporte de Esquema de Base de Datos")
+    lines.append(f"Generado el: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("")
+    
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT name, type 
+        FROM sqlite_master 
+        WHERE type IN ('table', 'view') 
+        AND name NOT LIKE 'sqlite_%'
+        ORDER BY type DESC, name
+    """)
+    objects = cursor.fetchall()
+    
+    tables = [obj for obj in objects if obj[1] == 'table']
+    views = [obj for obj in objects if obj[1] == 'view']
+    
+    lines.append("## 📊 Resumen")
+    lines.append(f"- **Tablas:** {len(tables)}")
+    lines.append(f"- **Vistas:** {len(views)}")
+    lines.append(f"- **Total:** {len(objects)}")
+    lines.append("")
+    
+    lines.append("## 📋 Tablas")
+    for table_name, _ in tables:
+        lines.append(f"### `{table_name}`")
+        
+        # Columnas
+        columns = get_table_info(conn, table_name)
+        lines.append("#### 📌 Columnas")
+        lines.append("| # | Nombre | Tipo | Atributos |")
+        lines.append("|---|--------|------|-----------|")
+        for col in columns:
+            col_id, name, dtype, not_null, default, pk = col
+            attrs = []
+            if pk: attrs.append("🔑 PK")
+            if not_null: attrs.append("NOT NULL")
+            if default: attrs.append(f"DEFAULT {default}")
+            lines.append(f"| {col_id+1} | `{name}` | {dtype} | {', '.join(attrs)} |")
+        
+        # FKs
+        fks = get_foreign_keys(conn, table_name)
+        if fks:
+            lines.append("#### 🔗 Claves Foráneas")
+            for fk in fks:
+                _, _, ref_table, from_col, to_col, *_ = fk
+                lines.append(f"- `{from_col}` → `{ref_table}({to_col})`")
+        
+        # Índices
+        indexes = get_indexes(conn, table_name)
+        if indexes:
+            lines.append("#### 📇 Índices")
+            for idx in indexes:
+                _, idx_name, unique, *_ = idx
+                lines.append(f"- `{idx_name}` {'(UNIQUE)' if unique else ''}")
+        
+        # Estadísticas
+        row_count = get_row_count(conn, table_name)
+        min_year, max_year = get_year_range(conn, table_name)
+        
+        lines.append("#### 📈 Estadísticas")
+        lines.append(f"- **Registros:** {row_count:,}")
+        if min_year:
+            lines.append(f"- **Rango años:** {min_year} - {max_year}")
+        
+        if 'barrio_id' in [col[1] for col in columns]:
+            unique, total = get_barrio_coverage(conn, table_name)
+            coverage = (unique / total * 100) if total > 0 else 0
+            lines.append(f"- **Cobertura barrios:** {unique}/{total} ({coverage:.1f}%)")
+        
+        lines.append("")
+
+    if views:
+        lines.append("## 👁️ Vistas")
+        for view_name, _ in views:
+            lines.append(f"### `{view_name}`")
+            try:
+                columns = get_table_info(conn, view_name)
+                lines.append("#### 📌 Columnas")
+                lines.append("| # | Nombre | Tipo |")
+                lines.append("|---|--------|------|")
+                for col in columns:
+                    col_id, name, dtype, *_ = col
+                    lines.append(f"| {col_id+1} | `{name}` | {dtype} |")
+                
+                row_count = get_row_count(conn, view_name)
+                lines.append(f"- **Registros:** {row_count:,}")
+            except Exception as e:
+                lines.append(f"⚠️ Error al inspeccionar vista: {str(e)}")
+            lines.append("")
+
+    lines.append("## 📊 Resumen de Cobertura (Tablas Fact)")
+    lines.append("| Tabla | Registros | Años | Barrios |")
+    lines.append("|-------|-----------|------|---------|")
+    
+    fact_tables = [t[0] for t in tables if t[0].startswith('fact_')]
+    for table in fact_tables:
+        row_count = get_row_count(conn, table)
+        min_year, max_year = get_year_range(conn, table)
+        year_str = f"{min_year}-{max_year}" if min_year else "N/A"
+        
+        columns = get_table_info(conn, table)
+        has_barrio = 'barrio_id' in [col[1] for col in columns]
+        if has_barrio:
+            unique, total = get_barrio_coverage(conn, table)
+            barrio_str = f"{unique}/{total} ({unique/total*100:.0f}%)"
+        else:
+            barrio_str = "N/A"
+        
+        lines.append(f"| `{table}` | {row_count:,} | {year_str} | {barrio_str} |")
+
+    content = "\n".join(lines)
+    
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    
+    print(f"\n✅ Reporte guardado en: {output_path}")
+
 def main():
     """Función principal."""
+    parser = argparse.ArgumentParser(description="Inspecciona el esquema de la base de datos.")
+    parser.add_argument("--markdown", type=str, help="Ruta del archivo para exportar en Markdown (ej: docs/SCHEMA.md)")
+    args = parser.parse_args()
+
     print("=" * 80)
     print("DATABASE SCHEMA INSPECTOR - Barcelona Housing Demographics")
     print("=" * 80)
@@ -85,6 +213,10 @@ def main():
     conn = db.get_connection()
     
     try:
+        if args.markdown:
+            export_markdown(conn, args.markdown)
+            return
+
         # Obtener todas las tablas y vistas
         cursor = conn.cursor()
         cursor.execute("""

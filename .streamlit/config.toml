@@ -13,7 +13,9 @@ showWarningOnDirectExecution = true
 # Configuración del servidor
 headless = true
 port = 8501
-enableCORS = false
+# Nota: enableCORS debe ser true si enableXsrfProtection está habilitado
+# Streamlit requiere CORS para proteger contra CSRF attacks
+enableCORS = true
 enableXsrfProtection = true
 
 # Límites de carga de archivos
@@ -58,12 +60,12 @@ textColor = "#262730"
 # Fuente
 font = "sans serif"
 
-# --- FIX FOR THE CONSOLE ERRORS ---
-# Explicitly defining these prevents the "" invalid color warnings
-[theme.sidebar]
-widgetBackgroundColor = "#F0F2F6"
-widgetBorderColor = "#D1D5DB"
-skeletonBackgroundColor = "#E5E7EB"
+# --- NOTA: Opciones de theme.sidebar removidas ---
+# Streamlit ya no soporta estas opciones en versiones recientes:
+# - widgetBackgroundColor
+# - widgetBorderColor  
+# - skeletonBackgroundColor
+# Los estilos del sidebar se controlan ahora via CSS en src/app/styles.py
 
 
 # ==============================================================================

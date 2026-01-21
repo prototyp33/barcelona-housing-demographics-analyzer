@@ -11,6 +11,7 @@ import pandas as pd
 
 from .utils import (
     _extract_year_from_temps,
+    _extract_year_month_from_temps,
     _load_portaldades_csv,
     _map_territorio_to_barrio_id,
     logger,
@@ -22,7 +23,7 @@ def prepare_portaldades_precios(
     dim_barrios: pd.DataFrame,
     reference_time: datetime,
     metadata_file: Optional[Path] = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Procesa archivos de precios del Portal de Dades y los prepara para ``fact_precios``.
 
@@ -33,10 +34,14 @@ def prepare_portaldades_precios(
         metadata_file: Archivo CSV con metadatos de indicadores (opcional).
 
     Returns:
-        Tupla ``(venta_df, alquiler_df)`` con precios de venta y alquiler.
+        Tupla ``(venta_df, alquiler_df, alquiler_mensual_df)`` con:
+            - precios de venta (anual)
+            - precios de alquiler (anual)
+            - precios de alquiler mensual (mes=1..12)
     """
     venta_records: List[Dict[str, Any]] = []
     alquiler_records: List[Dict[str, Any]] = []
+    alquiler_mensual_records: List[Dict[str, Any]] = []
 
     indicadores_metadata: Dict[str, Dict[str, str]] = {}
     if metadata_file and metadata_file.exists():
@@ -108,6 +113,8 @@ def prepare_portaldades_precios(
                 continue
 
             df["anio"] = df["Dim-00:TEMPS"].apply(_extract_year_from_temps)
+            year_month = df["Dim-00:TEMPS"].apply(_extract_year_month_from_temps)
+            df["mes"] = year_month.apply(lambda pair: pair[1] if isinstance(pair, tuple) else None)
             df = df.dropna(subset=["anio", "VALUE"])
 
             df["barrio_id"] = df.apply(
@@ -135,27 +142,71 @@ def prepare_portaldades_precios(
                 or "m2" in nombre_indicador.lower()
             )
 
-            for _, row in df.iterrows():
-                record: Dict[str, Any] = {
-                    "barrio_id": int(row["barrio_id"]),
-                    "anio": int(row["anio"]),
-                    "periodo": str(int(row["anio"])),
-                    "trimestre": pd.NA,
-                    "precio_m2_venta": pd.NA,
-                    "precio_mes_alquiler": pd.NA,
-                    "dataset_id": file_id,
-                    "source": "portaldades",
-                    "etl_loaded_at": reference_time.isoformat(),
-                }
+            # Para evitar pérdida de granularidad cuando TEMPS trae meses, agregamos anual a nivel barrio-año
+            # y, adicionalmente, preservamos mensual en una tabla dedicada.
+            if is_venta and is_precio_m2:
+                grouped = (
+                    df.groupby(["barrio_id", "anio"], as_index=False)["VALUE"]
+                    .mean()
+                    .rename(columns={"VALUE": "precio_m2_venta"})
+                )
+                for _, row in grouped.iterrows():
+                    venta_records.append(
+                        {
+                            "barrio_id": int(row["barrio_id"]),
+                            "anio": int(row["anio"]),
+                            "periodo": str(int(row["anio"])),
+                            "trimestre": pd.NA,
+                            "precio_m2_venta": float(row["precio_m2_venta"]),
+                            "precio_mes_alquiler": pd.NA,
+                            "dataset_id": file_id,
+                            "source": "portaldades",
+                            "etl_loaded_at": reference_time.isoformat(),
+                        }
+                    )
+            elif is_alquiler and not is_precio_m2:
+                grouped = (
+                    df.groupby(["barrio_id", "anio"], as_index=False)["VALUE"]
+                    .mean()
+                    .rename(columns={"VALUE": "precio_mes_alquiler"})
+                )
+                for _, row in grouped.iterrows():
+                    alquiler_records.append(
+                        {
+                            "barrio_id": int(row["barrio_id"]),
+                            "anio": int(row["anio"]),
+                            "periodo": str(int(row["anio"])),
+                            "trimestre": pd.NA,
+                            "precio_m2_venta": pd.NA,
+                            "precio_mes_alquiler": float(row["precio_mes_alquiler"]),
+                            "dataset_id": file_id,
+                            "source": "portaldades",
+                            "etl_loaded_at": reference_time.isoformat(),
+                        }
+                    )
 
-                if is_venta:
-                    if is_precio_m2:
-                        record["precio_m2_venta"] = float(row["VALUE"])
-                        venta_records.append(record)
-                elif is_alquiler:
-                    if not is_precio_m2:
-                        record["precio_mes_alquiler"] = float(row["VALUE"])
-                        alquiler_records.append(record)
+                # Mensual: solo si se pudo extraer mes (1-12)
+                mensual = df.dropna(subset=["mes"]).copy()
+                mensual["mes"] = pd.to_numeric(mensual["mes"], errors="coerce").astype("Int64")
+                mensual = mensual[mensual["mes"].between(1, 12, inclusive="both")]
+                if not mensual.empty:
+                    grouped_m = (
+                        mensual.groupby(["barrio_id", "anio", "mes"], as_index=False)["VALUE"]
+                        .mean()
+                        .rename(columns={"VALUE": "precio_mes_alquiler"})
+                    )
+                    for _, row in grouped_m.iterrows():
+                        alquiler_mensual_records.append(
+                            {
+                                "barrio_id": int(row["barrio_id"]),
+                                "anio": int(row["anio"]),
+                                "mes": int(row["mes"]),
+                                "precio_mes_alquiler": float(row["precio_mes_alquiler"]),
+                                "dataset_id": file_id,
+                                "source": "portaldades",
+                                "etl_loaded_at": reference_time.isoformat(),
+                            }
+                        )
 
             logger.debug("Procesado %s: %s registros válidos", csv_file.name, len(df))
 
@@ -165,6 +216,30 @@ def prepare_portaldades_precios(
 
     venta_df = pd.DataFrame(venta_records) if venta_records else pd.DataFrame()
     alquiler_df = pd.DataFrame(alquiler_records) if alquiler_records else pd.DataFrame()
+    alquiler_mensual_df = (
+        pd.DataFrame(alquiler_mensual_records) if alquiler_mensual_records else pd.DataFrame()
+    )
+    
+    # Deduplicación defensiva: puede haber múltiples archivos por el mismo indicador (mismo file_id)
+    # y generar duplicados exactos para (barrio_id, anio, mes, dataset_id, source).
+    if not venta_df.empty:
+        venta_df = (
+            venta_df.sort_values(["anio", "barrio_id", "dataset_id", "source", "etl_loaded_at"])
+            .drop_duplicates(subset=["barrio_id", "anio", "dataset_id", "source"], keep="last")
+            .reset_index(drop=True)
+        )
+    if not alquiler_df.empty:
+        alquiler_df = (
+            alquiler_df.sort_values(["anio", "barrio_id", "dataset_id", "source", "etl_loaded_at"])
+            .drop_duplicates(subset=["barrio_id", "anio", "dataset_id", "source"], keep="last")
+            .reset_index(drop=True)
+        )
+    if not alquiler_mensual_df.empty:
+        alquiler_mensual_df = (
+            alquiler_mensual_df.sort_values(["anio", "mes", "barrio_id", "dataset_id", "source", "etl_loaded_at"])
+            .drop_duplicates(subset=["barrio_id", "anio", "mes", "dataset_id", "source"], keep="last")
+            .reset_index(drop=True)
+        )
 
     if not venta_df.empty:
         logger.info(
@@ -177,7 +252,13 @@ def prepare_portaldades_precios(
             len(alquiler_df),
         )
 
-    return venta_df, alquiler_df
+    if not alquiler_mensual_df.empty:
+        logger.info(
+            "Preparados %s registros de ALQUILER MENSUAL del Portal de Dades",
+            len(alquiler_mensual_df),
+        )
+
+    return venta_df, alquiler_df, alquiler_mensual_df
 
 
 def prepare_idealista_oferta(

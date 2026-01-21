@@ -35,6 +35,10 @@ isort>=5.13.0
 mypy>=1.8.0
 pylint>=3.0.0
 
+# Database Migration & PostgreSQL
+sqlalchemy
+psycopg2-binary
+
 # Type stubs for mypy
 pandas-stubs
 types-requests

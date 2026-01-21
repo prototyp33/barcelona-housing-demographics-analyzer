@@ -1,22 +1,41 @@
+from __future__ import annotations
+
 """
-Barcelona Housing Demographics Dashboard - Main Entry Point.
+Barcelona Housing Analytics - Dashboard Principal
 
 Dashboard interactivo para analizar el mercado inmobiliario de Barcelona
 y su relación con factores demográficos.
 """
 
-from __future__ import annotations
-
-import streamlit as st
+import sys
+import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# Configurar el path ANTES de importar streamlit o cualquier módulo src
+# Esto es crítico para que las importaciones funcionen correctamente
+_file_path = Path(__file__).resolve()
+PROJECT_ROOT = _file_path.parent.parent.parent
 
-from src.app.config import PAGE_CONFIG, VIVIENDA_TIPO_M2, DB_PATH
-from src.app.utils import format_smart_currency
-from src.app.data_loader import load_distritos, load_available_years, load_kpis, load_precios
-from src.app.components import card_standard, card_chart, card_snapshot, card_metric, render_skeleton_kpi, render_breadcrumbs
-from src.app.styles import inject_global_css, render_responsive_kpi_grid, render_ranking_item
+# Añadir al path de múltiples formas para asegurar compatibilidad
+project_root_str = str(PROJECT_ROOT)
+if project_root_str not in sys.path:
+    sys.path.insert(0, project_root_str)
+# También añadir al PYTHONPATH de entorno si no está
+if 'PYTHONPATH' not in os.environ or project_root_str not in os.environ.get('PYTHONPATH', ''):
+    os.environ['PYTHONPATH'] = f"{project_root_str}:{os.environ.get('PYTHONPATH', '')}"
+
+import streamlit as st
+import logging
+
+from src.app.config import PAGE_CONFIG, DB_PATH
+from src.app.data_loader import (
+    load_distritos, 
+    load_kpis, 
+    log_user_query,
+    get_dynamic_metric_metadata
+)
+from src.app.components import render_breadcrumbs
+from src.app.styles import inject_global_css
 from src.app.views import (
     overview,
     map_analysis,
@@ -30,6 +49,8 @@ from src.app.views import (
     market_cockpit,
     investment_analysis,
     data_dictionary,
+    market_intelligence,
+    esg_view,
 )
 
 
@@ -39,21 +60,33 @@ def configure_page() -> None:
     
     # Inyectar CSS global del Design System
     inject_global_css()
+    
+    # Configurar logging a archivo si está habilitado
+    try:
+        # Verificar si secrets está disponible y tiene la configuración de logging
+        if hasattr(st, 'secrets'):
+            try:
+                log_config = st.secrets.get("logging", {})
+                if isinstance(log_config, dict) and log_config.get("enabled", False):
+                    from src.app.components.performance_monitor import setup_logging_to_file
+                    log_level = logging.DEBUG if log_config.get("level", "").upper() == "DEBUG" else logging.INFO
+                    setup_logging_to_file(log_level)
+            except (AttributeError, RuntimeError, KeyError):
+                # st.secrets no disponible o no configurado, usar logging básico
+                pass
+    except Exception:
+        # Cualquier otro error, continuar sin logging a archivo
+        pass
 
 
 def render_sidebar() -> tuple[int, str | None, str]:
     """
     Renderiza el sidebar estilo cockpit con identidad, filtros y metadatos.
     """
-    years_info = load_available_years()
-    min_year = years_info.get("fact_precios", {}).get("min") or 2015
-    max_year = years_info.get("fact_precios", {}).get("max") or 2023
-    
-    # Year with most income data
-    renta_info = years_info.get("fact_renta", {})
-    income_year = renta_info.get("max") or 2022
-    
     with st.sidebar:
+        # 0. Cargar metadatos dinámicos de la BD (v1.2 MVP)
+        dynamic_metadata = get_dynamic_metric_metadata()
+
         # ... (logo and identity remain the same)
         st.markdown(
             f'<div style="display: flex; align-items: center; margin-bottom: 30px;">'
@@ -74,7 +107,7 @@ def render_sidebar() -> tuple[int, str | None, str]:
         
         selected_metric = st.selectbox(
             "Métrica Principal",
-            options=["Precio Venta", "Renta Mensual", "Esfuerzo Compra", "Demografía"],
+            options=list(dynamic_metadata.keys()),
             help="Define la variable principal para los KPIs y mapas.",
         )
         
@@ -83,28 +116,78 @@ def render_sidebar() -> tuple[int, str | None, str]:
         selected_distrito = st.selectbox("Filtro por Distrito", options=distrito_options)
         distrito_filter = None if selected_distrito == "Todos" else selected_distrito
         
-        if selected_metric == "Renta Mensual":
-            st.info(f"Mostrando datos de renta para **{income_year}**")
-            selected_year = income_year
+        # Filtro adicional de Barrio para Market Cockpit (más granular que distrito)
+        st.markdown("---")
+        st.markdown(
+            '<p style="font-size: 11px; font-weight: 600; color: #8E92BC; letter-spacing: 1px; margin-bottom: 6px;">FILTROS ADICIONALES</p>',
+            unsafe_allow_html=True,
+        )
+        
+        # Cargar barrios para el filtro específico
+        selected_barrio_id = None
+        try:
+            from src.app.data_loader import load_barrios
+            barrios_df = load_barrios()
+            barrio_options = ["Todos"] + barrios_df["barrio_nombre"].tolist()
+            selected_barrio = st.selectbox(
+                "📍 Barrio",
+                options=barrio_options,
+                key="sidebar_barrio_filter",
+                help="Selecciona un barrio específico o 'Todos' para ver el análisis completo"
+            )
+            if selected_barrio != "Todos":
+                selected_barrio_id = int(barrios_df[barrios_df["barrio_nombre"] == selected_barrio]["barrio_id"].iloc[0])
+        except Exception:
+            selected_barrio_id = None
+        
+        # Opción para mostrar métricas de rendimiento (solo en desarrollo)
+        try:
+            if hasattr(st, 'secrets'):
+                try:
+                    log_config = st.secrets.get("logging", {})
+                    if isinstance(log_config, dict) and log_config.get("show_performance", False):
+                        from src.app.components.performance_monitor import render_performance_metrics
+                        render_performance_metrics(show_details=True)
+                except (AttributeError, RuntimeError, KeyError):
+                    # st.secrets no disponible o no configurado, no mostrar métricas
+                    pass
+        except Exception:
+            # Cualquier otro error, continuar sin métricas
+            pass
+        
+        # Lógica Temporal Dinámica (v1.2 MVP - SSOT)
+        meta = dynamic_metadata.get(selected_metric, {})
+        min_year = meta.get("min_year", 2015)
+        max_year = meta.get("max_year", 2023)
+        
+        if min_year == max_year:
+            st.info(meta.get("info", f"Mostrando datos para **{max_year}**"))
+            selected_year = max_year
             disable_slider = True
         else:
             disable_slider = False
-            default_year = max_year
             selected_year = st.slider(
                 "Año de Análisis",
                 min_value=min_year,
                 max_value=max_year,
-                value=default_year,
+                value=max_year,
                 disabled=disable_slider,
             )
         
         st.markdown("---")
         
         with st.expander("ℹ️ Sobre los datos", expanded=False):
-            st.caption("📅 **Actualización:** Noviembre 2025")
+            from datetime import datetime
+            current_date = datetime.now().strftime("%B %Y")
+            
+            # Obtener resumen de la BD (v1.3 - Dynamic Stats)
+            kpis = load_kpis()
+            registros = kpis.get("registros_precios", 9000)
+            
+            st.caption(f"📅 **Actualización:** {current_date}")
             st.caption("📡 **Fuentes:** OpenData BCN, Idealista, IDESCAT")
-            st.caption("🔢 **Registros:** +9,000 puntos de datos")
-            st.caption("v2.1 - Cockpit Release")
+            st.caption(f"🔢 **Registros:** +{registros:,} puntos de datos")
+            st.caption("v2.2 - Logic Clean Release")
             
             st.markdown("---")
             
@@ -150,128 +233,34 @@ def render_sidebar() -> tuple[int, str | None, str]:
         )
         
     
-    return selected_year, distrito_filter, selected_metric
-
-
-def render_custom_header(distrito_filter: str | None, metric_name: str, year: int) -> None:
-    """Renderiza encabezado principal dinámico."""
-    
-    if distrito_filter:
-        display_title = f"Monitor de Mercado: <span style='color: #2F80ED'>{distrito_filter}</span>"
-    else:
-        display_title = "Monitor de Mercado: Global BCN"
-        
-    display_subtitle = f"Analizando <strong>{metric_name}</strong> • Datos del año <strong>{year}</strong>"
-
-    with card_standard():
-        st.markdown(
-            f'<div style="display: flex; flex-direction: column; gap: 10px;">'
-            f'<div><p style="color: #8E92BC; font-size: 12px; letter-spacing: 1px; margin: 0;">RADAR OPERACIONAL</p>'
-            f'<h2 style="margin: 4px 0 0 0; font-size: 26px; color: #1A1A1A;">{display_title}</h2>'
-            f'<p style="color: #4A5568; font-size: 14px; margin: 4px 0 0 0;">{display_subtitle}</p></div>'
-            f'<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px;">'
-            f'<input placeholder="Buscar barrio específico..." style="flex: 1; min-width: 220px; '
-            f'padding: 12px 16px; border-radius: 16px; border: 1px solid rgba(0,0,0,0.08); '
-            f"font-family: 'Inter', sans-serif; font-size: 14px; background: #F8FAFC;\" /></div></div>",
-            unsafe_allow_html=True,
-        )
-        
-        # Nota: El botón de descarga funcional requiere integración con st.download_button
-        # que se implementará en la fase 'Bronce' para no romper el layout HTML actual.
-
-
-def render_primary_dashboard(year: int, distrito_filter: str | None) -> None:
-    """Sección principal con KPIs y visualizaciones clave."""
-    kpis = load_kpis()
-    
-    # Calcular Rentabilidad Bruta (Yield)
-    # Formula: (Alquiler * 12) / (Precio_m2 * 70) * 100
-    if kpis["precio_medio_2022"] > 0 and kpis.get("alquiler_medio_2022", 0) > 0:
-        yield_pct = (kpis["alquiler_medio_2022"] * 12) / (kpis["precio_medio_2022"] * VIVIENDA_TIPO_M2) * 100
-    else:
-        yield_pct = 0.0
-
-    # Calcular Variación Interanual
-    if kpis.get("precio_medio_2021", 0) > 0:
-        yoy_growth = ((kpis["precio_medio_2022"] - kpis["precio_medio_2021"]) / kpis["precio_medio_2021"]) * 100
-        yoy_delta = f"{yoy_growth:+.1f}% vs 2021"
-        yoy_color = "normal" # Azul/Neutro para crecimiento
-    else:
-        yoy_delta = None
-        yoy_color = "off"
-
-    kpi_data = [
-        {
-            "title": "Rentabilidad Bruta",
-            "value": f"{yield_pct:.1f}%",
-            "style": "white",
-            "delta": "Retorno Anual",
-            "delta_color": "green",
-        },
-        {
-            "title": "Registros de Precios",
-            "value": f"{kpis['registros_precios']:,}",
-            "style": "warm",
-            "delta": f"{kpis['año_min']}-{kpis['año_max']}",
-        },
-        {
-            "title": "Precio Medio Venta",
-            "value": f"€{kpis['precio_medio_2022']:,.0f}/m²",
-            "style": "cool",
-            "delta": yoy_delta,
-            "delta_color": yoy_color,
-        },
-        {
-            "title": "Renta Media Anual",
-            "value": f"€{kpis['renta_media_2022']:,.0f}",
-            "style": "white",
-            "delta": "Dato 2022",
-            "delta_color": "red",
-        },
-    ]
-    
-    # Simular estado de carga si se solicita (para demo)
-    if st.session_state.get("loading_kpis", False):
-        render_skeleton_kpi(4)
-    else:
-        render_responsive_kpi_grid(kpi_data)
-    
-    col_main, col_details = st.columns([2, 1])
-    with col_main:
-        with card_chart(title="📈 Evolución del mercado"):
-            overview.render_price_evolution(
-                distrito_filter=distrito_filter,
-                key="dashboard_price_evolution",
-            )
-
-    with col_details:
-        with card_snapshot(
-            title="🗺️ Distribución",
-            badge_text="Snapshot"
-        ):
-            map_analysis.render_snapshot(
-                year=year,
-                key="home_map_snapshot",
-            )
-            if st.button("🔎 Ampliar en Territorio", key="btn_nav_territorio", type="secondary"):
-                from src.app.components import show_notification
-                show_notification("👉 Ve a la pestaña 'Territorio' abajo para explorar el mapa interactivo", type="info")
-    
-    ranking_title = f"📋 Ranking de Barrios: {distrito_filter}" if distrito_filter else "📋 Desglose por distrito"
-    st.markdown(f"### {ranking_title}")
-    overview.render_distrito_comparison(
-        year=year,
-        distrito_filter=distrito_filter,
-        key="dashboard_distrito_comparison"
-    )
+    return selected_year, distrito_filter, selected_metric, selected_barrio_id
 
 
 def main() -> None:
     """Punto de entrada principal del dashboard."""
     configure_page()
     
+    # Health check de la API (solo una vez por sesión)
+    from src.app.api_client import check_api_availability
+    api_available = check_api_availability()
+    
+    # Mostrar warning si la API no está disponible (solo una vez)
+    if not api_available and 'api_warning_shown' not in st.session_state:
+        st.session_state['api_warning_shown'] = True
+        with st.container():
+            st.warning(
+                "⚠️ **API Backend no disponible**: El dashboard está funcionando en modo offline usando la base de datos local. "
+                "Algunas funcionalidades avanzadas pueden estar limitadas. "
+                "Para habilitar todas las funciones, inicia el servidor API en `localhost:8000`."
+            )
+    
     # Sidebar con filtros (incluye Smart Date Selector)
-    selected_year, distrito_filter, selected_metric = render_sidebar()
+    sidebar_result = render_sidebar()
+    selected_year, distrito_filter, selected_metric = sidebar_result[:3]
+    selected_barrio_id = sidebar_result[3] if len(sidebar_result) > 3 else None
+    
+    # Registro de actividad (v1.1 SSOT)
+    log_user_query(distrito_filter, selected_metric, selected_year)
     
     # Breadcrumbs Navigation
     crumbs = [{"label": "Home", "path": "home"}, {"label": "Dashboard", "path": "dashboard"}]
@@ -282,22 +271,27 @@ def main() -> None:
         
     render_breadcrumbs(crumbs)
     
-    # Navegación principal con tabs según Wireframe 1
-    tab1, tab2, tab_inv, tab3, tab4, tab5 = st.tabs([
-        "🏘️ Market",
-        "📊 Insights",
+    # Navegación principal con tabs traducidos al español y con iconos
+    tab1, tab2, tab_intel, tab_inv, tab3, tab4, tab5, tab_esg = st.tabs([
+        "🏘️ Mercado",
+        "📊 Análisis",
+        "🧠 Inteligencia",
         "💰 Inversión",
         "🚨 Alertas",
         "💡 Recomendaciones",
         "📄 Reportes",
+        "🌱 Social ESG",
     ])
     
     with tab1:
-        # Market Cockpit - Wireframe 1
-        market_cockpit.render(year=selected_year, distrito_filter=distrito_filter)
+        # Market Cockpit - Wireframe 1 (usa filtros del sidebar)
+        market_cockpit.render(year=selected_year, distrito_filter=distrito_filter, barrio_id=selected_barrio_id)
     
     with tab2:
         advanced_analytics.render(year=selected_year)
+
+    with tab_intel:
+        market_intelligence.render(distrito_filter=distrito_filter)
 
     with tab_inv:
         try:
@@ -355,6 +349,9 @@ def main() -> None:
             st.info("Para generar un nuevo reporte actualizado con los datos más recientes, ejecuta:")
             st.code("python scripts/generate_stakeholder_report.py")
             st.write("Esto creará un nuevo archivo en `docs/reports/` con el año de datos detectado.")
+
+    with tab_esg:
+        esg_view.render(year=selected_year, distrito_filter=distrito_filter)
     
     # Tabs secundarios (legacy - mantener para compatibilidad)
     st.markdown("---")
@@ -394,4 +391,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Schema Health Monitor | Barcelona Housing Analytics</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <style>
+      :root {
+        --bg-primary: #030303;
+        --bg-secondary: #0a0a0a;
+        --bg-card: rgba(255, 255, 255, 0.03);
+        --bg-card-hover: rgba(255, 255, 255, 0.05);
+        --border-primary: rgba(255, 255, 255, 0.08);
+        --border-accent: rgba(99, 102, 241, 0.4);
+
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+
+        --primary: #6366f1;
+        --primary-glow: rgba(99, 102, 241, 0.3);
+        --accent: #a855f7;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --error: #ef4444;
+        --info: #3b82f6;
+
+        --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+        --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.3);
+        --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+        overflow-x: hidden;
+      }
+
+      /* Premium Mesh Gradient Background */
+      .mesh-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(
+            at 0% 0%,
+            rgba(99, 102, 241, 0.15) 0px,
+            transparent 50%
+          ),
+          radial-gradient(
+            at 100% 0%,
+            rgba(168, 85, 247, 0.12) 0px,
+            transparent 50%
+          ),
+          radial-gradient(
+            at 50% 100%,
+            rgba(30, 64, 175, 0.1) 0px,
+            transparent 50%
+          );
+        z-index: -1;
+        pointer-events: none;
+      }
+
+      /* Header */
+      .header {
+        background: rgba(10, 10, 10, 0.8);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-primary);
+        padding: 1.5rem 2rem;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        box-shadow: var(--shadow-md);
+      }
+
+      .header-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .header-title {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .header-title h1 {
+        font-family: "Outfit", sans-serif;
+        font-size: 1.75rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 999px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-primary);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+      }
+
+      .status-dot.excellent {
+        background: var(--success);
+      }
+      .status-dot.good {
+        background: var(--info);
+      }
+      .status-dot.fair {
+        background: var(--warning);
+      }
+      .status-dot.poor {
+        background: var(--error);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 1rem;
+      }
+
+      .btn {
+        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+        border: none;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: white;
+        box-shadow: 0 4px 12px var(--primary-glow);
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px var(--primary-glow);
+      }
+
+      .btn-secondary {
+        background: var(--bg-card);
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary);
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg-card-hover);
+        border-color: var(--border-accent);
+      }
+
+      /* Main Container */
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+
+      /* Stats Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .stat-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-primary);
+        border-radius: 16px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .stat-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+
+      .stat-card:hover {
+        background: var(--bg-card-hover);
+        border-color: var(--border-accent);
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-md);
+      }
+
+      .stat-card:hover::before {
+        opacity: 1;
+      }
+
+      .stat-label {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+      }
+
+      .stat-value {
+        font-family: "Outfit", sans-serif;
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: var(--text-primary);
+        line-height: 1;
+        margin-bottom: 0.5rem;
+      }
+
+      .stat-change {
+        font-size: 0.875rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+
+      .stat-change.positive {
+        color: var(--success);
+      }
+      .stat-change.negative {
+        color: var(--error);
+      }
+      .stat-change.neutral {
+        color: var(--text-muted);
+      }
+
+      /* Health Score Circle */
+      .health-score-card {
+        grid-column: span 2;
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+        padding: 2rem;
+      }
+
+      .health-circle {
+        position: relative;
+        width: 200px;
+        height: 200px;
+      }
+
+      .health-circle svg {
+        transform: rotate(-90deg);
+      }
+
+      .health-circle-bg {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.1);
+        stroke-width: 12;
+      }
+
+      .health-circle-progress {
+        fill: none;
+        stroke-width: 12;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 1s ease;
+      }
+
+      .health-circle-text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+      }
+
+      .health-circle-value {
+        font-family: "Outfit", sans-serif;
+        font-size: 3rem;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .health-circle-label {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-top: 0.5rem;
+      }
+
+      /* Content Grid */
+      .content-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-primary);
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border-primary);
+      }
+
+      .card-title {
+        font-family: "Outfit", sans-serif;
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+
+      .card-subtitle {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        margin-top: 0.25rem;
+      }
+
+      /* Alerts */
+      .alerts-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .alert {
+        padding: 1rem;
+        border-radius: 12px;
+        border-left: 4px solid;
+        background: rgba(255, 255, 255, 0.02);
+        display: flex;
+        gap: 1rem;
+      }
+
+      .alert-icon {
+        font-size: 1.5rem;
+        flex-shrink: 0;
+      }
+
+      .alert-content {
+        flex: 1;
+      }
+
+      .alert-title {
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      .alert-message {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+
+      .alert.error {
+        border-left-color: var(--error);
+        background: rgba(239, 68, 68, 0.05);
+      }
+
+      .alert.warning {
+        border-left-color: var(--warning);
+        background: rgba(245, 158, 11, 0.05);
+      }
+
+      .alert.info {
+        border-left-color: var(--info);
+        background: rgba(59, 130, 246, 0.05);
+      }
+
+      /* Tables */
+      .table-container {
+        overflow-x: auto;
+        margin-top: 1rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+      }
+
+      thead {
+        background: rgba(255, 255, 255, 0.02);
+        border-bottom: 2px solid var(--border-primary);
+      }
+
+      th {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 0.75rem;
+      }
+
+      td {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border-primary);
+      }
+
+      tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .table-badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      .badge-success {
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--success);
+      }
+
+      .badge-warning {
+        background: rgba(245, 158, 11, 0.1);
+        color: var(--warning);
+      }
+
+      .badge-error {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--error);
+      }
+
+      .badge-info {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--info);
+      }
+
+      /* Chart Container */
+      .chart-container {
+        position: relative;
+        height: 300px;
+        margin-top: 1rem;
+      }
+
+      /* Loading State */
+      .loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem;
+        gap: 1rem;
+      }
+
+      .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Responsive */
+      @media (max-width: 1024px) {
+        .content-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .health-score-card {
+          grid-column: span 1;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .header-content {
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .container {
+          padding: 1rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="mesh-bg"></div>
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="header-title">
+          <h1>📊 Schema Health Monitor</h1>
+          <div class="status-badge" id="statusBadge">
+            <span class="status-dot excellent"></span>
+            <span>Loading...</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary" onclick="refreshData()">
+            🔄 Refresh
+          </button>
+          <button class="btn btn-primary" onclick="createSnapshot()">
+            📸 Create Snapshot
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+      <!-- Stats Grid -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Loading schema health data...</p>
+        </div>
+      </div>
+
+      <!-- Content Grid -->
+      <div class="content-grid">
+        <!-- Charts and Tables -->
+        <div>
+          <!-- Alerts Card -->
+          <div class="card" style="margin-bottom: 1.5rem">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">🚨 Active Alerts</h2>
+                <p class="card-subtitle">Issues requiring attention</p>
+              </div>
+            </div>
+            <div class="alerts-list" id="alertsList">
+              <div class="loading">
+                <div class="spinner"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Historical Trend Card -->
+          <div class="card" style="margin-bottom: 1.5rem">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">📈 Health Score Trend</h2>
+                <p class="card-subtitle">Historical performance over time</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="trendChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Tables Overview -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">📋 Tables Overview</h2>
+                <p class="card-subtitle">Top tables by row count</p>
+              </div>
+            </div>
+            <div class="table-container" id="tablesContainer">
+              <div class="loading">
+                <div class="spinner"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div>
+          <!-- Coverage Chart -->
+          <div class="card" style="margin-bottom: 1.5rem">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">📍 Barrio Coverage</h2>
+                <p class="card-subtitle">Data completeness</p>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="coverageChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Temporal Coverage -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">📅 Temporal Coverage</h2>
+                <p class="card-subtitle">Years of data available</p>
+              </div>
+            </div>
+            <div id="temporalInfo">
+              <div class="loading">
+                <div class="spinner"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      // Configuration
+      const API_BASE_URL = "http://localhost:8000";
+
+      // State
+      let currentData = null;
+      let charts = {};
+
+      // Initialize
+      document.addEventListener("DOMContentLoaded", () => {
+        loadData();
+      });
+
+      // Load all data
+      async function loadData() {
+        try {
+          // Load current health
+          const healthResponse = await fetch(
+            `${API_BASE_URL}/schema-health/current`
+          );
+          const healthData = await healthResponse.json();
+          currentData = healthData;
+
+          // Load alerts
+          const alertsResponse = await fetch(
+            `${API_BASE_URL}/schema-health/alerts`
+          );
+          const alertsData = await alertsResponse.json();
+
+          // Load history for trend
+          const historyResponse = await fetch(
+            `${API_BASE_URL}/schema-health/history?limit=10`
+          );
+          const historyData = await historyResponse.json();
+
+          // Render all components
+          renderStats(healthData);
+          renderAlerts(alertsData);
+          renderTrendChart(historyData);
+          renderTables(healthData.table_metrics);
+          renderCoverageChart(healthData);
+          renderTemporalInfo(healthData);
+          updateStatusBadge(healthData);
+        } catch (error) {
+          console.error("Error loading data:", error);
+          showError(
+            "Failed to load schema health data. Make sure the API is running."
+          );
+        }
+      }
+
+      // Render stats grid
+      function renderStats(data) {
+        const statsGrid = document.getElementById("statsGrid");
+
+        const healthScore = data.health_score || 0;
+        const healthColor = getHealthColor(healthScore);
+
+        statsGrid.innerHTML = `
+                <div class="stat-card health-score-card">
+                    <div class="health-circle">
+                        <svg width="200" height="200">
+                            <circle class="health-circle-bg" cx="100" cy="100" r="90"></circle>
+                            <circle class="health-circle-progress" cx="100" cy="100" r="90"
+                                    stroke="${healthColor}"
+                                    stroke-dasharray="${2 * Math.PI * 90}"
+                                    stroke-dashoffset="${
+                                      2 * Math.PI * 90 * (1 - healthScore / 100)
+                                    }">
+                            </circle>
+                        </svg>
+                        <div class="health-circle-text">
+                            <div class="health-circle-value" style="color: ${healthColor}">${healthScore.toFixed(
+          1
+        )}</div>
+                            <div class="health-circle-label">Health Score</div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 style="font-size: 1.5rem; margin-bottom: 1rem;">Overall Status</h3>
+                        <p style="color: var(--text-secondary); line-height: 1.8;">
+                            ${getHealthMessage(healthScore)}
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Total Tables</div>
+                    <div class="stat-value">${data.total_tables}</div>
+                    <div class="stat-change neutral">${
+                      data.total_fact_tables
+                    } fact tables</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Total Views</div>
+                    <div class="stat-value">${data.total_views}</div>
+                    <div class="stat-change ${
+                      data.broken_views > 0 ? "negative" : "positive"
+                    }">
+                        ${
+                          data.broken_views > 0
+                            ? `⚠️ ${data.broken_views} broken`
+                            : "✅ All healthy"
+                        }
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Total Rows</div>
+                    <div class="stat-value">${formatNumber(
+                      data.total_rows
+                    )}</div>
+                    <div class="stat-change neutral">Across all tables</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Barrio Coverage</div>
+                    <div class="stat-value">${data.barrio_coverage_avg.toFixed(
+                      1
+                    )}%</div>
+                    <div class="stat-change ${
+                      data.barrio_coverage_avg >= 95 ? "positive" : "negative"
+                    }">
+                        ${
+                          data.barrio_coverage_avg >= 95
+                            ? "✅ Excellent"
+                            : "⚠️ Needs improvement"
+                        }
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-label">Temporal Coverage</div>
+                    <div class="stat-value">${
+                      data.temporal_coverage_years
+                    }</div>
+                    <div class="stat-change positive">Years of data</div>
+                </div>
+            `;
+      }
+
+      // Render alerts
+      function renderAlerts(alerts) {
+        const alertsList = document.getElementById("alertsList");
+
+        if (alerts.length === 0) {
+          alertsList.innerHTML = `
+                    <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
+                        <p>No active alerts. Schema health is optimal!</p>
+                    </div>
+                `;
+          return;
+        }
+
+        alertsList.innerHTML = alerts
+          .map(
+            (alert) => `
+                <div class="alert ${alert.severity}">
+                    <div class="alert-icon">${getAlertIcon(
+                      alert.severity
+                    )}</div>
+                    <div class="alert-content">
+                        <div class="alert-title">${alert.category
+                          .replace(/_/g, " ")
+                          .toUpperCase()}</div>
+                        <div class="alert-message">${alert.message}</div>
+                        ${
+                          alert.details && alert.category === 'views' 
+                            ? `<div style="margin-top: 0.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 4px; overflow-x: auto;">
+                                ${alert.details.map(d => `<div><strong>${d.view_name}:</strong> ${d.error}</div>`).join('')}
+                               </div>`
+                            : ''
+                        }
+                    </div>
+                </div>
+            `
+          )
+          .join("");
+      }
+
+      // Render trend chart
+      function renderTrendChart(history) {
+        const ctx = document.getElementById("trendChart").getContext("2d");
+
+        if (charts.trend) {
+          charts.trend.destroy();
+        }
+
+        // reverse history to show chronological order
+        const data = [...history].reverse();
+        
+        charts.trend = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: data.map(s => {
+              const date = new Date(s.timestamp);
+              return `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${date.getMinutes()}`;
+            }),
+            datasets: [{
+              label: "Health Score",
+              data: data.map(s => s.health_score),
+              borderColor: "#6366f1",
+              backgroundColor: "rgba(99, 102, 241, 0.1)",
+              fill: true,
+              tension: 0.4,
+              pointRadius: 4,
+              pointHoverRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                beginAtZero: false,
+                min: 0,
+                max: 100,
+                grid: { color: "rgba(255,255,255,0.05)" },
+                ticks: { color: "#94a3b8" }
+              },
+              x: {
+                grid: { display: false },
+                ticks: { color: "#94a3b8", maxRotation: 45, minRotation: 45 }
+              }
+            },
+            plugins: {
+              legend: { display: false }
+            }
+          }
+        });
+      }
+
+      // Render tables
+      function renderTables(metrics) {
+        const tablesContainer = document.getElementById("tablesContainer");
+
+        // Sort by row count and take top 10
+        const topTables = metrics
+          .filter((m) => m.table_type === "table")
+          .sort((a, b) => b.row_count - a.row_count)
+          .slice(0, 10);
+
+        tablesContainer.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Table Name</th>
+                            <th>Rows</th>
+                            <th>Coverage</th>
+                            <th>Years</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${topTables
+                          .map(
+                            (table) => `
+                            <tr>
+                                <td style="font-family: 'JetBrains Mono', monospace; font-weight: 600;">
+                                    ${table.table_name}
+                                </td>
+                                <td>${formatNumber(table.row_count)}</td>
+                                <td>
+                                    ${
+                                      table.barrio_coverage_pct !== null
+                                        ? `<span class="table-badge ${getCoverageBadgeClass(
+                                            table.barrio_coverage_pct
+                                          )}">
+                                            ${table.barrio_coverage_pct.toFixed(
+                                              1
+                                            )}%
+                                           </span>`
+                                        : '<span style="color: var(--text-muted);">N/A</span>'
+                                    }
+                                </td>
+                                <td>
+                                    ${
+                                      table.min_year && table.max_year
+                                        ? `${table.min_year}-${table.max_year}`
+                                        : '<span style="color: var(--text-muted);">N/A</span>'
+                                    }
+                                </td>
+                                <td>
+                                    <span class="table-badge ${
+                                      table.is_healthy
+                                        ? "badge-success"
+                                        : "badge-error"
+                                    }">
+                                        ${
+                                          table.is_healthy
+                                            ? "✅ Healthy"
+                                            : "❌ Error"
+                                        }
+                                    </span>
+                                </td>
+                            </tr>
+                        `
+                          )
+                          .join("")}
+                    </tbody>
+                </table>
+            `;
+      }
+
+      // Render coverage chart
+      function renderCoverageChart(data) {
+        const ctx = document.getElementById("coverageChart").getContext("2d");
+
+        // Destroy existing chart if any
+        if (charts.coverage) {
+          charts.coverage.destroy();
+        }
+
+        const coverageData = {
+          labels: ["100%", "95-99%", "90-94%", "<90%", "No Data"],
+          datasets: [
+            {
+              data: calculateCoverageDistribution(data.table_metrics),
+              backgroundColor: [
+                "rgba(16, 185, 129, 0.8)",
+                "rgba(59, 130, 246, 0.8)",
+                "rgba(245, 158, 11, 0.8)",
+                "rgba(239, 68, 68, 0.8)",
+                "rgba(100, 116, 139, 0.8)",
+              ],
+              borderWidth: 0,
+            },
+          ],
+        };
+
+        charts.coverage = new Chart(ctx, {
+          type: "doughnut",
+          data: coverageData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "bottom",
+                labels: {
+                  color: "#94a3b8",
+                  font: {
+                    family: "Inter",
+                    size: 12,
+                  },
+                  padding: 15,
+                },
+              },
+            },
+          },
+        });
+      }
+
+      // Render temporal info
+      function renderTemporalInfo(data) {
+        const container = document.getElementById("temporalInfo");
+
+        // Find min and max years across all tables
+        const years = data.table_metrics
+          .filter((m) => m.min_year && m.max_year)
+          .flatMap((m) => [m.min_year, m.max_year]);
+
+        const minYear = Math.min(...years);
+        const maxYear = Math.max(...years);
+
+        container.innerHTML = `
+                <div style="padding: 1rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+                                Earliest Data
+                            </div>
+                            <div style="font-size: 2rem; font-weight: 800; font-family: 'Outfit', sans-serif;">
+                                ${minYear}
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+                                Latest Data
+                            </div>
+                            <div style="font-size: 2rem; font-weight: 800; font-family: 'Outfit', sans-serif;">
+                                ${maxYear}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                        <div style="height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); width: 100%;"></div>
+                    </div>
+                    <div style="margin-top: 1rem; text-align: center; color: var(--text-secondary); font-size: 0.875rem;">
+                        <strong>${
+                          maxYear - minYear + 1
+                        }</strong> years of historical data
+                    </div>
+                </div>
+            `;
+      }
+
+      // Update status badge
+      function updateStatusBadge(data) {
+        const badge = document.getElementById("statusBadge");
+        const status = getHealthStatus(data.health_score);
+
+        badge.innerHTML = `
+                <span class="status-dot ${status}"></span>
+                <span>${
+                  status.charAt(0).toUpperCase() + status.slice(1)
+                } Health</span>
+            `;
+      }
+
+      // Utility functions
+      function getHealthColor(score) {
+        if (score >= 90) return "#10b981";
+        if (score >= 75) return "#3b82f6";
+        if (score >= 60) return "#f59e0b";
+        return "#ef4444";
+      }
+
+      function getHealthStatus(score) {
+        if (score >= 90) return "excellent";
+        if (score >= 75) return "good";
+        if (score >= 60) return "fair";
+        return "poor";
+      }
+
+      function getHealthMessage(score) {
+        if (score >= 90)
+          return "Your database schema is in excellent condition. All systems are operating optimally with comprehensive data coverage.";
+        if (score >= 75)
+          return "Schema health is good. Minor issues detected but overall performance is solid.";
+        if (score >= 60)
+          return "Schema health is fair. Several issues require attention to maintain data quality.";
+        return "Schema health needs immediate attention. Critical issues detected that may impact data reliability.";
+      }
+
+      function getAlertIcon(severity) {
+        const icons = {
+          error: "🔴",
+          warning: "⚠️",
+          info: "ℹ️",
+        };
+        return icons[severity] || "ℹ️";
+      }
+
+      function getCoverageBadgeClass(coverage) {
+        if (coverage >= 100) return "badge-success";
+        if (coverage >= 95) return "badge-info";
+        if (coverage >= 90) return "badge-warning";
+        return "badge-error";
+      }
+
+      function calculateCoverageDistribution(metrics) {
+        const distribution = [0, 0, 0, 0, 0]; // 100%, 95-99%, 90-94%, <90%, No Data
+
+        metrics.forEach((m) => {
+          if (m.barrio_coverage_pct === null) {
+            distribution[4]++;
+          } else if (m.barrio_coverage_pct >= 100) {
+            distribution[0]++;
+          } else if (m.barrio_coverage_pct >= 95) {
+            distribution[1]++;
+          } else if (m.barrio_coverage_pct >= 90) {
+            distribution[2]++;
+          } else {
+            distribution[3]++;
+          }
+        });
+
+        return distribution;
+      }
+
+      function formatNumber(num) {
+        return new Intl.NumberFormat("en-US").format(num);
+      }
+
+      function showError(message) {
+        const statsGrid = document.getElementById("statsGrid");
+        statsGrid.innerHTML = `
+                <div class="alert error" style="grid-column: 1 / -1;">
+                    <div class="alert-icon">❌</div>
+                    <div class="alert-content">
+                        <div class="alert-title">Error Loading Data</div>
+                        <div class="alert-message">${message}</div>
+                    </div>
+                </div>
+            `;
+      }
+
+      // Actions
+      async function refreshData() {
+        await loadData();
+      }
+
+      async function createSnapshot() {
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/schema-health/snapshot`,
+            {
+              method: "POST",
+            }
+          );
+          const data = await response.json();
+
+          alert(
+            `✅ Snapshot created successfully!\n\nSaved to: ${data.saved_to}`
+          );
+          await loadData();
+        } catch (error) {
+          alert("❌ Failed to create snapshot: " + error.message);
+        }
+      }
+    </script>
+  </body>
+</html>

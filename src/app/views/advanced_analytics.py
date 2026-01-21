@@ -21,8 +21,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from src.app.config import COLOR_SCALES
+from src.app.config import COLOR_SCALES, COLORS
 from src.app.components import render_empty_state
+from src.app.styles import apply_plotly_theme
 from src.analysis.descriptive import (
     calculate_trends,
     compare_barrios,
@@ -75,18 +76,22 @@ def render_temporal_evolution(
         vertical_spacing=0.1,
     )
     
-    colors = px.colors.qualitative.Set3
+    # Colores profesionales del Design System
+    colors = [COLORS["accent_blue"], COLORS["accent_green"], COLORS["accent_red"], "#9467bd", "#8c564b", "#e377c2"]
     
     for idx, (metric, trend) in enumerate(trends_data.items(), 1):
+        # Métrica individual
+        metric_label = metric.replace("_", " ").title()
+        
         fig.add_trace(
             go.Scatter(
                 x=trend["years"],
                 y=trend["values"],
                 mode="lines+markers",
-                name=metric.replace("_", " ").title(),
-                line=dict(color=colors[idx % len(colors)], width=2),
-                marker=dict(size=8),
-                hovertemplate=f"<b>{metric.replace('_', ' ').title()}</b><br>"
+                name=metric_label,
+                line=dict(color=colors[idx % len(colors)], width=3), # Línea más gruesa
+                marker=dict(size=10, line=dict(width=2, color="white")), # Marcadores más grandes
+                hovertemplate=f"<b>{metric_label}</b><br>"
                             f"Año: %{{x}}<br>"
                             f"Valor: %{{y:,.2f}}<extra></extra>",
             ),
@@ -103,8 +108,9 @@ def render_temporal_evolution(
                     x=trend["years"],
                     y=p(range(len(trend["values"]))),
                     mode="lines",
-                    name=f"Tendencia {metric}",
-                    line=dict(color=colors[idx % len(colors)], width=1, dash="dash"),
+                    name=f"Tendencia {metric_label}",
+                    line=dict(color=colors[idx % len(colors)], width=2, dash="dot"), # Línea de puntos para tendencia
+                    opacity=0.5,
                     showlegend=False,
                 ),
                 row=idx,
@@ -112,10 +118,15 @@ def render_temporal_evolution(
             )
     
     fig.update_layout(
-        height=300 * n_metrics,
+        height=350 * n_metrics, # Un poco más de espacio vertical
         showlegend=False,
         title_text="Evolución Temporal Multi-Métrica",
+        template="plotly_white", # Fondo blanco limpio
     )
+    
+    # Ajustar ejes para mejor legibilidad
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightPink')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightPink')
     
     st.plotly_chart(fig, width="stretch", key=f"temporal_evolution_{barrio_id}")
     
@@ -552,7 +563,8 @@ def render(year: int = 2022, barrio_id: Optional[int] = None) -> None:
         )
         
         if metrics_temporal:
-            render_temporal_evolution(barrio_id, metrics_temporal, [year])
+            # Mostramos la evolución histórica completa (None), no solo el año seleccionado
+            render_temporal_evolution(barrio_id, metrics_temporal, None)
         else:
             st.info("Selecciona al menos una métrica para ver la evolución temporal.")
     

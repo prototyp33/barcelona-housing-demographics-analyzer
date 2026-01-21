@@ -11,7 +11,6 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from .. import data_processing
 from .batch_processor import insert_dataframe_in_batches, optimize_dataframe_memory
 from ..database_setup import (
     create_connection,
@@ -22,11 +21,27 @@ from ..database_setup import (
 )
 from ..database_views import create_analytical_views
 from .migrations import migrate_dim_barrios_if_needed
-from ..data_processing import (
+from .transformations.demographics import (
+    enrich_fact_demografia,
+    populate_fact_demografia_from_ampliada,
+    prepare_demografia_ampliada,
+    prepare_fact_demografia,
+)
+from .transformations.dimensions import prepare_dim_barrios
+from .transformations.enrichment import (
+    prepare_idealista_oferta,
+    prepare_portaldades_precios,
+)
+from .transformations.market import prepare_fact_precios, prepare_renta_barrio
+from .transformations.advanced_analysis import (
     prepare_fact_renta_avanzada,
     prepare_fact_catastro_avanzado,
     prepare_fact_hogares_avanzado,
-    prepare_fact_turismo_intensidad
+    prepare_fact_turismo_intensidad,
+)
+from .transformations.social_infrastructure import (
+    prepare_fact_educacion,
+    prepare_fact_vivienda_publica,
 )
 from .validators import (
     FKValidationStrategy,
@@ -228,7 +243,11 @@ def run_etl(
             logger.info("=== Manifest no disponible, usando patrones de nombre (legacy) ===")
         
         # Descubrimiento de archivos de entrada: priorizamos manifest y usamos patrones legacy como respaldo.
+        # ESTRATEGIA: Detectar y procesar AMBOS tipos de demografía si están disponibles
+        # - Demografía ampliada: para datos recientes con edad quinquenal (solo 2025)
+        # - Demografía estándar: para datos históricos (2015-2024)
         demographics_path = None
+        demographics_standard_path = None
         is_demographics_ampliada = False
         
         if use_manifest:
@@ -238,26 +257,30 @@ def run_etl(
             )
             if demographics_path:
                 is_demographics_ampliada = True
-            else:
-                # Fallback a demografía estándar
-                demographics_path = _get_latest_file_from_manifest(
-                    manifest, raw_base_dir, "demographics", source="opendatabcn"
-                )
+            
+            # También buscar demografía estándar (puede tener datos históricos)
+            demographics_standard_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "demographics", source="opendatabcn"
+            )
         
         # Fallback a patrones de nombre (legacy)
         if demographics_path is None:
-            # Primero intentar con el nuevo nombre opendatabcn_demographics (que es muy específico)
-            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
-            if demographics_path is None:
-                # Buscar específicamente pad_mdbas_sexe (estándar) o pad_mdb_lloc-naix (ampliada)
-                demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdbas_sexe_*.csv")
-                if demographics_path is None:
-                    demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_lloc-naix*.csv")
-            
+            # Buscar demografía ampliada
+            demographics_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdb_lloc-naix*.csv")
             if demographics_path and "lloc-naix" in demographics_path.name.lower():
                 is_demographics_ampliada = True
         
-        # ELIMINADO EL REDUNDANTE QUE SOBREESCRIBÍA
+        # Buscar demografía estándar (puede tener datos históricos)
+        if demographics_standard_path is None:
+            # Buscar archivos de demografía estándar con datos históricos
+            demographics_standard_path = _find_latest_file(opendata_dir, "opendatabcn_demographics_*.csv")
+            if demographics_standard_path is None:
+                demographics_standard_path = _find_latest_file(opendata_dir, "opendatabcn_pad_mdbas_sexe_*.csv")
+        
+        # Si no hay archivo principal, usar el estándar como fallback
+        if demographics_path is None and demographics_standard_path:
+            demographics_path = demographics_standard_path
+            demographics_standard_path = None  # Evitar procesar dos veces
         
         renta_path = None
         if use_manifest:
@@ -375,6 +398,20 @@ def run_etl(
                 else:
                     logger.debug(f"No se encontró archivo para dataset avanzado '{key}' (ID: {dataset_id})")
         
+        # Descubrimiento de archivos de infraestructura social
+        educacion_path = None
+        vivienda_publica_files = {}
+        
+        if use_manifest:
+            educacion_path = _get_latest_file_from_manifest(manifest, raw_base_dir, "education")
+            vivienda_publica_files['tutelats'] = _get_latest_file_from_manifest(manifest, raw_base_dir, "housing_tut")
+        
+        if educacion_path is None:
+            educacion_path = _find_latest_file(raw_base_dir / "educacion", "equipament_educacio_*.csv")
+        
+        if not vivienda_publica_files.get('tutelats'):
+            vivienda_publica_files['tutelats'] = _find_latest_file(raw_base_dir / "viviendapublica", "opendatabcn_serveissocials_habitatgestutelats_*.csv")
+
         if demographics_path is None:
             raise FileNotFoundError(
                 "No se encontró un archivo de demografía en data/raw/opendatabcn"
@@ -388,10 +425,46 @@ def run_etl(
         params["metadata_file"] = _find_latest_file(raw_base_dir, RAW_METADATA_GLOB).name if _find_latest_file(raw_base_dir, RAW_METADATA_GLOB) else None
 
         dem_df = _safe_read_csv(demographics_path)
+        
+        # Verificar si el archivo estándar tiene datos históricos (múltiples años)
+        # Esto se hace después de cargar el archivo principal para evitar cargar dos veces
+        has_historical_data = False
+        if demographics_standard_path and demographics_standard_path.exists() and demographics_standard_path != demographics_path:
+            try:
+                # Leer una muestra más representativa: primeras, medias y últimas filas
+                # para detectar múltiples años incluso si el archivo está ordenado
+                total_lines = sum(1 for _ in open(demographics_standard_path)) - 1  # -1 para header
+                sample_size = min(5000, total_lines)
+                
+                # Leer muestra más grande para mejor detección de años
+                sample_df = pd.read_csv(demographics_standard_path, nrows=sample_size)
+                if "Data_Referencia" in sample_df.columns:
+                    years = pd.to_datetime(sample_df["Data_Referencia"], errors="coerce").dt.year.dropna().unique()
+                    has_historical_data = len(years) > 1 or (len(years) == 1 and years[0] < 2025)
+                    if has_historical_data:
+                        logger.info(
+                            "✓ Detectado archivo de demografía estándar con datos históricos: %s (años detectados: %s)",
+                            demographics_standard_path.name,
+                            sorted(years)
+                        )
+                # También verificar si el nombre del archivo sugiere datos históricos
+                elif "2015" in demographics_standard_path.name and "2024" in demographics_standard_path.name:
+                    has_historical_data = True
+                    logger.info(
+                        "✓ Archivo de demografía estándar con nombre histórico detectado: %s",
+                        demographics_standard_path.name
+                    )
+            except Exception as e:
+                logger.debug("Error verificando datos históricos: %s", e)
+                # Fallback: si el nombre del archivo sugiere datos históricos, asumir que los tiene
+                if "2015" in demographics_standard_path.name and "2024" in demographics_standard_path.name:
+                    has_historical_data = True
+                    logger.info(
+                        "✓ Asumiendo datos históricos basado en nombre de archivo: %s",
+                        demographics_standard_path.name
+                    )
         venta_df = _safe_read_csv(venta_path) if venta_path else pd.DataFrame()
-        alquiler_df = (
-            _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
-        )
+        alquiler_df = _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
         
         # Cargar datos de renta si están disponibles (fuente opcional)
         renta_df = None
@@ -434,63 +507,167 @@ def run_etl(
         logger.info("Preparando dimensión de barrios...")
         if geojson_path:
             logger.info("  Usando GeoJSON: %s", geojson_path.name)
-        dim_barrios = data_processing.prepare_dim_barrios(
+        dim_barrios = prepare_dim_barrios(
             dem_df, 
             dataset_id=dataset_dem_id, 
             reference_time=reference_time,
             geojson_path=geojson_path
         )
 
-        # Procesar demografía: usar función ampliada si el dataset lo soporta
+        # Procesar demografía: ESTRATEGIA HÍBRIDA
+        # - Si hay demografía ampliada (2025): procesarla para fact_demografia_ampliada
+        # - Si hay demografía estándar con datos históricos (2015-2024): procesarla para fact_demografia
+        # - Si hay ambos: procesar ambos y combinar en fact_demografia
         fact_demografia = None
         fact_demografia_ampliada = None
+        fact_demografia_standard = None
+        fact_alquiler_mensual = None
         
+        # 1. Procesar demografía ampliada si está disponible (solo 2025)
         if is_demographics_ampliada:
-            # Usar procesamiento ampliado para datos con edad quinquenal y nacionalidad
             logger.info("Procesando demografía ampliada (edad quinquenal y nacionalidad)...")
             try:
-                fact_demografia_ampliada = data_processing.prepare_demografia_ampliada(
+                fact_demografia_ampliada = prepare_demografia_ampliada(
                     dem_df,
                     dim_barrios,
                     dataset_id=dataset_dem_id,
                     reference_time=reference_time,
                     source="opendatabcn",
                 )
-                logger.info("✓ Demografía ampliada procesada: %s registros", len(fact_demografia_ampliada))
+                logger.info("✓ Demografía ampliada procesada: %s registros (años %s-%s)",
+                    len(fact_demografia_ampliada),
+                    fact_demografia_ampliada["anio"].min() if not fact_demografia_ampliada.empty else None,
+                    fact_demografia_ampliada["anio"].max() if not fact_demografia_ampliada.empty else None,
+                )
             except Exception as e:
-                logger.warning("Error procesando demografía ampliada, usando procesamiento estándar: %s", e)
+                logger.warning("Error procesando demografía ampliada: %s", e)
                 logger.debug(traceback.format_exc())
                 fact_demografia_ampliada = None
         
-        # Si no se procesó ampliada o falló, usar procesamiento estándar
-        if fact_demografia_ampliada is None:
+        # 2. Procesar demografía estándar con datos históricos si está disponible
+        if demographics_standard_path and demographics_standard_path.exists() and has_historical_data:
+            logger.info("Procesando demografía estándar con datos históricos (2015-2024)...")
+            try:
+                dem_standard_df = _safe_read_csv(demographics_standard_path)
+                dataset_standard_id = "pad_mdbas_sexe"
+                
+                fact_demografia_standard = prepare_fact_demografia(
+                    dem_standard_df,
+                    dim_barrios,
+                    dataset_id=dataset_standard_id,
+                    reference_time=reference_time,
+                    source="opendatabcn",
+                )
+                
+                fact_demografia_standard = enrich_fact_demografia(
+                    fact_demografia_standard,
+                    dim_barrios,
+                    raw_base_dir=raw_base_dir,
+                    reference_time=reference_time,
+                )
+                
+                logger.info("✓ Demografía estándar procesada: %s registros (años %s-%s)",
+                    len(fact_demografia_standard),
+                    fact_demografia_standard["anio"].min() if not fact_demografia_standard.empty else None,
+                    fact_demografia_standard["anio"].max() if not fact_demografia_standard.empty else None,
+                )
+            except Exception as e:
+                logger.warning("Error procesando demografía estándar histórica: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_demografia_standard = None
+        
+        # 3. Si no hay datos históricos pero hay demografía estándar del archivo principal, procesarla
+        elif not is_demographics_ampliada:
             logger.info("Procesando demografía estándar...")
-            fact_demografia = data_processing.prepare_fact_demografia(
-                dem_df,
-                dim_barrios,
-                dataset_id=dataset_dem_id,
-                reference_time=reference_time,
-                source="opendatabcn",
-            )
+            try:
+                fact_demografia = prepare_fact_demografia(
+                    dem_df,
+                    dim_barrios,
+                    dataset_id=dataset_dem_id,
+                    reference_time=reference_time,
+                    source="opendatabcn",
+                )
 
-            fact_demografia = data_processing.enrich_fact_demografia(
-                fact_demografia,
-                dim_barrios,
-                raw_base_dir=raw_base_dir,
-                reference_time=reference_time,
-            )
+                fact_demografia = enrich_fact_demografia(
+                    fact_demografia,
+                    dim_barrios,
+                    raw_base_dir=raw_base_dir,
+                    reference_time=reference_time,
+                )
+            except Exception as e:
+                logger.warning("Error procesando demografía estándar: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_demografia = None
+        
+        # 4. Si tenemos ambos tipos, poblar fact_demografia desde fact_demografia_ampliada para 2025
+        #    y usar fact_demografia_standard para años históricos
+        if fact_demografia_ampliada is not None and not fact_demografia_ampliada.empty and fact_demografia_standard is not None and not fact_demografia_standard.empty:
+            logger.info("Combinando demografía ampliada (2025) y estándar (histórica)...")
+            try:
+                # Poblar fact_demografia desde ampliada para 2025
+                fact_demografia_2025 = populate_fact_demografia_from_ampliada(
+                    fact_demografia_ampliada,
+                    dim_barrios,
+                    reference_time
+                )
+                
+                # Combinar con datos históricos
+                if fact_demografia_2025 is not None and not fact_demografia_2025.empty:
+                    # Filtrar fact_demografia_standard for excluir 2025 si existe
+                    fact_standard_filtered = fact_demografia_standard[
+                        fact_demografia_standard["anio"] != 2025
+                    ] if 2025 in fact_demografia_standard["anio"].values else fact_demografia_standard
+                    
+                    # Combinar ambos DataFrames
+                    fact_demografia = pd.concat(
+                        [fact_standard_filtered, fact_demografia_2025],
+                        ignore_index=True
+                    ).sort_values(["anio", "barrio_id"]).reset_index(drop=True)
+                    
+                    logger.info("✓ Demografía combinada: %s registros (años %s-%s)",
+                        len(fact_demografia),
+                        fact_demografia["anio"].min(),
+                        fact_demografia["anio"].max(),
+                    )
+                else:
+                    # Si no se pudo poblar desde ampliada, usar solo estándar
+                    fact_demografia = fact_demografia_standard
+                    logger.info("✓ Usando solo demografía estándar: %s registros", len(fact_demografia))
+            except Exception as e:
+                logger.warning("Error combinando demografías, usando solo estándar: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_demografia = fact_demografia_standard
+        elif fact_demografia_standard is not None and not fact_demografia_standard.empty:
+            # Solo tenemos datos históricos estándar
+            fact_demografia = fact_demografia_standard
+        elif fact_demografia_ampliada is not None and not fact_demografia_ampliada.empty:
+            # Solo tenemos datos ampliados (2025), poblar fact_demografia desde ampliada
+            logger.info("Poblando fact_demografia desde demografía ampliada (2025)...")
+            try:
+                fact_demografia = populate_fact_demografia_from_ampliada(
+                    fact_demografia_ampliada,
+                    dim_barrios,
+                    reference_time
+                )
+                if fact_demografia is not None and not fact_demografia.empty:
+                    logger.info("✓ fact_demografia poblada desde ampliada: %s registros", len(fact_demografia))
+            except Exception as e:
+                logger.warning("Error poblando fact_demografia desde ampliada: %s", e)
+                logger.debug(traceback.format_exc())
+                fact_demografia = None
 
         # Procesar datos del Portal de Dades
         portaldades_dir = raw_base_dir / "portaldades"
         portaldades_venta_df = pd.DataFrame()
         portaldades_alquiler_df = pd.DataFrame()
+        portaldades_alquiler_mensual_df = pd.DataFrame()
         
         if portaldades_dir.exists():
             logger.info("=== Procesando datos del Portal de Dades ===")
             metadata_file = portaldades_dir / "indicadores_habitatge.csv"
             try:
-                portaldades_venta_df, portaldades_alquiler_df = (
-                    data_processing.prepare_portaldades_precios(
+                portaldades_venta_df, portaldades_alquiler_df, portaldades_alquiler_mensual_df = (
+                    prepare_portaldades_precios(
                         portaldades_dir,
                         dim_barrios,
                         reference_time,
@@ -499,6 +676,7 @@ def run_etl(
                 )
                 params["portaldades_venta_rows"] = int(len(portaldades_venta_df))
                 params["portaldades_alquiler_rows"] = int(len(portaldades_alquiler_df))
+                params["portaldades_alquiler_mensual_rows"] = int(len(portaldades_alquiler_mensual_df))
                 
                 if not portaldades_venta_df.empty:
                     logger.info(
@@ -514,8 +692,9 @@ def run_etl(
                 handle_source_error("portaldades", e, context="procesamiento precios")
         else:
             logger.info("Directorio del Portal de Dades no encontrado, omitiendo")
+            portaldades_alquiler_mensual_df = pd.DataFrame()
 
-        fact_precios = data_processing.prepare_fact_precios(
+        fact_precios = prepare_fact_precios(
             venta_df,
             dim_barrios,
             dataset_id_venta=dataset_venta_id,
@@ -526,12 +705,18 @@ def run_etl(
             portaldades_alquiler=portaldades_alquiler_df,
         )
 
+        # Procesar alquiler mensual desde Portal de Dades si está disponible
+        if portaldades_alquiler_mensual_df is not None and not portaldades_alquiler_mensual_df.empty:
+            logger.info("✓ Alquiler mensual (Portal de Dades) disponible: %s registros", len(portaldades_alquiler_mensual_df))
+            fact_alquiler_mensual = portaldades_alquiler_mensual_df
+
         # Procesar datos de regulación (Portal de Dades + Open Data BCN)
         from ..processing.prepare_regulacion import prepare_regulacion  # noqa: WPS433
         from ..processing.prepare_presion_turistica import prepare_presion_turistica  # noqa: WPS433
         from ..processing.prepare_seguridad import prepare_seguridad  # noqa: WPS433
         from ..processing.prepare_ruido import prepare_ruido  # noqa: WPS433
         from ..processing.prepare_movilidad import prepare_movilidad  # noqa: WPS433
+        from ..processing.prepare_calidad_aire import prepare_calidad_aire  # noqa: WPS433
  
         fact_regulacion = None
         fact_presion_turistica = None
@@ -540,6 +725,7 @@ def run_etl(
         fact_educacion = None
         fact_movilidad = None
         fact_vivienda_publica = None
+        fact_calidad_aire = None
         # Intentar primero regulacion_dir, luego portaldades_dir, luego raw_base_dir
         regulacion_data_dir = None
         
@@ -797,6 +983,33 @@ def run_etl(
             logger.info("Directorio de datos de ruido no encontrado, omitiendo contaminación acústica")
             fact_ruido = None
         
+        # Procesar datos de calidad del aire
+        try:
+            logger.info("=== Procesando datos de calidad del aire ===")
+            fact_calidad_aire = prepare_calidad_aire(
+                raw_data_path=raw_base_dir,
+                barrios_df=dim_barrios,
+                reference_time=reference_time,
+            )
+            
+            if fact_calidad_aire is not None and not fact_calidad_aire.empty:
+                logger.info(
+                    "✓ Calidad del aire procesada: %s registros (años %s-%s)",
+                    len(fact_calidad_aire),
+                    fact_calidad_aire["anio"].min() if not fact_calidad_aire.empty else None,
+                    fact_calidad_aire["anio"].max() if not fact_calidad_aire.empty else None,
+                )
+                params["calidad_aire_rows"] = int(len(fact_calidad_aire))
+                params["calidad_aire_barrios"] = int(fact_calidad_aire["barrio_id"].nunique())
+            else:
+                logger.warning(
+                    "No se encontraron datos de calidad del aire procesables. "
+                    "Verifica que existan archivos CSV de mapas de inmisión."
+                )
+        except Exception as e:
+            handle_source_error("calidad_aire", e, context="procesamiento")
+            fact_calidad_aire = None
+        
         # Procesar movilidad y accesibilidad (TMB/OSM)
         try:
             logger.info("=== Procesando movilidad y accesibilidad ===")
@@ -812,12 +1025,40 @@ def run_etl(
             handle_source_error("movilidad", e, context="procesamiento")
             fact_movilidad = None
 
+        # Procesar Educación (Nuevo en 3B)
+        if educacion_path:
+            logger.info("=== Procesando datos de Educación ===")
+            try:
+                educacion_df_raw = _safe_read_csv(educacion_path)
+                fact_educacion = prepare_fact_educacion(educacion_df_raw, dim_barrios, reference_time)
+                if fact_educacion is not None and not fact_educacion.empty:
+                    logger.info("✓ Educación procesada: %s registros", len(fact_educacion))
+                    params["educacion_rows"] = int(len(fact_educacion))
+            except Exception as e:
+                handle_source_error("educacion", e, context="procesamiento")
+                fact_educacion = None
+
+        # Procesar Vivienda Pública (Nuevo en 3B)
+        if vivienda_publica_files:
+            logger.info("=== Procesando datos de Vivienda Pública ===")
+            try:
+                vp_data = {}
+                for k, v in vivienda_publica_files.items():
+                    if v: vp_data[k] = _safe_read_csv(v)
+                fact_vivienda_publica = prepare_fact_vivienda_publica(vp_data, dim_barrios, reference_time)
+                if fact_vivienda_publica is not None and not fact_vivienda_publica.empty:
+                    logger.info("✓ Vivienda Pública procesada: %s registros", len(fact_vivienda_publica))
+                    params["vivienda_publica_rows"] = int(len(fact_vivienda_publica))
+            except Exception as e:
+                handle_source_error("vivienda_publica", e, context="procesamiento")
+                fact_vivienda_publica = None
+
         # Procesar renta si está disponible
         fact_renta = None
         if renta_df is not None and not renta_df.empty:
             logger.info("Procesando datos de renta...")
             try:
-                fact_renta = data_processing.prepare_renta_barrio(
+                fact_renta = prepare_renta_barrio(
                     renta_df,
                     dim_barrios,
                     dataset_id=dataset_renta_id,
@@ -859,7 +1100,7 @@ def run_etl(
             try:
                 idealista_df = pd.concat(idealista_data_combined, ignore_index=True)
                 
-                fact_oferta_idealista = data_processing.prepare_idealista_oferta(
+                fact_oferta_idealista = prepare_idealista_oferta(
                     idealista_df,
                     dim_barrios,
                     dataset_id="idealista_api",
@@ -887,6 +1128,7 @@ def run_etl(
             fact_precios,
             fact_demografia,
             fact_demografia_ampliada,
+            # Nota: fact_alquiler_mensual aún no está integrado en validate_all_fact_tables
             fact_renta,
             fact_oferta_idealista,
             fact_regulacion,
@@ -921,6 +1163,9 @@ def run_etl(
             fact_turismo_intensidad=fact_turismo_intensidad,
             strategy=FKValidationStrategy.FILTER,
         )
+        
+        # Note: fact_calidad_aire validation skipped (not in validator signature yet)
+        # It will be validated by foreign key constraints at insert time
         
         # Registrar estadísticas de validación
         # Convertir valores numéricos a tipos nativos de Python para serialización JSON
@@ -968,6 +1213,7 @@ def run_etl(
                 "fact_demografia_ampliada_rows": int(len(fact_demografia_ampliada)) if fact_demografia_ampliada is not None else 0,
                 "fact_precios_rows": int(len(fact_precios)),
                 "fact_renta_rows": int(len(fact_renta)) if fact_renta is not None else 0,
+                "fact_alquiler_mensual_rows": int(len(fact_alquiler_mensual)) if fact_alquiler_mensual is not None else 0,
                 "fact_oferta_idealista_rows": int(len(fact_oferta_idealista)) if fact_oferta_idealista is not None else 0,
                 "fact_regulacion_rows": int(len(fact_regulacion)) if fact_regulacion is not None else 0,
             }
@@ -985,6 +1231,8 @@ def run_etl(
             tables_to_truncate.append("fact_demografia_ampliada")
         if fact_demografia is not None:
             tables_to_truncate.append("fact_demografia")
+        if fact_alquiler_mensual is not None:
+            tables_to_truncate.append("fact_alquiler_mensual")
         if fact_renta is not None:
             tables_to_truncate.append("fact_renta")
         if fact_oferta_idealista is not None:
@@ -1021,7 +1269,8 @@ def run_etl(
             )
 
         # Cargar demografía (estándar o ampliada) con batch processing
-        if fact_demografia_ampliada is not None:
+        # ESTRATEGIA: Cargar ambos tipos si están disponibles
+        if fact_demografia_ampliada is not None and not fact_demografia_ampliada.empty:
             logger.info("Cargando tabla de hechos demográficos ampliados")
             fact_demografia_ampliada = optimize_dataframe_memory(fact_demografia_ampliada)
             insert_dataframe_in_batches(
@@ -1030,7 +1279,8 @@ def run_etl(
             )
             del fact_demografia_ampliada
             gc.collect()
-        elif fact_demografia is not None:
+        
+        if fact_demografia is not None and not fact_demografia.empty:
             logger.info("Cargando tabla de hechos demográficos")
             fact_demografia = optimize_dataframe_memory(fact_demografia)
             insert_dataframe_in_batches(
@@ -1039,7 +1289,7 @@ def run_etl(
             )
             del fact_demografia
             gc.collect()
-        else:
+        elif fact_demografia_ampliada is None or fact_demografia_ampliada.empty:
             logger.warning("No se cargaron datos demográficos")
 
         if not fact_precios.empty:
@@ -1055,6 +1305,19 @@ def run_etl(
             logger.warning(
                 "No se cargaron datos en fact_precios (dataframe vacío)"
             )
+
+        if fact_alquiler_mensual is not None and not fact_alquiler_mensual.empty:
+            logger.info("Cargando tabla de hechos de alquiler mensual")
+            fact_alquiler_mensual = optimize_dataframe_memory(fact_alquiler_mensual)
+            insert_dataframe_in_batches(
+                fact_alquiler_mensual,
+                "fact_alquiler_mensual",
+                conn,
+                batch_size=10000,
+                if_exists="append",
+            )
+            del fact_alquiler_mensual
+            gc.collect()
         
         if fact_renta is not None and not fact_renta.empty:
             logger.info("Cargando tabla de hechos de renta")
@@ -1120,6 +1383,19 @@ def run_etl(
                 "No se cargaron datos en fact_ruido (no disponible o vacío)"
             )
 
+        if fact_calidad_aire is not None and not fact_calidad_aire.empty:
+            logger.info("Cargando tabla de hechos de calidad del aire")
+            fact_calidad_aire.to_sql(
+                "fact_calidad_aire",
+                conn,
+                if_exists="replace",
+                index=False,
+            )
+        else:
+            logger.debug(
+                "No se cargaron datos en fact_calidad_aire (no disponible o vacío)"
+            )
+ 
         if fact_oferta_idealista is not None and not fact_oferta_idealista.empty:
             logger.info("Cargando tabla de hechos de oferta Idealista")
             fact_oferta_idealista.to_sql(
@@ -1141,6 +1417,14 @@ def run_etl(
             )
         else:
             logger.debug("No se cargaron datos en fact_movilidad (no disponible o vacío)")
+
+        if fact_educacion is not None and not fact_educacion.empty:
+            logger.info("Cargando tabla de hechos de educación")
+            fact_educacion.to_sql("fact_educacion", conn, if_exists="replace", index=False)
+        
+        if fact_vivienda_publica is not None and not fact_vivienda_publica.empty:
+            logger.info("Cargando tabla de hechos de vivienda pública")
+            fact_vivienda_publica.to_sql("fact_vivienda_publica", conn, if_exists="replace", index=False)
 
          # Cargar datasets avanzados usando batch processing
         logger.info("=== Cargando datasets avanzados con procesamiento por lotes ===")

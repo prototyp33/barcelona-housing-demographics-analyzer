@@ -8,9 +8,26 @@ gradientes mesh y tipografía moderna.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from textwrap import dedent
+from typing import Any, Dict, List, Literal, Optional
 
 import streamlit as st
+
+
+@dataclass
+class KPIMetric:
+    """
+    Estructura de datos para métricas KPI (v1.1 SSOT).
+    """
+    title: str
+    value: float | str
+    style: Literal["white", "warm", "cool"] = "white"
+    delta: Optional[str] = None
+    delta_color: Literal["green", "red", "normal"] = "normal"
+    unit: Optional[str] = None
+    is_currency: bool = False
+    icon: Optional[str] = None
 
 
 # Tokens de Color del Design System - Alineados con Reporte Profesional
@@ -510,24 +527,25 @@ def inject_global_css() -> None:
     .bh-breadcrumbs {{
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 24px;
+        gap: 10px;
+        margin-bottom: 20px;
         font-family: 'Inter', sans-serif;
-        font-size: 14px;
-        color: {COLOR_TOKENS['text_secondary']};
+        font-size: 15px;
+        color: #6B7280;
     }}
 
     .bh-breadcrumbs-item {{
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
     }}
 
     .bh-breadcrumbs-link {{
-        color: {COLOR_TOKENS['text_secondary']};
+        color: #6B7280;
         text-decoration: none;
         transition: color 0.2s ease;
         cursor: pointer;
+        font-size: 15px;
     }}
 
     .bh-breadcrumbs-link:hover {{
@@ -535,13 +553,16 @@ def inject_global_css() -> None:
     }}
 
     .bh-breadcrumbs-active {{
-        color: {COLOR_TOKENS['text_primary']};
-        font-weight: 600;
+        color: #1A1A1A;
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: -0.2px;
     }}
 
     .bh-breadcrumbs-separator {{
-        color: {COLOR_TOKENS['text_secondary']};
-        opacity: 0.5;
+        color: #9CA3AF;
+        opacity: 0.6;
+        font-weight: 500;
     }}
     </style>
     """
@@ -668,24 +689,39 @@ def render_kpi_card(
     return html
 
 
-def render_responsive_kpi_grid(metrics_data: list[dict[str, Any]]) -> None:
+def render_responsive_kpi_grid(metrics_data: list[KPIMetric | dict[str, Any]]) -> None:
     """
     Renderiza un grid responsive de tarjetas KPI usando CSS Grid.
 
     Args:
-        metrics_data: lista de diccionarios con llaves title, value, style, delta, delta_color, is_currency
+        metrics_data: lista de objetos KPIMetric o diccionarios con llaves compatibles.
     """
     cards_html: list[str] = []
     for metric in metrics_data:
+        if isinstance(metric, KPIMetric):
+            m_dict = {
+                "title": metric.title,
+                "value": metric.value,
+                "style": metric.style,
+                "delta": metric.delta,
+                "delta_color": metric.delta_color,
+                "unit": metric.unit,
+                "is_currency": metric.is_currency,
+                "icon": metric.icon,
+            }
+        else:
+            m_dict = metric
+
         cards_html.append(
             render_kpi_card(
-                title=metric.get("title", ""),
-                value=metric.get("value", ""),
-                style=metric.get("style", "white"),
-                delta=metric.get("delta"),
-                delta_color=metric.get("delta_color", "green"),
-                unit=metric.get("unit"),
-                is_currency=metric.get("is_currency", False),
+                title=m_dict.get("title", ""),
+                value=m_dict.get("value", ""),
+                style=m_dict.get("style", "white"),
+                delta=m_dict.get("delta"),
+                delta_color=m_dict.get("delta_color", "green"),
+                unit=m_dict.get("unit"),
+                is_currency=m_dict.get("is_currency", False),
+                icon=m_dict.get("icon"),
                 render=False,
             )
         )
@@ -693,7 +729,7 @@ def render_responsive_kpi_grid(metrics_data: list[dict[str, Any]]) -> None:
     grid_style = (
         "display: grid; "
         "grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); "
-        "gap: 24px; margin-bottom: 30px;"
+        "gap: 24px; margin-bottom: 0px;"  # Sin margin-bottom, se controla desde el contenedor
     )
     st.markdown(
         f'<div class="bh-kpi-grid" style="{grid_style}">{"".join(cards_html)}</div>',

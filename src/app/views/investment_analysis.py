@@ -12,7 +12,7 @@ import pandas as pd
 from src.app.data_loader import load_investment_data
 from src.app.utils import format_smart_currency, PROFESSIONAL_COLORS
 from src.app.components import card_standard, render_empty_state
-from src.app.styles import apply_plotly_theme
+from src.app.styles import apply_plotly_theme, render_responsive_kpi_grid, KPIMetric
 
 def render_investment_scatter(df: pd.DataFrame, year: int) -> None:
     """
@@ -133,10 +133,15 @@ def render_investment_table(df: pd.DataFrame) -> None:
         hide_index=True
     )
 
-def render(year: int = 2023) -> None:
+def render(year: Optional[int] = None) -> None:
     """
     Punto de entrada para la vista de inversión.
     """
+    if year is None:
+        from src.app.data_loader import load_available_years
+        years_info = load_available_years()
+        year = years_info.get("fact_precios", {}).get("max") or 2023
+
     st.header("💰 ANÁLISIS DE INVERSIÓN")
     st.markdown("""
     Este módulo identifica las mejores oportunidades de inversión basadas en la relación 
@@ -154,14 +159,27 @@ def render(year: int = 2023) -> None:
         )
         return
 
-    # Layout de 2 columnas para KPIs de inversión
-    col1, col2 = st.columns(2)
-    with col1:
-        avg_yield = df['yield_bruto_pct'].mean()
-        st.metric("Yield Promedio BCN", f"{avg_yield:.2f}%", help="Media de rentabilidad bruta en los barrios analizados")
-    with col2:
-        top_barrio = df.loc[df['yield_bruto_pct'].idxmax(), 'barrio_nombre']
-        st.metric("Máxima Rentabilidad", top_barrio, delta=f"{df['yield_bruto_pct'].max():.2f}%")
+    # Layout de KPIs de inversión (v1.1 SSOT)
+    avg_yield = df['yield_bruto_pct'].mean()
+    top_barrio = df.loc[df['yield_bruto_pct'].idxmax(), 'barrio_nombre']
+    max_yield = df['yield_bruto_pct'].max()
+
+    invest_kpis = [
+        KPIMetric(
+            title="Yield Promedio BCN",
+            value=f"{avg_yield:.2f}%",
+            style="cool",
+            delta="Media Ciudad",
+        ),
+        KPIMetric(
+            title="Máxima Rentabilidad",
+            value=top_barrio,
+            style="warm",
+            delta=f"{max_yield:.2f}% Yield",
+            delta_color="green",
+        )
+    ]
+    render_responsive_kpi_grid(invest_kpis)
 
     # Renderizar Scatter Plot
     with card_standard(title="🎯 Matriz Rentabilidad vs. Precio"):

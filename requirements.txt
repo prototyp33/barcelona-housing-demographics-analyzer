@@ -66,6 +66,8 @@ geopandas>=0.14.0
 # Database & Schema
 # =============================================================================
 # SQLite is built-in to Python, no extra dependency needed
+sqlalchemy==2.0.43
+psycopg2-binary==2.9.10
 
 # =============================================================================
 # Utilities

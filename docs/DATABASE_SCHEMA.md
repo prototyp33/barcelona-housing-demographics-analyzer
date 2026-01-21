@@ -9,6 +9,30 @@ La base de datos sigue un modelo **dimensional (star schema)** con:
 - **8/24 tablas de hechos/vistas** (`fact_*`): Estructura v2.0 Foundation con retrocompatibilidad
 - **1 tabla de auditoría**: `etl_runs` (registro de ejecuciones ETL)
 
+## Metodología de Cálculo de Rentabilidad (Yield)
+
+El proyecto utiliza una **Metodología Dual (C)** para proporcionar una visión completa del mercado:
+
+### 1. Real Yield (Rentabilidad Real/Fianzas)
+
+Basada en transacciones reales registradas mediante las fianzas del Incasòl.
+
+- **Data Source**: `fact_precios` (vía Incasòl/Portal de Dades).
+- **Fórmula**: `(Alquiler Real Mensual * 12) / (Precio Venta m2 * 70m2)`
+- **Uso**: Refleja la rentabilidad histórica basada en contratos firmados.
+
+### 2. Market Yield (Rentabilidad de Mercado/Oferta)
+
+Basada en las expectativas actuales de los anunciantes.
+
+- **Data Source**: `fact_oferta_idealista`.
+- **Fórmula**: `(Alquiler Oferta Mensual * 12) / (Precio Venta Oferta m2 * 70m2)`
+- **Uso**: Refleja las expectativas actuales y el "Gap" respecto al mercado real.
+
+### 3. Gap Analysis
+
+Comparación entre ambos indicadores para detectar sobrevaloración o zonas de oportunidad.
+
 ## Diagrama ERD (Entity Relationship Diagram)
 
 ```mermaid

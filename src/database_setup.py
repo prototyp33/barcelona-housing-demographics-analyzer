@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
-from typing import FrozenSet, Iterable, Mapping, Optional, Tuple
+from typing import FrozenSet, Iterable, List, Mapping, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_NAME = "database.db"
 
-# Whitelist de tablas válidas para operaciones dinámicas (seguridad contra SQL injection)
+# Whitelist de tablas v?lidas para operaciones din?micas (seguridad contra SQL injection)
 VALID_TABLES: FrozenSet[str] = frozenset(
     {
         "dim_barrios",
+        "dim_tiempo",
         "fact_precios",
+        "fact_alquiler_mensual",
         "fact_demografia",
         "fact_demografia_ampliada",
         "fact_renta",
@@ -54,29 +57,29 @@ VALID_TABLES: FrozenSet[str] = frozenset(
 
 
 class InvalidTableNameError(ValueError):
-    """Excepción lanzada cuando se intenta usar un nombre de tabla no válido."""
+    """Excepci?n lanzada cuando se intenta usar un nombre de tabla no v?lido."""
 
     def __init__(self, table_name: str, valid_tables: FrozenSet[str]) -> None:
         """
-        Inicializa la excepción.
+        Inicializa la excepci?n.
 
         Args:
-            table_name: Nombre de tabla inválido.
-            valid_tables: Conjunto de tablas válidas.
+            table_name: Nombre de tabla inv?lido.
+            valid_tables: Conjunto de tablas v?lidas.
         """
         self.table_name = table_name
         self.valid_tables = valid_tables
         super().__init__(
-            f"Nombre de tabla no válido: '{table_name}'. "
+            f"Nombre de tabla no v?lido: '{table_name}'. "
             f"Tablas permitidas: {sorted(valid_tables)}"
         )
 
 
 def validate_table_name(table_name: str) -> str:
     """
-    Valida que un nombre de tabla esté en la whitelist.
+    Valida que un nombre de tabla est? en la whitelist.
 
-    Esta función previene SQL injection validando que el nombre de tabla
+    Esta funci?n previene SQL injection validando que el nombre de tabla
     sea uno de los conocidos en el esquema.
 
     Args:
@@ -86,17 +89,17 @@ def validate_table_name(table_name: str) -> str:
         El nombre de tabla validado (sin modificar).
 
     Raises:
-        InvalidTableNameError: Si el nombre no está en la whitelist.
+        InvalidTableNameError: Si el nombre no est? en la whitelist.
 
     Example:
         >>> validate_table_name("dim_barrios")
         'dim_barrios'
         >>> validate_table_name("malicious_table; DROP TABLE users;--")
-        InvalidTableNameError: Nombre de tabla no válido...
+        InvalidTableNameError: Nombre de tabla no v?lido...
     """
     if table_name not in VALID_TABLES:
         logger.error(
-            "Intento de usar tabla no válida: '%s'. Posible SQL injection.",
+            "Intento de usar tabla no v?lida: '%s'. Posible SQL injection.",
             table_name,
         )
         raise InvalidTableNameError(table_name, VALID_TABLES)
@@ -141,14 +144,34 @@ CREATE_TABLE_STATEMENTS = (
     );
     """,
     """
-    DROP INDEX IF EXISTS idx_fact_precios_unique;
-    """,
-    """
     CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_precios_unique
     ON fact_precios (
         barrio_id,
         anio,
         COALESCE(trimestre, -1),
+        COALESCE(dataset_id, ''),
+        COALESCE(source, '')
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_alquiler_mensual (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        mes INTEGER NOT NULL,
+        precio_mes_alquiler REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'opendatabcn',
+        etl_loaded_at TEXT,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
+    );
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_alquiler_mensual_unique
+    ON fact_alquiler_mensual (
+        barrio_id,
+        anio,
+        mes,
         COALESCE(dataset_id, ''),
         COALESCE(source, '')
     );
@@ -346,14 +369,13 @@ CREATE_TABLE_STATEMENTS = (
         num_listings_airbnb AS active_listings,
         pct_entire_home,
         precio_noche_promedio AS price_per_night,
-        tasa_ocupacion AS occupancy_rate,
-        etl_loaded_at
+        tasa_ocupacion AS occupancy_rate
     FROM fact_presion_turistica;
     """,
     """
     CREATE VIEW IF NOT EXISTS fact_control_alquiler AS
     SELECT 
-        barrio_id, anio, zona_tensionada, nivel_tension, indice_referencia_alquiler, etl_loaded_at
+        barrio_id, anio, zona_tensionada, nivel_tension, indice_referencia_alquiler
     FROM fact_regulacion;
     """,
     """
@@ -361,9 +383,7 @@ CREATE_TABLE_STATEMENTS = (
     SELECT 
         barrio_id, anio, mes, 
         estaciones_metro, estaciones_bus, estaciones_bicing, 
-        dist_metro_m, dist_bus_m, access_score,
-        tiempo_medio_centro_minutos, 
-        etl_loaded_at
+        dist_metro_m, dist_bus_m, access_score
     FROM fact_movilidad;
     """,
     """
@@ -668,39 +688,21 @@ CREATE_TABLE_STATEMENTS = (
     ON fact_calidad_aire (barrio_id, anio);
     """,
     """
-    CREATE TABLE IF NOT EXISTS fact_soroll (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        barrio_id INTEGER NOT NULL,
-        anio INTEGER NOT NULL,
-        lden_mean REAL,
-        pct_exposed_65db REAL,
-        area_covered_m2 REAL,
-        etl_loaded_at TEXT,
-        FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
-    );
-    """,
-    """
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_soroll_unique
-    ON fact_soroll (barrio_id, anio);
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_fact_soroll_barrio_fecha
-    ON fact_soroll (barrio_id, anio);
-    """,
-    """
     CREATE VIEW IF NOT EXISTS vw_gentrification_risk AS
     SELECT 
         b.barrio_nombre AS nom_barri,
+        b.barrio_id,
         e.anio AS year,
-        e.pct_universitarios,
+        e.total_centros_educativos AS num_centros_educativos,
+        e.num_centros_universidad AS num_universidades,
         p.precio_m2_venta AS precio_venta_medio_m2,
         a.pm25_mean,
-        s.pct_exposed_65db
+        r.pct_poblacion_expuesta_65db AS pct_exposed_65db
     FROM dim_barrios b
     LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id
     LEFT JOIN fact_precios p ON b.barrio_id = p.barrio_id AND e.anio = p.anio
     LEFT JOIN fact_calidad_aire a ON b.barrio_id = a.barrio_id AND e.anio = a.anio
-    LEFT JOIN fact_soroll s ON b.barrio_id = s.barrio_id AND e.anio = s.anio;
+    LEFT JOIN fact_ruido r ON b.barrio_id = r.barrio_id AND e.anio = r.anio;
     """,
     """
     CREATE TABLE IF NOT EXISTS etl_runs (
@@ -802,7 +804,7 @@ CREATE_TABLE_STATEMENTS = (
         ambito TEXT NOT NULL,  -- 'Barcelona', 'AMB', 'AMB sense Barcelona'
         anio_inicio INTEGER NOT NULL,
         anio_fin INTEGER NOT NULL,
-        -- Régimen de tenencia (%)
+        -- R?gimen de tenencia (%)
         propiedad_total REAL,
         propiedad_pagada REAL,
         propiedad_pendiente REAL,
@@ -810,7 +812,7 @@ CREATE_TABLE_STATEMENTS = (
         alquiler_mercado REAL,
         alquiler_social REAL,
         cesion_gratuita REAL,
-        -- Concentración de propiedad (%)
+        -- Concentraci?n de propiedad (%)
         pct_persona_fisica REAL,
         pct_persona_juridica REAL,
         pct_grandes_tenedores REAL,
@@ -850,8 +852,12 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
 
     logger.debug("Creating database schema if not present")
     with conn:
-        for statement in CREATE_TABLE_STATEMENTS:
-            conn.executescript(statement)
+        schema_sql = "\n".join(
+            statement.strip()
+            for statement in CREATE_TABLE_STATEMENTS
+            if statement and isinstance(statement, str) and statement.strip()
+        )
+        conn.executescript(schema_sql)
 
     # Migraciones de esquema y tablas auxiliares
     migrate_database_schema(conn)
@@ -863,95 +869,104 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
     Aplica migraciones de esquema a bases de datos existentes.
     
     Args:
-        conn: Conexión SQLite activa.
+        conn: Conexi?n SQLite activa.
     """
     logger.debug("Aplicando migraciones de esquema si es necesario")
 
     try:
-        # Verificar si la columna is_mock existe en fact_oferta_idealista
-        cursor = conn.execute("PRAGMA table_info(fact_oferta_idealista)")
-        columns = [row[1] for row in cursor.fetchall()]
+        # IMPORTANTE: todas las migraciones deben ser atómicas (commit/rollback como unidad).
+        with conn:
+            # Verificar si la columna is_mock existe en fact_oferta_idealista
+            cursor = conn.execute("PRAGMA table_info(fact_oferta_idealista)")
+            columns = [row[1] for row in cursor.fetchall()]
 
-        if "is_mock" not in columns:
-            logger.info("Añadiendo columna is_mock a fact_oferta_idealista")
+            if "is_mock" not in columns:
+                logger.info("A?adiendo columna is_mock a fact_oferta_idealista")
+                conn.execute(
+                    "ALTER TABLE fact_oferta_idealista ADD COLUMN is_mock INTEGER DEFAULT 0"
+                )
+                logger.info("? Columna is_mock a?adida exitosamente")
+
+                # Actualizar registros existentes: si source = 'mock_generator', is_mock = 1
+                conn.execute(
+                    "UPDATE fact_oferta_idealista SET is_mock = 1 WHERE source = 'mock_generator'"
+                )
+                logger.info("? Registros mock actualizados con is_mock = 1")
+
+            # Migraci?n: Quitar num_licencias_vut de fact_regulacion si existe fact_hut
+            cursor = conn.execute("PRAGMA table_info(fact_regulacion)")
+            reg_columns = [row[1] for row in cursor.fetchall()]
+            if "num_licencias_vut" in reg_columns:
+                logger.info("Detectada redundancia num_licencias_vut en fact_regulacion.")
+                # En SQLite no hay DROP COLUMN directo en versiones antiguas, se suele hacer v?a tabla temporal
+                # Pero en versiones modernas (3.35.0+) s? existe. Intentaremos el directo primero.
+                try:
+                    conn.execute("ALTER TABLE fact_regulacion DROP COLUMN num_licencias_vut")
+                    logger.info(
+                        "? Columna num_licencias_vut eliminada de fact_regulacion "
+                        "(Redundancia resuelta)"
+                    )
+                except sqlite3.OperationalError:
+                    logger.warning(
+                        "No se pudo eliminar columna directamente. Manteniendo por compatibilidad."
+                    )
+
+            # Inicializar dim_barrios_extended desde dim_barrios
             conn.execute(
-                "ALTER TABLE fact_oferta_idealista ADD COLUMN is_mock INTEGER DEFAULT 0"
+                """
+                INSERT OR IGNORE INTO dim_barrios_extended (
+                    barrio_id, barrio_nombre, distrito_nombre, etl_updated_at
+                )
+                SELECT barrio_id, barrio_nombre, distrito_nombre, datetime('now')
+                FROM dim_barrios
+                """
             )
-            conn.commit()
-            logger.info("✓ Columna is_mock añadida exitosamente")
-            
-            # Actualizar registros existentes: si source = 'mock_generator', is_mock = 1
-            conn.execute(
-                "UPDATE fact_oferta_idealista SET is_mock = 1 WHERE source = 'mock_generator'"
-            )
-            conn.commit()
-            logger.info("✓ Registros mock actualizados con is_mock = 1")
+            logger.info("? dim_barrios_extended inicializada con datos base de dim_barrios")
 
-        # Migración: Quitar num_licencias_vut de fact_regulacion si existe fact_hut
-        cursor = conn.execute("PRAGMA table_info(fact_regulacion)")
-        reg_columns = [row[1] for row in cursor.fetchall()]
-        if "num_licencias_vut" in reg_columns:
-            logger.info("Detectada redundancia num_licencias_vut en fact_regulacion.")
-            # En SQLite no hay DROP COLUMN directo en versiones antiguas, se suele hacer vía tabla temporal
-            # Pero en versiones modernas (3.35.0+) sí existe. Intentaremos el directo primero.
-            try:
-                conn.execute("ALTER TABLE fact_regulacion DROP COLUMN num_licencias_vut")
-                conn.commit()
-                logger.info("✓ Columna num_licencias_vut eliminada de fact_regulacion (Redundancia resuelta)")
-            except sqlite3.OperationalError:
-                logger.warning("No se pudo eliminar columna directamente. Manteniendo por compatibilidad.")
+            # A?adir columnas demogr?ficas adicionales si faltan
+            cursor = conn.execute("PRAGMA table_info(fact_demografia)")
+            dem_columns = {row[1] for row in cursor.fetchall()}
+            missing_dem_cols = {
+                "pct_mayores_65": "REAL",
+                "pct_menores_15": "REAL",
+                "indice_envejecimiento": "REAL",
+            }
+            for col_name, col_type in missing_dem_cols.items():
+                if col_name not in dem_columns:
+                    logger.info("A?adiendo columna %s a fact_demografia", col_name)
+                    conn.execute(
+                        f"ALTER TABLE fact_demografia ADD COLUMN {col_name} {col_type}"
+                    )
+            if missing_dem_cols.keys() - dem_columns:
+                logger.info("? Columnas adicionales a?adidas a fact_demografia")
 
-        # Inicializar dim_barrios_extended desde dim_barrios
-        conn.execute("""
-            INSERT OR IGNORE INTO dim_barrios_extended (barrio_id, barrio_nombre, distrito_nombre, etl_updated_at)
-            SELECT barrio_id, barrio_nombre, distrito_nombre, datetime('now')
-            FROM dim_barrios
-        """)
-        conn.commit()
-        logger.info("✓ dim_barrios_extended inicializada con datos base de dim_barrios")
-
-        # Añadir columnas demográficas adicionales si faltan
-        cursor = conn.execute("PRAGMA table_info(fact_demografia)")
-        dem_columns = {row[1] for row in cursor.fetchall()}
-        missing_dem_cols = {
-            "pct_mayores_65": "REAL",
-            "pct_menores_15": "REAL",
-            "indice_envejecimiento": "REAL",
-        }
-        for col_name, col_type in missing_dem_cols.items():
-            if col_name not in dem_columns:
-                logger.info("Añadiendo columna %s a fact_demografia", col_name)
-                conn.execute(f"ALTER TABLE fact_demografia ADD COLUMN {col_name} {col_type}")
-        if missing_dem_cols.keys() - dem_columns:
-            conn.commit()
-            logger.info("✓ Columnas adicionales añadidas a fact_demografia")
-
-        # Añadir columnas adicionales a fact_vivienda_publica
-        cursor = conn.execute("PRAGMA table_info(fact_vivienda_publica)")
-        vpo_columns = {row[1] for row in cursor.fetchall()}
-        missing_vpo_cols = {
-            "viviendas_iniciadas_vpo": "INTEGER",
-            "viviendas_iniciadas_total": "INTEGER",
-            "viviendas_terminadas_vpo": "INTEGER",
-            "viviendas_terminadas_total": "INTEGER",
-            "viviendas_principales": "INTEGER",
-            "viviendas_no_principales": "INTEGER",
-            "num_licencias_mayor": "INTEGER",
-            "num_licencias_menor": "INTEGER",
-            "viviendas_vacias": "REAL",
-            "demanda_vpo": "REAL",
-            "ayudas_alquiler": "REAL",
-        }
-        for col_name, col_type in missing_vpo_cols.items():
-            if col_name not in vpo_columns:
-                logger.info("Añadiendo columna %s a fact_vivienda_publica", col_name)
-                conn.execute(f"ALTER TABLE fact_vivienda_publica ADD COLUMN {col_name} {col_type}")
-        if missing_vpo_cols.keys() - vpo_columns:
-            conn.commit()
-            logger.info("✓ Columnas adicionales añadidas a fact_vivienda_publica")
+            # A?adir columnas adicionales a fact_vivienda_publica
+            cursor = conn.execute("PRAGMA table_info(fact_vivienda_publica)")
+            vpo_columns = {row[1] for row in cursor.fetchall()}
+            missing_vpo_cols = {
+                "viviendas_iniciadas_vpo": "INTEGER",
+                "viviendas_iniciadas_total": "INTEGER",
+                "viviendas_terminadas_vpo": "INTEGER",
+                "viviendas_terminadas_total": "INTEGER",
+                "viviendas_principales": "INTEGER",
+                "viviendas_no_principales": "INTEGER",
+                "num_licencias_mayor": "INTEGER",
+                "num_licencias_menor": "INTEGER",
+                "viviendas_vacias": "REAL",
+                "demanda_vpo": "REAL",
+                "ayudas_alquiler": "REAL",
+            }
+            for col_name, col_type in missing_vpo_cols.items():
+                if col_name not in vpo_columns:
+                    logger.info("A?adiendo columna %s a fact_vivienda_publica", col_name)
+                    conn.execute(
+                        f"ALTER TABLE fact_vivienda_publica ADD COLUMN {col_name} {col_type}"
+                    )
+            if missing_vpo_cols.keys() - vpo_columns:
+                logger.info("? Columnas adicionales a?adidas a fact_vivienda_publica")
     except sqlite3.Error as e:
-        logger.warning("Error al aplicar migración de esquema: %s", e)
-        # No lanzar excepción para no romper el flujo si la tabla no existe aún
+        logger.warning("Error al aplicar migraci?n de esquema: %s", e)
+        # No lanzar excepci?n para no romper el flujo si la tabla no existe a?n
 
 
 def _generate_time_dimension_rows(
@@ -959,18 +974,19 @@ def _generate_time_dimension_rows(
     year_end: int = 2024,
 ) -> Iterable[Tuple[int, Optional[int], Optional[int], str, Optional[str], Optional[str]]]:
     """
-    Genera filas para ``dim_tiempo`` entre los años indicados.
+    Genera filas para ``dim_tiempo`` entre los a?os indicados.
 
     Se generan:
-    - Un registro anual por año (sin trimestre ni mes)
-    - Cuatro registros trimestrales por año (Q1-Q4)
+    - Un registro anual por a?o (sin trimestre ni mes)
+    - Cuatro registros trimestrales por a?o (Q1-Q4)
+    - Doce registros mensuales por a?o (YYYY-MM)
 
     Args:
-        year_start: Año inicial (inclusive).
-        year_end: Año final (inclusive).
+        year_start: A?o inicial (inclusive).
+        year_end: A?o final (inclusive).
 
     Returns:
-        Iterable de tuplas con los campos básicos de tiempo.
+        Iterable de tuplas con los campos b?sicos de tiempo.
     """
     for year in range(year_start, year_end + 1):
         # Fila anual
@@ -983,17 +999,25 @@ def _generate_time_dimension_rows(
             year_quarter = periodo_quarter
             yield (year, quarter, None, periodo_quarter, year_quarter, None)
 
+        # Filas mensuales
+        for month in range(1, 13):
+            quarter = ((month - 1) // 3) + 1
+            periodo_month = f"{year}-{month:02d}"
+            year_quarter = f"{year}-Q{quarter}"
+            year_month = periodo_month
+            yield (year, quarter, month, periodo_month, year_quarter, year_month)
+
 
 def ensure_dim_tiempo(conn: sqlite3.Connection) -> None:
     """
     Crea y puebla la tabla ``dim_tiempo`` de forma idempotente.
 
-    La tabla se rellena con períodos anuales y trimestrales entre 2015 y 2024.
+    La tabla se rellena con per?odos anuales, trimestrales y mensuales.
 
     Args:
-        conn: Conexión SQLite activa.
+        conn: Conexi?n SQLite activa.
     """
-    logger.debug("Asegurando existencia y población de dim_tiempo")
+    logger.debug("Asegurando existencia y poblaci?n de dim_tiempo")
 
     with conn:
         conn.executescript(
@@ -1020,50 +1044,30 @@ def ensure_dim_tiempo(conn: sqlite3.Connection) -> None:
             """
         )
 
-    cursor = conn.execute(
-        "SELECT MIN(anio), MAX(anio), COUNT(*) FROM dim_tiempo",
-    )
-    row = cursor.fetchone()
-    min_year, max_year, total_rows = row if row else (None, None, 0)
+    # Insert idempotente: insertamos (OR IGNORE) el rango objetivo aunque ya existan filas.
+    # Incluimos 2012+ porque hay series anuales que arrancan antes (ej. precios).
+    year_start = 2012
+    year_end = 2025
+    logger.info("Asegurando dim_tiempo para el rango %s-%s", year_start, year_end)
 
-    # Si ya está poblada para el rango deseado, no hacemos nada
-    if (
-        total_rows > 0
-        and min_year is not None
-        and max_year is not None
-        and min_year <= 2015
-        and max_year >= 2024
-    ):
-        logger.info(
-            "dim_tiempo ya está poblada (%s filas, años %s-%s), no se realizan cambios",
-            total_rows,
-            min_year,
-            max_year,
-        )
-        return
-
-    logger.info("Poblando dim_tiempo para el rango 2015-2024")
-
-    rows = list(_generate_time_dimension_rows(2015, 2024))
+    rows = list(_generate_time_dimension_rows(year_start, year_end))
     records: List[Tuple[int, Optional[int], Optional[int], str, Optional[str], Optional[str], int, int, str, str, str, str]] = []
 
     for anio, trimestre, mes, periodo, year_quarter, year_month in rows:
-        # Para simplificar, usamos fechas de inicio y fin aproximadas por año y trimestre.
-        if trimestre is None:
+        # Para simplificar, usamos fechas de inicio y fin por período.
+        if trimestre is None and mes is None:
             fecha_inicio = date(anio, 1, 1)
             fecha_fin = date(anio, 12, 31)
-        else:
+        elif mes is None:
             month_start = (trimestre - 1) * 3 + 1
             month_end = month_start + 2
             fecha_inicio = date(anio, month_start, 1)
-            # Fecha fin aproximada al último día del mes final (no crítico para análisis)
-            if month_end in (1, 3, 5, 7, 8, 10, 12):
-                day_end = 31
-            elif month_end == 2:
-                day_end = 28
-            else:
-                day_end = 30
+            day_end = calendar.monthrange(anio, month_end)[1]
             fecha_fin = date(anio, month_end, day_end)
+        else:
+            fecha_inicio = date(anio, mes, 1)
+            day_end = calendar.monthrange(anio, mes)[1]
+            fecha_fin = date(anio, mes, day_end)
 
         es_verano = 1 if 6 <= fecha_inicio.month <= 9 else 0
         estacion = (
@@ -1071,7 +1075,7 @@ def ensure_dim_tiempo(conn: sqlite3.Connection) -> None:
             if 3 <= fecha_inicio.month <= 5
             else "verano"
             if 6 <= fecha_inicio.month <= 9
-            else "otoño"
+            else "oto?o"
             if 9 < fecha_inicio.month <= 11
             else "invierno"
         )
@@ -1084,10 +1088,10 @@ def ensure_dim_tiempo(conn: sqlite3.Connection) -> None:
                 periodo,
                 year_quarter,
                 year_month,
-                0,  # es_fin_de_semana (no aplica a períodos agregados)
+                0,  # es_fin_de_semana (no aplica a per?odos agregados)
                 es_verano,
                 estacion,
-                "",  # dia_semana (no aplica a períodos agregados)
+                "",  # dia_semana (no aplica a per?odos agregados)
                 fecha_inicio.isoformat(),
                 fecha_fin.isoformat(),
             )
@@ -1115,21 +1119,38 @@ def ensure_dim_tiempo(conn: sqlite3.Connection) -> None:
             records,
         )
 
+    # Limpieza de legacy: algunas versiones anteriores insertaron trimestres con formato 'YYYYQn'
+    # en vez de 'YYYY-Qn'. Para evitar ambigüedad en joins, eliminamos el formato no estándar.
+    with conn:
+        conn.execute(
+            """
+            DELETE FROM dim_tiempo
+            WHERE mes IS NULL
+              AND trimestre IS NOT NULL
+              AND periodo GLOB '????Q?'
+            """
+        )
+
     logger.info("dim_tiempo poblada con %s registros", len(records))
 
 
-def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
+def truncate_tables(
+    conn: sqlite3.Connection,
+    tables: Iterable[str],
+    reset_autoincrement: bool = False,
+) -> None:
     """
-    Elimina todas las filas de las tablas especificadas dentro de una transacción.
+    Elimina todas las filas de las tablas especificadas dentro de una transacci?n.
 
     Args:
-        conn: Conexión SQLite activa.
+        conn: Conexi?n SQLite activa.
         tables: Iterable de nombres de tabla a truncar.
+        reset_autoincrement: Si True, resetea el contador AUTOINCREMENT (sqlite_sequence).
 
     Raises:
-        InvalidTableNameError: Si alguna tabla no está en la whitelist VALID_TABLES.
+        InvalidTableNameError: Si alguna tabla no est? en la whitelist VALID_TABLES.
     """
-    # Validar todas las tablas antes de ejecutar cualquier operación
+    # Validar todas las tablas antes de ejecutar cualquier operaci?n
     validated_tables = [validate_table_name(table) for table in tables]
 
     # Desactivar temporalmente foreign keys para permitir truncado en cualquier orden
@@ -1137,9 +1158,25 @@ def truncate_tables(conn: sqlite3.Connection, tables: Iterable[str]) -> None:
     try:
         with conn:
             for table in validated_tables:
-                # Seguro: table ya está validado contra whitelist
-                conn.execute(f"DELETE FROM {table};")
-                logger.debug("Tabla %s truncada", table)
+                # Seguro: table ya est? validado contra whitelist
+                try:
+                    conn.execute(f"DELETE FROM {table};")
+                    logger.debug("Tabla %s truncada", table)
+                    if reset_autoincrement:
+                        conn.execute(
+                            "DELETE FROM sqlite_sequence WHERE name = ?;",
+                            (table,),
+                        )
+                except sqlite3.OperationalError as exc:
+                    # Caso común en migraciones: tabla nueva aún no existe en DB antigua.
+                    # No debe bloquear el ETL, porque `create_database_schema()` se ejecuta después.
+                    if "no such table" in str(exc).lower():
+                        logger.info(
+                            "Tabla %s no existe todavía (migración). Se omite truncado.",
+                            table,
+                        )
+                        continue
+                    raise
     finally:
         # Reactivar foreign keys
         conn.execute("PRAGMA foreign_keys = ON;")
@@ -1157,7 +1194,7 @@ def register_etl_run(
 
     params_json = json.dumps(parameters or {}, ensure_ascii=False)
     logger.info(
-        "Registrando ejecución ETL %s con estado %s", run_id, status
+        "Registrando ejecuci?n ETL %s con estado %s", run_id, status
     )
     with conn:
         conn.execute(

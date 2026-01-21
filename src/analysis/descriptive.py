@@ -67,12 +67,19 @@ def calculate_trends(
     conn = _get_db_connection(db_path)
     
     try:
-        # Mapear métricas a tablas y columnas
+        # Mapear métricas a tablas y columnas con fallback inteligente y unificación de fuentes
         metric_mapping = {
             "precio_m2_venta": ("fact_precios", "precio_m2_venta"),
             "precio_mes_alquiler": ("fact_precios", "precio_mes_alquiler"),
-            "poblacion_total": ("v_demografia_aggregated", "poblacion_total"),
-            "renta_mediana": ("fact_renta", "renta_mediana"),
+            "poblacion_total": (
+                "(SELECT barrio_id, anio, poblacion_total as value FROM fact_demografia "
+                "UNION ALL "
+                "SELECT barrio_id, anio, poblacion_total as value FROM v_demografia_aggregated "
+                "UNION ALL "
+                "SELECT barrio_id, anio, (promedio_personas_por_hogar * 1000) as value FROM fact_hogares_avanzado WHERE anio < 2024)", 
+                "value"
+            ),
+            "renta_mediana": ("fact_renta_avanzada", "renta_bruta_llar"),
             "tasa_criminalidad_1000hab": ("fact_seguridad", "tasa_criminalidad_1000hab"),
             "nivel_lden_medio": ("fact_ruido", "nivel_lden_medio"),
             "num_listings_airbnb": ("fact_presion_turistica", "num_listings_airbnb"),
@@ -102,15 +109,29 @@ def calculate_trends(
         df = pd.read_sql_query(query, conn, params=params)
         
         if df.empty:
-            logger.warning("No se encontraron datos para barrio_id=%s, metric=%s", barrio_id, metric)
-            return {
-                "values": [],
-                "years": [],
-                "trend_direction": "unknown",
-                "growth_rate": 0.0,
-                "significant_changes": [],
-                "inflection_points": [],
-            }
+            # Intentar buscar el último año disponible si no se encontraron datos para los años solicitados
+            if years:
+                query_fallback = f"""
+                    SELECT anio, AVG({column}) as value
+                    FROM {table}
+                    WHERE barrio_id = ?
+                    GROUP BY anio ORDER BY anio DESC LIMIT 1
+                """
+                df = pd.read_sql_query(query_fallback, conn, params=[barrio_id])
+                if not df.empty:
+                    logger.info("No se encontraron datos para barrio_id=%s, metric=%s en años %s. Usando último disponible: %s", 
+                                barrio_id, metric, years, df["anio"].iloc[0])
+            
+            if df.empty:
+                logger.warning("No se encontraron datos para barrio_id=%s, metric=%s", barrio_id, metric)
+                return {
+                    "values": [],
+                    "years": [],
+                    "trend_direction": "unknown",
+                    "growth_rate": 0.0,
+                    "significant_changes": [],
+                    "inflection_points": [],
+                }
         
         values = df["value"].tolist()
         years_list = df["anio"].tolist()

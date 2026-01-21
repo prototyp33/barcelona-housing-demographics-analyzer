@@ -120,6 +120,23 @@ def _extract_year_from_temps(temps_str: str) -> Optional[int]:
         return None
 
 
+def _extract_year_month_from_temps(temps_str: str) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Extrae (año, mes) de una cadena de tiempo ISO del Portal de Dades.
+
+    Args:
+        temps_str: Cadena ISO (ej. ``2021-03-01T00:00:00Z``).
+
+    Returns:
+        Tupla (anio, mes). Ambos pueden ser None si no se puede parsear.
+    """
+    try:
+        dt_value = datetime.fromisoformat(str(temps_str).replace("Z", "+00:00"))
+        return dt_value.year, dt_value.month
+    except (ValueError, AttributeError, TypeError):
+        return None, None
+
+
 def _map_territorio_to_barrio_id(
     territorio: str,
     territorio_type: str,

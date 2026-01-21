@@ -2,7 +2,7 @@
 # Comandos rapidos para desarrollo y gestion de issues
 
 .PHONY: help validate-issues create-issues create-issue preview-issues sync-issues issue-stats
-.PHONY: run-etl test test-coverage lint format dashboard dashboard-demo
+.PHONY: run-etl test test-coverage lint format dashboard dashboard-demo dashboard-dev dashboard-check dashboard-helper
 .PHONY: install install-dev clean
 
 help:  ## Muestra este mensaje de ayuda
@@ -100,13 +100,20 @@ type-check:  ## Ejecuta verificacion de tipos con mypy
 # DASHBOARD
 # ============================================================
 
-dashboard:  ## Inicia dashboard Streamlit
-	@echo "Iniciando dashboard Streamlit..."
-	@PYTHONPATH=. streamlit run src/app/main.py
+dashboard:  ## Inicia dashboard Streamlit (usa script mejorado)
+	@./scripts/dashboard/run_dashboard.sh
+
+dashboard-dev:  ## Inicia dashboard en modo desarrollo (auto-reload)
+	@./scripts/dashboard/run_dashboard.sh --dev
+
+dashboard-check:  ## Verifica estado del dashboard (health check)
+	@./scripts/dashboard/check_dashboard.sh
+
+dashboard-helper:  ## Abre helper interactivo del dashboard
+	@./scripts/dashboard/dashboard_helper.sh
 
 dashboard-demo:  ## Inicia dashboard en modo demo (puerto 8502)
-	@echo "Iniciando dashboard en puerto 8502..."
-	@PYTHONPATH=. streamlit run src/app/main.py --server.port 8502
+	@./scripts/dashboard/run_dashboard.sh --port 8502
 
 # ============================================================
 # API (FastAPI)
