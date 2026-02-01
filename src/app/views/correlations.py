@@ -16,6 +16,7 @@ from src.app.config import COLOR_SCALES
 from src.app.data_loader import load_full_correlation_data
 from src.app.components import render_empty_state, card_standard
 from src.app.styles import apply_plotly_theme
+from src.app.chart_config import CHART_HEIGHTS
 
 
 def render_correlation_matrix(year: int = 2023) -> None:
@@ -58,7 +59,7 @@ def render_correlation_matrix(year: int = 2023) -> None:
     
     fig.update_layout(
         title=dict(text=f"Mapa de Relaciones Estadísticas {year}", font=dict(size=16)),
-        height=500,
+        height=CHART_HEIGHTS['standard'],
         margin=dict(l=50, r=50, t=80, b=50),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
@@ -97,7 +98,7 @@ def render_advanced_scatters(year: int = 2023) -> None:
             }
         )
         apply_plotly_theme(fig1)
-        fig1.update_layout(height=400, showlegend=False)
+        fig1.update_layout(height=CHART_HEIGHTS['compact'], showlegend=False)
         st.plotly_chart(fig1, width="stretch", key="scatter_gentrif_precio")
         st.caption("🔍 Muestra cómo la transformación demográfica empuja los precios al alza.")
 
@@ -119,7 +120,7 @@ def render_advanced_scatters(year: int = 2023) -> None:
             }
         )
         apply_plotly_theme(fig2)
-        fig2.update_layout(height=400, coloraxis_showscale=False)
+        fig2.update_layout(height=CHART_HEIGHTS['compact'], coloraxis_showscale=False)
         st.plotly_chart(fig2, width="stretch", key="scatter_ruido_gentrif")
         st.caption("🔊 Evalúa si las zonas en transformación están expuestas a mayor contaminación acústica.")
 

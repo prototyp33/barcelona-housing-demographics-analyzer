@@ -10,6 +10,7 @@ import streamlit as st
 from src.app.components import card_standard, render_empty_state
 import src.app.data_loader as dl
 from src.app.styles import render_responsive_kpi_grid
+from src.app.chart_config import CHART_HEIGHTS
 
 
 def render_kpi_cards(year: int, distritos: list[str]) -> None:

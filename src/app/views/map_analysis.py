@@ -10,6 +10,7 @@ import plotly.express as px
 import streamlit as st
 
 from src.app.config import COLOR_SCALES, VIVIENDA_TIPO_M2, MAPBOX_CONFIG
+from src.app.chart_config import CHART_HEIGHTS
 from src.app.utils import format_smart_currency, get_noise_level_color, PROFESSIONAL_COLORS
 from src.app.data_loader import (
     get_geojson,
@@ -71,7 +72,7 @@ def render_price_map(
         title=f"Precio de Vivienda por Barrio ({year})",
     )
     
-    fig.update_layout(margin=dict(r=0, t=60, l=0, b=0), height=500)
+    fig.update_layout(margin=dict(r=0, t=60, l=0, b=0), height=CHART_HEIGHTS['standard'])
     
     st.plotly_chart(fig, key=key)
 
@@ -136,7 +137,7 @@ def render_snapshot(year: int = 2022, key: str | None = None) -> None:
     # Mejorar layout con leyenda visible y mejor styling
     fig.update_layout(
         margin=dict(r=10, t=10, l=10, b=50),  # Más espacio abajo para la leyenda
-        height=450,
+        height=CHART_HEIGHTS['compact'],
         dragmode=False,
         coloraxis_showscale=True,  # Mostrar leyenda de colores
         coloraxis_colorbar=dict(
@@ -228,7 +229,7 @@ def render_affordability_map(year: int = 2022, key: str | None = None) -> None:
         title=f"Esfuerzo de Compra ({year})<br><sup>Rentas anuales necesarias para comprar {VIVIENDA_TIPO_M2} m²</sup>",
     )
     
-    fig.update_layout(margin=dict(r=0, t=80, l=0, b=0), height=500)
+    fig.update_layout(margin=dict(r=0, t=80, l=0, b=0), height=CHART_HEIGHTS['standard'])
     
     st.plotly_chart(fig, key=key)
 
@@ -291,7 +292,7 @@ def render_change_map(
         title=f"Variación de Precios ({year_start} → {year_end})<br><sup>Rojo = mayor incremento | Verde = menor incremento</sup>",
     )
     
-    fig.update_layout(margin=dict(r=0, t=80, l=0, b=0), height=500)
+    fig.update_layout(margin=dict(r=0, t=80, l=0, b=0), height=CHART_HEIGHTS['standard'])
     
     st.plotly_chart(fig, key=key)
 
@@ -402,7 +403,7 @@ def render_enhanced_explorer(year: int = 2022, distrito_filter: str | None = Non
     
     fig.update_layout(
         margin=dict(r=0, t=60, l=0, b=0), 
-        height=600,
+        height=CHART_HEIGHTS['standard'],
         coloraxis_colorbar=dict(title=legend_title)
     )
     

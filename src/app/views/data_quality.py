@@ -14,6 +14,7 @@ import streamlit as st
 
 from src.app.components import card_standard, render_empty_state
 from src.app.config import COLORS
+from src.app.chart_config import CHART_HEIGHTS
 from src.app.data_quality_metrics import (
     calculate_completeness,
     calculate_consistency,
@@ -134,7 +135,7 @@ def render_quality_evolution() -> None:
     
     fig.update_layout(
         hovermode='x unified',
-        height=400,
+        height=CHART_HEIGHTS['compact'],
         legend=dict(
             orientation="h",
             yanchor="bottom",

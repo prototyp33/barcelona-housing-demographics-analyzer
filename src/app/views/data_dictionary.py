@@ -7,6 +7,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from src.app.components import card_standard
+from src.app.chart_config import CHART_HEIGHTS
 
 def render() -> None:
     """

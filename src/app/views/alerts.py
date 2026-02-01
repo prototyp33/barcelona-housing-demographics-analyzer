@@ -13,6 +13,7 @@ from src.alerts.detector import detect_all_changes
 from src.alerts.notifier import Alert, AlertPriority
 from src.app.components import render_empty_state
 from src.app.data_loader import load_barrios
+from src.app.chart_config import CHART_HEIGHTS
 
 logger = logging.getLogger(__name__)
 

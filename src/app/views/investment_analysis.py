@@ -13,6 +13,7 @@ from src.app.data_loader import load_investment_data
 from src.app.utils import format_smart_currency, PROFESSIONAL_COLORS
 from src.app.components import card_standard, render_empty_state
 from src.app.styles import apply_plotly_theme, render_responsive_kpi_grid, KPIMetric
+from src.app.chart_config import CHART_HEIGHTS
 
 def render_investment_scatter(df: pd.DataFrame, year: int) -> None:
     """
@@ -92,7 +93,7 @@ def render_investment_scatter(df: pd.DataFrame, year: int) -> None:
 
     apply_plotly_theme(fig)
     fig.update_layout(
-        height=600, 
+        height=CHART_HEIGHTS['standard'], 
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     

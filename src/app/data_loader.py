@@ -1667,10 +1667,12 @@ def load_accessibility_metrics(year: int, distrito: Optional[str] = None) -> pd.
             e.total_centros_educativos, e.num_centros_infantil,
             e.num_centros_primaria, e.num_centros_secundaria,
             e.num_centros_universidad,
-            v.viviendas_publicas
+            v.viviendas_proteccion_oficial
         FROM dim_barrios b
-        LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id AND e.anio = ?
-        LEFT JOIN fact_vivienda_publica v ON b.barrio_id = v.barrio_id AND v.anio = ?
+        LEFT JOIN fact_educacion e ON b.barrio_id = e.barrio_id 
+            AND e.anio = (SELECT MAX(anio) FROM fact_educacion WHERE anio <= ?)
+        LEFT JOIN fact_vivienda_publica v ON b.barrio_id = v.barrio_id 
+            AND v.anio = (SELECT MAX(anio) FROM fact_vivienda_publica WHERE anio <= ?)
         """
         params = [year, year]
         if distrito:
@@ -1700,11 +1702,13 @@ def load_safety_metrics(year: int, distrito: Optional[str] = None) -> pd.DataFra
         query = """
         SELECT 
             b.barrio_id, b.barrio_nombre, b.distrito_nombre,
-            s.tasa_criminalidad, s.num_delitos,
-            t.num_listings, t.pct_entire_homes, t.avg_price_night, t.occupancy_rate
+            s.tasa_criminalidad_1000hab, s.delitos_patrimonio, s.delitos_seguridad_personal,
+            t.num_listings_airbnb, t.pct_entire_home, t.precio_noche_promedio, t.tasa_ocupacion
         FROM dim_barrios b
-        LEFT JOIN fact_seguridad s ON b.barrio_id = s.barrio_id AND s.anio = ?
-        LEFT JOIN fact_presion_turistica t ON b.barrio_id = t.barrio_id AND t.anio = ?
+        LEFT JOIN fact_seguridad s ON b.barrio_id = s.barrio_id 
+            AND s.anio = (SELECT MAX(anio) FROM fact_seguridad WHERE anio <= ?)
+        LEFT JOIN fact_presion_turistica t ON b.barrio_id = t.barrio_id 
+            AND t.anio = (SELECT MAX(anio) FROM fact_presion_turistica WHERE anio <= ?)
         """
         params = [year, year]
         if distrito:

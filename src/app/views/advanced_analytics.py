@@ -24,6 +24,7 @@ import streamlit as st
 from src.app.config import COLOR_SCALES, COLORS
 from src.app.components import render_empty_state
 from src.app.styles import apply_plotly_theme
+from src.app.chart_config import CHART_HEIGHTS
 from src.analysis.descriptive import (
     calculate_trends,
     compare_barrios,
@@ -182,7 +183,7 @@ def render_correlation_heatmap(
         
         fig.update_layout(
             title=f"Matriz de Correlaciones ({year if year else 'Último año disponible'})",
-            height=600,
+            height=CHART_HEIGHTS['standard'],
             xaxis_title="Métricas",
             yaxis_title="Métricas",
         )
@@ -279,7 +280,7 @@ def render_radar_chart(
             ),
             showlegend=True,
             title="Comparación Multi-Métrica de Barrios",
-            height=600,
+            height=CHART_HEIGHTS['standard'],
         )
         
         st.plotly_chart(fig, width="stretch", key="radar_chart")
@@ -405,7 +406,7 @@ def render_bubble_chart(
         )
         
         fig.update_layout(
-            height=600,
+            height=CHART_HEIGHTS['standard'],
             xaxis_title=x_metric.replace("_", " ").title(),
             yaxis_title=y_metric.replace("_", " ").title(),
         )
@@ -506,7 +507,7 @@ def render_treemap(
             hover_data={value_col: ":,.2f"},
         )
         
-        fig.update_layout(height=700)
+        fig.update_layout(height=CHART_HEIGHTS['expanded'])
         
         st.plotly_chart(fig, width="stretch", key=f"treemap_{metric}")
     

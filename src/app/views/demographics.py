@@ -17,6 +17,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from src.app.config import COLOR_SCALES
+from src.app.chart_config import CHART_HEIGHTS
 from src.app.data_loader import get_geojson, load_demografia, load_precios
 from src.app.styles import apply_plotly_theme, render_responsive_kpi_grid, render_ranking_item, KPIMetric
 from src.app.components import render_empty_state
@@ -164,7 +165,7 @@ def render_price_vs_age_correlation(year: int = 2022) -> None:
     # Aplicar tema del Design System
     apply_plotly_theme(fig)
     fig.update_layout(
-        height=450,
+        height=CHART_HEIGHTS['compact'],
         showlegend=False,
         title_text=f"Relaciones Precio-Demografía ({year})",
         title_x=0.5,
@@ -255,7 +256,7 @@ def render_aging_map(year: int = 2022) -> None:
     )
     
     apply_plotly_theme(fig)
-    fig.update_layout(margin=dict(r=0, t=60, l=0, b=0), height=500)
+    fig.update_layout(margin=dict(r=0, t=60, l=0, b=0), height=CHART_HEIGHTS['standard'])
     
     st.plotly_chart(fig, key="demographics_aging_map")
 
@@ -342,7 +343,7 @@ def render_gentrification_analysis(year: int = 2023) -> None:
         }
     )
     apply_plotly_theme(fig)
-    fig.update_layout(height=400)
+    fig.update_layout(height=CHART_HEIGHTS['compact'])
     st.plotly_chart(fig, width='stretch', key="scatter_educ_gentrif")
 
 

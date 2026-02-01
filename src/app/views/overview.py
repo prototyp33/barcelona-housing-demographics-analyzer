@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.app.config import COLORS, COLOR_SCALES
+from src.app.chart_config import CHART_HEIGHTS
 from src.app.data_loader import load_kpis, load_precios, load_available_years
 from src.app.utils import format_smart_currency
 from src.app.styles import render_responsive_kpi_grid, apply_plotly_theme, KPIMetric

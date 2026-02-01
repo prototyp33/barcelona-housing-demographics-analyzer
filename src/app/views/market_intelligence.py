@@ -15,6 +15,7 @@ import plotly.express as px
 import streamlit as st
 
 from src.app.data_loader import load_master_table_csv
+from src.app.chart_config import CHART_HEIGHTS
 
 
 def _safe_str_series(series: pd.Series) -> pd.Series:
@@ -99,7 +100,7 @@ def render(distrito_filter: Optional[str] = None) -> None:
                 labels={"negotiation_gap_pct": "Gap (%)", "barrio_nombre": "Barrio"},
                 title="Barrios con mayor margen (filtrado por calidad)",
             )
-            fig.update_layout(margin=dict(l=10, r=10, t=50, b=10), height=520)
+            fig.update_layout(margin=dict(l=10, r=10, t=50, b=10), height=CHART_HEIGHTS['standard'])
             st.plotly_chart(fig, width='stretch')
 
         with right:
@@ -117,7 +118,7 @@ def render(distrito_filter: Optional[str] = None) -> None:
                     "transaction_price_m2": "Transacción (€/m²)",
                 },
             )
-            fig2.update_layout(margin=dict(l=10, r=10, t=40, b=10), height=520)
+            fig2.update_layout(margin=dict(l=10, r=10, t=40, b=10), height=CHART_HEIGHTS['standard'])
             st.plotly_chart(fig2, width='stretch')
 
         st.markdown("#### Datos (año seleccionado)")
@@ -169,7 +170,7 @@ def render(distrito_filter: Optional[str] = None) -> None:
         st.dataframe(
             df_g[cols].sort_values("gentrification_rent_increase_pct", ascending=False),
             width='stretch',
-            height=520,
+            height=CHART_HEIGHTS['standard'],
         )
 
     with tab_map:
@@ -189,7 +190,7 @@ def render(distrito_filter: Optional[str] = None) -> None:
             hover_name="barrio_nombre",
             hover_data=["distrito_nombre", "gentrification_risk_level"],
             zoom=11,
-            height=650,
+            height=CHART_HEIGHTS['expanded'],
             map_style="carto-positron",
             title="Mapa de calor: margen de negociación (color) y volumen (tamaño)",
         )

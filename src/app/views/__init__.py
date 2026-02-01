@@ -14,6 +14,7 @@ from src.app.views import (
     investment_analysis,
     market_intelligence,
     esg_view,
+    price_predictor,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "investment_analysis",
     "market_intelligence",
     "esg_view",
+    "price_predictor",
 ]

@@ -10,6 +10,7 @@ import streamlit as st
 
 from src.recommendations.scenarios import get_recommendations, SCENARIO_TYPES
 from src.app.components import render_empty_state
+from src.app.chart_config import CHART_HEIGHTS
 
 logger = logging.getLogger(__name__)
 
