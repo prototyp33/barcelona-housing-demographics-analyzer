@@ -24,6 +24,7 @@ VALID_TABLES: FrozenSet[str] = frozenset(
         "fact_demografia",
         "fact_demografia_ampliada",
         "fact_renta",
+        "fact_renta_hist",
         "fact_oferta_idealista",
         "fact_regulacion",
         "fact_presion_turistica",
@@ -50,6 +51,7 @@ VALID_TABLES: FrozenSet[str] = frozenset(
         "fact_control_alquiler",
         "fact_accesibilidad",
         "fact_centralidad",
+        "fact_esfuerzo_alquiler",
         "etl_runs",
         "etl_quality_metrics",
     }
@@ -129,6 +131,25 @@ CREATE_TABLE_STATEMENTS = (
     ON dim_barrios (barrio_nombre_normalizado);
     """,
     """
+    CREATE TABLE IF NOT EXISTS fact_renta_hist (
+        renta_hist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        renta_media REAL,
+        renta_mediana REAL,
+        renta_neta REAL,
+        renta_bruta REAL,
+        dataset_id TEXT,
+        source TEXT DEFAULT 'idescat',
+        etl_loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios(barrio_id),
+        UNIQUE(barrio_id, anio, dataset_id, source)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_renta_hist_lookup ON fact_renta_hist(barrio_id, anio);
+    """,
+    """
     CREATE TABLE IF NOT EXISTS fact_precios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         barrio_id INTEGER NOT NULL,
@@ -151,6 +172,24 @@ CREATE_TABLE_STATEMENTS = (
         COALESCE(trimestre, -1),
         COALESCE(dataset_id, ''),
         COALESCE(source, '')
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fact_esfuerzo_alquiler (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barrio_id INTEGER NOT NULL,
+        anio INTEGER NOT NULL,
+        precio_mes_alquiler REAL,
+        annual_rent REAL,
+        renta_neta REAL,
+        renta_bruta REAL,
+        renta_media REAL,
+        effective_income REAL,
+        affordability_ratio REAL,
+        stress_level TEXT,
+        etl_loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (barrio_id) REFERENCES dim_barrios(barrio_id),
+        UNIQUE(barrio_id, anio)
     );
     """,
     """
@@ -821,6 +860,44 @@ CREATE_TABLE_STATEMENTS = (
         etl_loaded_at TEXT,
         UNIQUE(ambito, anio_inicio, anio_fin)
     );
+    """,
+    """
+    CREATE VIEW IF NOT EXISTS vw_model_prices_demografia AS
+    WITH base_precios AS (
+        SELECT barrio_id, anio, AVG(precio_m2_venta) AS target_precio_m2
+        FROM fact_precios
+        WHERE precio_m2_venta IS NOT NULL
+        GROUP BY barrio_id, anio
+    ),
+    base_desempleo AS (
+        SELECT barrio_id, anio, AVG(tasa_desempleo_estimada) AS tasa_paro
+        FROM fact_desempleo
+        GROUP BY barrio_id, anio
+    ),
+    base_airbnb AS (
+        SELECT barrio_id, anio, AVG(num_listings_airbnb) AS num_airbnb
+        FROM fact_presion_turistica
+        GROUP BY barrio_id, anio
+    )
+    SELECT
+        p.barrio_id,
+        b.barrio_nombre,
+        p.anio,
+        p.target_precio_m2,
+        r.renta_euros AS renta_media,
+        d.poblacion_total,
+        d.pct_menores_15 AS porc_jovenes,
+        d.pct_mayores_65 AS porc_mayores,
+        u.tasa_paro,
+        d.porc_inmigracion AS porc_extranjeros,
+        (CAST(d.poblacion_total AS REAL) / NULLIF(d.hogares_totales, 0)) AS tam_medio_hogar,
+        a.num_airbnb
+    FROM base_precios AS p
+    JOIN dim_barrios AS b ON b.barrio_id = p.barrio_id
+    LEFT JOIN fact_renta AS r ON r.barrio_id = p.barrio_id AND r.anio = p.anio
+    LEFT JOIN fact_demografia AS d ON d.barrio_id = p.barrio_id AND d.anio = p.anio
+    LEFT JOIN base_desempleo AS u ON u.barrio_id = p.barrio_id AND u.anio = p.anio
+    LEFT JOIN base_airbnb AS a ON a.barrio_id = p.barrio_id AND a.anio = p.anio;
     """,
 )
 

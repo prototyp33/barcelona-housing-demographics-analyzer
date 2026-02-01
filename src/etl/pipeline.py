@@ -32,7 +32,11 @@ from .transformations.enrichment import (
     prepare_idealista_oferta,
     prepare_portaldades_precios,
 )
-from .transformations.market import prepare_fact_precios, prepare_renta_barrio
+from .transformations.market import (
+    prepare_fact_precios, 
+    prepare_renta_barrio,
+    prepare_fact_renta_hist
+)
 from .transformations.advanced_analysis import (
     prepare_fact_renta_avanzada,
     prepare_fact_catastro_avanzado,
@@ -43,12 +47,14 @@ from .transformations.social_infrastructure import (
     prepare_fact_educacion,
     prepare_fact_vivienda_publica,
 )
+from .transformations.affordability import calculate_affordability_metrics
 from .validators import (
     FKValidationStrategy,
     handle_source_error,
     validate_all_fact_tables,
 )
 from ..extraction.opendata import OpenDataBCNExtractor
+from ..extraction.idescat import IDESCATExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +255,7 @@ def run_etl(
         demographics_path = None
         demographics_standard_path = None
         is_demographics_ampliada = False
+        fact_renta_hist = None
         
         if use_manifest:
             # Primero intentar demografía ampliada
@@ -289,6 +296,14 @@ def run_etl(
             )
         if renta_path is None:
             renta_path = _find_latest_file(opendata_dir, "opendatabcn_renda-*.csv")
+        
+        renta_hist_path = None
+        if use_manifest:
+            renta_hist_path = _get_latest_file_from_manifest(
+                manifest, raw_base_dir, "renta_historica"
+            )
+        if renta_hist_path is None:
+            renta_hist_path = _find_latest_file(raw_base_dir / "idescat", "idescat_renta_*.csv")
         
         venta_path = None
         alquiler_path = None
@@ -464,6 +479,12 @@ def run_etl(
                         demographics_standard_path.name
                     )
         venta_df = _safe_read_csv(venta_path) if venta_path else pd.DataFrame()
+        if renta_hist_path:
+            try:
+                renta_hist_raw = _safe_read_csv(renta_hist_path)
+                logger.info("✓ Datos de renta histórica cargados: %s", renta_hist_path.name)
+            except Exception as e:
+                handle_source_error("renta_historica", e, context="carga renta_hist")
         alquiler_df = _safe_read_csv(alquiler_path) if alquiler_path else pd.DataFrame()
         
         # Cargar datos de renta si están disponibles (fuente opcional)
@@ -513,6 +534,17 @@ def run_etl(
             reference_time=reference_time,
             geojson_path=geojson_path
         )
+
+        # Procesar renta histórica ahora que tenemos dim_barrios
+        if renta_hist_path and 'renta_hist_raw' in locals():
+            try:
+                fact_renta_hist = prepare_fact_renta_hist(
+                    renta_hist_raw,
+                    dim_barrios,
+                    reference_time
+                )
+            except Exception as e:
+                handle_source_error("renta_historica", e, context="procesamiento renta_hist")
 
         # Procesar demografía: ESTRATEGIA HÍBRIDA
         # - Si hay demografía ampliada (2025): procesarla para fact_demografia_ampliada
@@ -709,6 +741,9 @@ def run_etl(
         if portaldades_alquiler_mensual_df is not None and not portaldades_alquiler_mensual_df.empty:
             logger.info("✓ Alquiler mensual (Portal de Dades) disponible: %s registros", len(portaldades_alquiler_mensual_df))
             fact_alquiler_mensual = portaldades_alquiler_mensual_df
+
+        # Procesar datos de renta histórica
+        # (Ya procesado arriba en la sección de carga inicial para asegurar que dim_barrios esté listo)
 
         # Procesar datos de regulación (Portal de Dades + Open Data BCN)
         from ..processing.prepare_regulacion import prepare_regulacion  # noqa: WPS433
@@ -1121,6 +1156,20 @@ def run_etl(
         fact_hogares_avanzado = prepare_fact_hogares_avanzado(hogares_avanzado_files, dim_barrios, reference_time) if hogares_avanzado_files else None
         fact_turismo_intensidad = prepare_fact_turismo_intensidad(turismo_intensidad_files, dim_barrios, reference_time) if turismo_intensidad_files else None
 
+        # 14. Calcular esfuerzo de alquiler (Affordability)
+        if fact_precios is not None and not fact_precios.empty and \
+           fact_renta_hist is not None and not fact_renta_hist.empty:
+            logger.info("Calculando métricas de esfuerzo de alquiler (series históricas)...")
+            try:
+                fact_esfuerzo_alquiler = calculate_affordability_metrics(
+                    fact_precios,
+                    fact_renta_hist,
+                    reference_time
+                )
+            except Exception as e:
+                logger.warning("Error calculando esfuerzo de alquiler: %s", e)
+                logger.debug(traceback.format_exc())
+
         # === VALIDACIÓN DE INTEGRIDAD REFERENCIAL ===
         # Validar todas las fact tables antes de insertar en SQLite
         logger.info("=== Validando integridad referencial ===")
@@ -1142,6 +1191,8 @@ def run_etl(
             fact_catastro_avanzado,
             fact_hogares_avanzado,
             fact_turismo_intensidad,
+            fact_renta_hist,
+            fact_esfuerzo_alquiler,
             fk_validation_results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
@@ -1161,6 +1212,8 @@ def run_etl(
             fact_catastro_avanzado=fact_catastro_avanzado,
             fact_hogares_avanzado=fact_hogares_avanzado,
             fact_turismo_intensidad=fact_turismo_intensidad,
+            fact_renta_hist=fact_renta_hist,
+            fact_esfuerzo_alquiler=fact_esfuerzo_alquiler,
             strategy=FKValidationStrategy.FILTER,
         )
         
@@ -1216,6 +1269,8 @@ def run_etl(
                 "fact_alquiler_mensual_rows": int(len(fact_alquiler_mensual)) if fact_alquiler_mensual is not None else 0,
                 "fact_oferta_idealista_rows": int(len(fact_oferta_idealista)) if fact_oferta_idealista is not None else 0,
                 "fact_regulacion_rows": int(len(fact_regulacion)) if fact_regulacion is not None else 0,
+                "fact_renta_hist_rows": int(len(fact_renta_hist)) if fact_renta_hist is not None else 0,
+                "fact_esfuerzo_alquiler_rows": int(len(fact_esfuerzo_alquiler)) if fact_esfuerzo_alquiler is not None else 0,
             }
         )
 
@@ -1240,6 +1295,10 @@ def run_etl(
         if fact_regulacion is not None:
             tables_to_truncate.append("fact_regulacion")
         tables_to_truncate.append("fact_precios")
+        if fact_renta_hist is not None:
+            tables_to_truncate.append("fact_renta_hist")
+        if fact_esfuerzo_alquiler is not None:
+            tables_to_truncate.append("fact_esfuerzo_alquiler")
         if fact_renta_avanzada is not None:
             tables_to_truncate.append("fact_renta_avanzada")
         if fact_catastro_avanzado is not None:
@@ -1395,6 +1454,15 @@ def run_etl(
             logger.debug(
                 "No se cargaron datos en fact_calidad_aire (no disponible o vacío)"
             )
+
+        if fact_renta_hist is not None and not fact_renta_hist.empty:
+            logger.info("Cargando tabla de hechos de renta histórica")
+            fact_renta_hist.to_sql(
+                "fact_renta_hist",
+                conn,
+                if_exists="append",
+                index=False,
+            )
  
         if fact_oferta_idealista is not None and not fact_oferta_idealista.empty:
             logger.info("Cargando tabla de hechos de oferta Idealista")
@@ -1425,6 +1493,15 @@ def run_etl(
         if fact_vivienda_publica is not None and not fact_vivienda_publica.empty:
             logger.info("Cargando tabla de hechos de vivienda pública")
             fact_vivienda_publica.to_sql("fact_vivienda_publica", conn, if_exists="replace", index=False)
+
+        if fact_esfuerzo_alquiler is not None and not fact_esfuerzo_alquiler.empty:
+            logger.info("Cargando tabla de hechos de esfuerzo de alquiler")
+            fact_esfuerzo_alquiler.to_sql(
+                "fact_esfuerzo_alquiler",
+                conn,
+                if_exists="append",
+                index=False,
+            )
 
          # Cargar datasets avanzados usando batch processing
         logger.info("=== Cargando datasets avanzados con procesamiento por lotes ===")

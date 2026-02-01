@@ -407,8 +407,12 @@ def validate_all_fact_tables(
     fact_catastro_avanzado: Optional[pd.DataFrame] = None,
     fact_hogares_avanzado: Optional[pd.DataFrame] = None,
     fact_turismo_intensidad: Optional[pd.DataFrame] = None,
+    fact_renta_hist: Optional[pd.DataFrame] = None,
+    fact_esfuerzo_alquiler: Optional[pd.DataFrame] = None,
     strategy: Union[str, FKValidationStrategy] = FKValidationStrategy.FILTER,
 ) -> Tuple[
+    Optional[pd.DataFrame],
+    Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
     Optional[pd.DataFrame],
@@ -670,6 +674,30 @@ def validate_all_fact_tables(
         )
         results.append(result)
 
+    # Validar fact_renta_hist
+    if fact_renta_hist is not None and not fact_renta_hist.empty:
+        fact_renta_hist, result = validate_foreign_keys(
+            df=fact_renta_hist,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_renta_hist",
+            strategy=strategy,
+        )
+        results.append(result)
+
+    # Validar fact_esfuerzo_alquiler
+    if fact_esfuerzo_alquiler is not None and not fact_esfuerzo_alquiler.empty:
+        fact_esfuerzo_alquiler, result = validate_foreign_keys(
+            df=fact_esfuerzo_alquiler,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_esfuerzo_alquiler",
+            strategy=strategy,
+        )
+        results.append(result)
+
     # Resumen de validación
     if results:
         total_invalid = sum(r.invalid_records for r in results)
@@ -705,6 +733,8 @@ def validate_all_fact_tables(
         fact_catastro_avanzado,
         fact_hogares_avanzado,
         fact_turismo_intensidad,
+        fact_renta_hist,
+        fact_esfuerzo_alquiler,
         results,
     )
 

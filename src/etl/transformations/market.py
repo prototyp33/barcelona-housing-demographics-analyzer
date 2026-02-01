@@ -771,10 +771,110 @@ def prepare_fact_alquiler_mensual(
     return result
 
 
+
+def prepare_fact_renta_hist(
+    renta_df: pd.DataFrame,
+    dim_barrios: pd.DataFrame,
+    reference_time: datetime,
+) -> pd.DataFrame:
+    """
+    Prepara la tabla fact_renta_hist a partir de los datos extraídos de IDESCAT/OpenData.
+    Unifica las diferentes métricas de renta en una estructura histórica consistente.
+    """
+    if renta_df is None or renta_df.empty:
+        return pd.DataFrame()
+
+    df = renta_df.copy()
+
+    # Columnas de renta posibles
+    renta_cols = [
+        "Import_Euros", 
+        "Import_Renda_Bruta_€", 
+        "Import_Renda_Bruta_â\x82¬",
+        "renta_euros",
+        "renta_promedio"
+    ]
+    
+    # Identificar columnas específicas
+    col_neta = None
+    col_bruta = None
+    
+    neta_candidates = ["Import_Euros", "renta_euros"]
+    bruta_candidates = ["Import_Renda_Bruta_€", "Import_Renda_Bruta_â\x82¬", "Import_Renda_Bruta"]
+    
+    for c in neta_candidates:
+        if c in df.columns:
+            col_neta = c
+            break
+    
+    for c in bruta_candidates:
+        if c in df.columns:
+            col_bruta = c
+            break
+
+    # Normalización básica
+    df["anio"] = pd.to_numeric(df["anio"], errors="coerce").astype("Int64")
+    if col_neta: df[col_neta] = pd.to_numeric(df[col_neta], errors="coerce")
+    if col_bruta: df[col_bruta] = pd.to_numeric(df[col_bruta], errors="coerce")
+    
+    # Mapeo de barrios
+    if "barrio_id" not in df.columns:
+        if "Codi_Barri" in df.columns:
+            df["codi_barri_str"] = df["Codi_Barri"].astype(str).str.strip().str.zfill(2)
+            dim_map = dim_barrios[["barrio_id", "codi_barri"]].copy()
+            dim_map["codi_barri"] = dim_map["codi_barri"].astype(str).str.strip().str.zfill(2)
+            df = df.merge(dim_map, left_on="codi_barri_str", right_on="codi_barri", how="left")
+        else:
+            logger.error("No se puede mapear barrios: falta Codi_Barri y barrio_id")
+            return pd.DataFrame()
+
+    # Limpieza final
+    subset = ["barrio_id", "anio"]
+    df = df.dropna(subset=subset)
+    
+    if df.empty:
+        return pd.DataFrame()
+
+    # Agregación
+    agg_dict = {}
+    if col_neta: agg_dict[col_neta] = ["mean", "median"]
+    if col_bruta: agg_dict[col_bruta] = ["mean"]
+    
+    result = df.groupby(["barrio_id", "anio"], as_index=False).agg(agg_dict)
+    
+    # Flatten columns
+    cols = ["barrio_id", "anio"]
+    if col_neta:
+        cols.extend(["renta_neta", "renta_mediana"])
+    if col_bruta:
+        cols.append("renta_bruta")
+        
+    result.columns = cols
+    
+    # Definir renta_media (preferir neta, sino bruta con aviso)
+    if "renta_neta" in result.columns and "renta_bruta" in result.columns:
+        result["renta_media"] = result["renta_neta"].fillna(result["renta_bruta"])
+    elif "renta_neta" in result.columns:
+        result["renta_media"] = result["renta_neta"]
+    else:
+        result["renta_media"] = result["renta_bruta"]
+        
+    result["dataset_id"] = df["dataset_id"].iloc[0] if "dataset_id" in df.columns else "idescat_historical"
+    result["source"] = df["source"].iloc[0] if "source" in df.columns else "idescat"
+    result["etl_loaded_at"] = reference_time.isoformat()
+    
+    # Asegurar tipos
+    result["barrio_id"] = result["barrio_id"].astype(int)
+    result["anio"] = result["anio"].astype(int)
+    
+    logger.info(f"fact_renta_hist preparado: {len(result)} registros")
+    return result
+
 __all__ = [
     "prepare_fact_precios",
     "prepare_renta_barrio",
     "load_idescat_income",
     "prepare_fact_alquiler_mensual",
+    "prepare_fact_renta_hist"
 ]
 
