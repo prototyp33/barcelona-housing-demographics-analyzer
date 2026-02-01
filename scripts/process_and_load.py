@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Nivel de logging para la ejecución",
     )
+    parser.add_argument(
+        "--skip-models",
+        action="store_true",
+        help="Si se establece, no se reentrenarán los modelos predictivos",
+    )
     return parser
 
 
@@ -65,6 +70,21 @@ def main() -> int:
         )
         logging.info("ETL finalizado. Base de datos disponible en %s", db_path)
         print(f"✅ ETL completado. Base de datos: {db_path}")
+
+        # Trigger model training (Predictor)
+        if not args.skip_models:
+            print("🧠 Entrenando modelos predictivos...")
+            try:
+                from src.models.price_predictor import PricePredictor
+                predictor = PricePredictor()
+                predictor.train()
+                predictor.save_models()
+                logging.info("Modelos predictivos actualizados con éxito.")
+                print("✅ Modelos predictivos actualizados.")
+            except Exception as e:
+                logging.warning("No se pudieron actualizar los modelos predictivos: %s", e)
+                print(f"⚠️ Error al entrenar modelos: {e}")
+
         return 0
     except Exception as exc:  # noqa: BLE001
         logging.exception("La ejecución del ETL falló: %s", exc)
