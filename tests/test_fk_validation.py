@@ -211,6 +211,8 @@ class TestValidateAllFactTables:
             catastro_out,
             hogares_out,
             turismo_out,
+            renta_hist_out,
+            esfuerzo_out,
             results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
@@ -245,6 +247,8 @@ class TestValidateAllFactTables:
             catastro_out,
             hogares_out,
             turismo_out,
+            renta_hist_out,
+            esfuerzo_out,
             results,
         ) = validate_all_fact_tables(
             dim_barrios=dim_barrios,
