@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from src.etl.transformations.demographics import (
-    _compute_age_metrics_from_raw,
+    _compute_demographic_stats_from_raw,
     _compute_area_by_barrio,
     _compute_building_age_proxy,
     _compute_foreign_purchase_share,
@@ -701,7 +701,7 @@ class TestPrivateHelperFunctions:
             assert isinstance(result, pd.DataFrame)
             assert len(result) == 0
 
-    def test_compute_age_metrics_from_raw_no_directory(
+    def test_compute_demographic_stats_from_raw_no_directory(
         self,
         sample_dim_barrios: pd.DataFrame,
         tmp_path: Path,
@@ -710,7 +710,7 @@ class TestPrivateHelperFunctions:
         raw_dir = tmp_path / "raw"
         # No crear directorio opendatabcn
 
-        result = _compute_age_metrics_from_raw(
+        result = _compute_demographic_stats_from_raw(
             raw_base_dir=raw_dir,
             dim_barrios=sample_dim_barrios,
         )
@@ -1034,7 +1034,7 @@ class TestPrivateHelperFunctions:
                 if result["area_m2"].notna().any():
                     assert (result["area_m2"] > 0).all()
 
-    def test_compute_age_metrics_from_raw_with_valid_csv(
+    def test_compute_demographic_stats_from_raw_with_valid_csv(
         self,
         sample_dim_barrios: pd.DataFrame,
         tmp_path: Path,
@@ -1045,16 +1045,18 @@ class TestPrivateHelperFunctions:
         opendata_dir.mkdir(parents=True)
 
         # Crear archivo CSV con datos de edad quinquenal válidos
+        # LLOC_NAIX_CONTINENT: 1=España, 2=extranjero (requerido por _compute_demographic_stats_from_raw)
         age_file = opendata_dir / "opendatabcn_pad_mdb_lloc-naix-continent_edat-q_sexe_2022.csv"
         age_data = pd.DataFrame({
             "Codi_Barri": [1, 1, 1, 1, 2, 2, 2, 2],
             "EDAT_Q": [2, 5, 13, 15, 2, 5, 13, 15],  # 10, 25, 65, 75 años
+            "LLOC_NAIX_CONTINENT": [1, 1, 1, 2, 1, 1, 1, 2],
             "Valor": [100, 200, 150, 100, 120, 180, 130, 90],
             "Data_Referencia": ["2022-01-01"] * 8,
         })
         age_data.to_csv(age_file, index=False)
 
-        result = _compute_age_metrics_from_raw(
+        result = _compute_demographic_stats_from_raw(
             raw_base_dir=raw_dir,
             dim_barrios=sample_dim_barrios,
         )
@@ -1071,7 +1073,7 @@ class TestPrivateHelperFunctions:
                 assert (result["pct_mayores_65"] >= 0).all()
                 assert (result["pct_mayores_65"] <= 100).all()
 
-    def test_compute_age_metrics_from_raw_alternative_pattern(
+    def test_compute_demographic_stats_from_raw_alternative_pattern(
         self,
         sample_dim_barrios: pd.DataFrame,
         tmp_path: Path,
@@ -1086,19 +1088,20 @@ class TestPrivateHelperFunctions:
         age_data = pd.DataFrame({
             "Codi_Barri": [1, 1],
             "EDAT_Q": [2, 15],
+            "NACIONALITAT_CONTINENT": [1, 1],
             "Valor": [100, 150],
             "Data_Referencia": ["2022-01-01"] * 2,
         })
         age_data.to_csv(age_file, index=False)
 
-        result = _compute_age_metrics_from_raw(
+        result = _compute_demographic_stats_from_raw(
             raw_base_dir=raw_dir,
             dim_barrios=sample_dim_barrios,
         )
 
         assert isinstance(result, pd.DataFrame)
 
-    def test_compute_age_metrics_from_raw_missing_columns(
+    def test_compute_demographic_stats_from_raw_missing_columns(
         self,
         sample_dim_barrios: pd.DataFrame,
         tmp_path: Path,
@@ -1115,7 +1118,7 @@ class TestPrivateHelperFunctions:
         })
         age_data.to_csv(age_file, index=False)
 
-        result = _compute_age_metrics_from_raw(
+        result = _compute_demographic_stats_from_raw(
             raw_base_dir=raw_dir,
             dim_barrios=sample_dim_barrios,
         )

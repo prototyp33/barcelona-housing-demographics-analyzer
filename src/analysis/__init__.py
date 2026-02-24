@@ -23,6 +23,8 @@ from .data_access import (
     get_kpis,
     get_price_trends,
     get_geojson,
+    get_accessibility_metrics,
+    get_safety_and_tourism,
 )
 from .descriptive import (
     calculate_trends,
@@ -47,6 +49,8 @@ __all__ = [
     "get_kpis",
     "get_price_trends",
     "get_geojson",
+    "get_accessibility_metrics",
+    "get_safety_and_tourism",
     "calculate_trends",
     "compare_barrios",
     "identify_outliers",
