@@ -1,5 +1,11 @@
 # 🏠 Barcelona Housing Demographics Analyzer
 
+[![CI Pipeline](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/prototyp33/barcelona-housing-demographics-analyzer)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/releases)
+[![License](https://img.shields.io/github/license/prototyp33/barcelona-housing-demographics-analyzer)](LICENSE)
+[![Issues](https://img.shields.io/github/issues/prototyp33/barcelona-housing-demographics-analyzer)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/issues)
+[![Last commit](https://img.shields.io/github/last-commit/prototyp33/barcelona-housing-demographics-analyzer/main)](https://github.com/prototyp33/barcelona-housing-demographics-analyzer/commits/main)
+
 A comprehensive data analytics platform for Barcelona's housing market, combining demographic data, accessibility metrics, and machine learning to provide insights into housing prices and neighborhood characteristics.
 
 ---
