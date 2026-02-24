@@ -57,6 +57,7 @@ def mock_barrios_weights() -> pd.DataFrame:
     })
 
 
+@pytest.mark.skip(reason="extract_idescat_alquiler reemplazado por extract_idescat_vivienda_publica")
 def test_extract_idescat_alquiler_success(output_dir: Path) -> None:
     """Debe extraer datos de alquiler IDESCAT correctamente."""
     extractor = ViviendaPublicaExtractor(output_dir=output_dir)
@@ -83,6 +84,7 @@ def test_extract_idescat_alquiler_success(output_dir: Path) -> None:
     assert meta["year"] == 2024
 
 
+@pytest.mark.skip(reason="extract_idescat_alquiler reemplazado por extract_idescat_vivienda_publica")
 def test_extract_idescat_alquiler_list_response(output_dir: Path) -> None:
     """Debe manejar respuestas que son listas directamente."""
     extractor = ViviendaPublicaExtractor(output_dir=output_dir)
@@ -103,6 +105,7 @@ def test_extract_idescat_alquiler_list_response(output_dir: Path) -> None:
     assert len(df) == 1
 
 
+@pytest.mark.skip(reason="extract_idescat_alquiler reemplazado por extract_idescat_vivienda_publica")
 def test_extract_idescat_alquiler_unexpected_structure(output_dir: Path) -> None:
     """Debe manejar estructuras de respuesta inesperadas."""
     extractor = ViviendaPublicaExtractor(output_dir=output_dir)
@@ -494,6 +497,7 @@ def test_distribute_to_barrios_missing_columns(output_dir: Path, mock_barrios_we
         mock_db_path.unlink()
 
 
+@pytest.mark.skip(reason="extract_idescat_alquiler reemplazado por extract_idescat_vivienda_publica")
 def test_extract_idescat_alquiler_http_error(output_dir: Path) -> None:
     """Debe manejar errores HTTP correctamente."""
     extractor = ViviendaPublicaExtractor(output_dir=output_dir)

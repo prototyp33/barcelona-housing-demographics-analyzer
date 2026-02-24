@@ -92,8 +92,7 @@ def test_load_map_data_successful_load(
     """
     Verifica que load_map_data carga datos y transforma geometry_json en geometry.
     """
-
-    # DataFrame simulado que normalmente vendría de la base de datos
+    # DataFrame simulado que devuelve get_yield_analysis (app usa esta función, no sqlite directo)
     raw_df = pd.DataFrame(
         {
             "barrio_id": [1],
@@ -103,34 +102,19 @@ def test_load_map_data_successful_load(
         }
     )
 
-    class DummyConnection:
-        """Conexión simulada sin comportamiento real."""
+    def mock_get_yield_analysis(year: int, distrito: Any = None) -> pd.DataFrame:
+        return raw_df.copy()
 
-        def close(self) -> None:
-            return None
-
-    class DummySqlite:
-        """Módulo sqlite3 simulado para el módulo de app."""
-
-        @staticmethod
-        def connect(_db_path: Path) -> "DummyConnection":  # type: ignore[name-defined]
-            return DummyConnection()
-
-    class DummyPandas:
-        """Módulo pandas simulado para el módulo de app."""
-
-        @staticmethod
-        def read_sql_query(query: str, conn: DummyConnection) -> pd.DataFrame:  # noqa: ARG001
-            return raw_df
+    def mock_get_available_years() -> dict:
+        return {"fact_precios": {"max": 2023}}
 
     db_path = tmp_path / "fake_db.sqlite"
     db_path.touch()
 
     monkeypatch.setattr(app, "st", dummy_st)
     monkeypatch.setattr(app, "DB_PATH", db_path)
-    # Sobrescribir dependencias internas del módulo app
-    monkeypatch.setattr(app, "sqlite3", DummySqlite)
-    monkeypatch.setattr(app, "pd", DummyPandas)
+    monkeypatch.setattr(app, "get_yield_analysis", mock_get_yield_analysis)
+    monkeypatch.setattr(app, "get_available_years", mock_get_available_years)
 
     load_fn = getattr(app.load_map_data, "__wrapped__", app.load_map_data)
     df = load_fn()
