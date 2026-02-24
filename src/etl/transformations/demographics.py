@@ -109,6 +109,9 @@ def prepare_fact_demografia(
     fact["edad_media"] = pd.NA
     fact["porc_inmigracion"] = pd.NA
     fact["densidad_hab_km2"] = pd.NA
+    fact["pct_mayores_65"] = pd.NA
+    fact["pct_menores_15"] = pd.NA
+    fact["indice_envejecimiento"] = pd.NA
     fact["dataset_id"] = dataset_id
     fact["source"] = source
     fact["etl_loaded_at"] = reference_time.isoformat()
@@ -124,6 +127,9 @@ def prepare_fact_demografia(
             "edad_media",
             "porc_inmigracion",
             "densidad_hab_km2",
+            "pct_mayores_65",
+            "pct_menores_15",
+            "indice_envejecimiento",
             "dataset_id",
             "source",
             "etl_loaded_at",
@@ -499,17 +505,19 @@ def _compute_area_by_barrio(
     return df[["barrio_id", "anio", "area_m2", "dataset_id", "source"]]
 
 
-def _compute_age_metrics_from_raw(
+def _compute_demographic_stats_from_raw(
     raw_base_dir: Path,
     dim_barrios: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Calcula métricas demográficas basadas en edad desde los datos raw.
+    Calcula métricas demográficas detalladas basadas en edad y nacionalidad desde datos raw.
 
     Calcula por barrio y año:
     - pct_mayores_65: Porcentaje de población ≥65 años.
     - pct_menores_15: Porcentaje de población <15 años.
     - indice_envejecimiento: (Población 65+ / Población 0-14) * 100.
+    - edad_media: Edad media estimada de la población (usando puntos medios de grupos).
+    - porc_inmigracion: Porcentaje de población con nacionalidad extranjera (continente != 1).
     """
     opendata_dir = Path(raw_base_dir) / "opendatabcn"
 
@@ -517,11 +525,12 @@ def _compute_age_metrics_from_raw(
         logger.debug("Directorio OpenDataBCN no encontrado: %s", opendata_dir)
         return pd.DataFrame()
 
-    pattern = "opendatabcn_pad_mdb_lloc-naix-continent_edat-q_sexe_*.csv"
+    # Priorizamos el dataset de nacionalidad que tiene tanto edad como origen
+    pattern = "opendatabcn_pad_mdb_nacionalitat-contintent_edat-q_sexe_*.csv"
     candidates = sorted(opendata_dir.glob(pattern), key=lambda path: path.stat().st_mtime)
 
     if not candidates:
-        pattern_alt = "opendatabcn_pad_mdb_nacionalitat-contintent_edat-q_sexe_*.csv"
+        pattern_alt = "opendatabcn_pad_mdb_lloc-naix-continent_edat-q_sexe_*.csv"
         candidates = sorted(
             opendata_dir.glob(pattern_alt),
             key=lambda path: path.stat().st_mtime,
@@ -532,7 +541,7 @@ def _compute_age_metrics_from_raw(
         return pd.DataFrame()
 
     raw_path = candidates[-1]
-    logger.info("Calculando métricas de edad desde: %s", raw_path.name)
+    logger.info("Calculando métricas demográficas desde: %s", raw_path.name)
 
     try:
         df = pd.read_csv(raw_path)
@@ -540,10 +549,17 @@ def _compute_age_metrics_from_raw(
         logger.warning("Error leyendo archivo demográfico: %s", exc)
         return pd.DataFrame()
 
+    # Buscar columna de continente/nacionalidad
+    orig_col = None
+    for col in ["NACIONALITAT_CONTINENT", "LLOC_NAIX_CONTINENT"]:
+        if col in df.columns:
+            orig_col = col
+            break
+
     required_cols = {"Codi_Barri", "EDAT_Q", "Valor", "Data_Referencia"}
-    if not required_cols.issubset(df.columns):
+    if not required_cols.issubset(df.columns) or orig_col is None:
         logger.warning(
-            "Archivo demográfico no tiene columnas requeridas: %s",
+            "Archivo demográfico no tiene columnas requeridas: %s o falta columna de origen",
             required_cols,
         )
         return pd.DataFrame()
@@ -554,10 +570,27 @@ def _compute_age_metrics_from_raw(
 
     df["Codi_Barri"] = pd.to_numeric(df["Codi_Barri"], errors="coerce").astype("Int64")
     df["EDAT_Q"] = pd.to_numeric(df["EDAT_Q"], errors="coerce").astype("Int64")
+    df[orig_col] = pd.to_numeric(df[orig_col], errors="coerce").astype("Int64")
 
     df["anio"] = pd.to_datetime(df["Data_Referencia"], errors="coerce").dt.year
     df = df.dropna(subset=["anio"])
     df["anio"] = df["anio"].astype(int)
+
+    # Definir pesos para edad media (puntos medios)
+    def age_midpoint(q):
+        if q < 20:
+            return (q * 5) + 2.5
+        return 102.5  # 100+
+
+    # Identificar el grupo mayoritario (Doméstico/España) de forma dinámica para evitar errores de codificación
+    group_totals = df.groupby(orig_col)["Valor"].sum()
+    domestic_group = group_totals.idxmax()
+    logger.debug("Identificado grupo doméstico mayoritario: %s (Valor=%s)", domestic_group, group_totals.max())
+
+    df["edad_weight"] = df["EDAT_Q"].apply(age_midpoint)
+    df["total_years"] = df["Valor"] * df["edad_weight"]
+    df["es_extranjero"] = (df[orig_col] != domestic_group).astype(int)
+    df["valor_extranjero"] = df["Valor"] * df["es_extranjero"]
 
     def clasificar_grupo_edad(edad_q: int) -> str:
         edad_min = edad_q * 5
@@ -569,53 +602,70 @@ def _compute_age_metrics_from_raw(
 
     df["grupo_demo"] = df["EDAT_Q"].apply(clasificar_grupo_edad)
 
-    pivot = (
+    # Agregación completa
+    stats = (
+        df.groupby(["Codi_Barri", "anio"])
+        .agg(
+            poblacion_total=("Valor", "sum"),
+            poblacion_extranjera=("valor_extranjero", "sum"),
+            suma_edades=("total_years", "sum"),
+        )
+        .reset_index()
+    )
+
+    # Agregación por grupos de edad para índices
+    age_groups = (
         df.groupby(["Codi_Barri", "anio", "grupo_demo"])["Valor"]
         .sum()
         .reset_index()
         .pivot(index=["Codi_Barri", "anio"], columns="grupo_demo", values="Valor")
         .reset_index()
+        .fillna(0)
     )
 
-    for column in ["menores_15", "mayores_65", "otros"]:
-        if column not in pivot.columns:
-            pivot[column] = 0
+    result_df = stats.merge(age_groups, on=["Codi_Barri", "anio"], how="left")
 
-    pivot["poblacion_total"] = (
-        pivot["menores_15"] + pivot["mayores_65"] + pivot["otros"]
+    # Cálculos finales
+    result_df["pct_mayores_65"] = np.where(
+        result_df["poblacion_total"] > 0,
+        (result_df["mayores_65"] / result_df["poblacion_total"]) * 100.0,
+        np.nan,
     )
-
-    pivot["pct_mayores_65"] = np.where(
-        pivot["poblacion_total"] > 0,
-        (pivot["mayores_65"] / pivot["poblacion_total"]) * 100,
+    result_df["pct_menores_15"] = np.where(
+        result_df["poblacion_total"] > 0,
+        (result_df["menores_15"] / result_df["poblacion_total"]) * 100.0,
+        np.nan,
+    )
+    result_df["indice_envejecimiento"] = np.where(
+        result_df["menores_15"] > 0,
+        (result_df["mayores_65"] / result_df["menores_15"]) * 100.0,
+        np.nan,
+    )
+    result_df["edad_media"] = np.where(
+        result_df["poblacion_total"] > 0,
+        result_df["suma_edades"] / result_df["poblacion_total"],
+        np.nan,
+    )
+    result_df["porc_inmigracion"] = np.where(
+        result_df["poblacion_total"] > 0,
+        (result_df["poblacion_extranjera"] / result_df["poblacion_total"]) * 100.0,
         np.nan,
     )
 
-    pivot["pct_menores_15"] = np.where(
-        pivot["poblacion_total"] > 0,
-        (pivot["menores_15"] / pivot["poblacion_total"]) * 100,
-        np.nan,
-    )
-
-    pivot["indice_envejecimiento"] = np.where(
-        pivot["menores_15"] > 0,
-        (pivot["mayores_65"] / pivot["menores_15"]) * 100,
-        np.nan,
-    )
-
-    result = pivot.rename(columns={"Codi_Barri": "barrio_id"})[
-        ["barrio_id", "anio", "pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]
+    result = result_df.rename(columns={"Codi_Barri": "barrio_id"})[
+        [
+            "barrio_id", "anio", "pct_mayores_65", "pct_menores_15", 
+            "indice_envejecimiento", "edad_media", "porc_inmigracion"
+        ]
     ]
 
     valid_barrios = set(dim_barrios["barrio_id"].unique())
     result = result[result["barrio_id"].isin(valid_barrios)]
 
     logger.info(
-        "Métricas de edad calculadas: %s registros (%s barrios, años %s-%s)",
+        "Métricas demográficas completas calculadas: %s registros (%s barrios)",
         len(result),
         result["barrio_id"].nunique(),
-        result["anio"].min(),
-        result["anio"].max(),
     )
 
     return result
@@ -643,6 +693,43 @@ def enrich_fact_demografia(
     inmigracion_initial_na = enriched["porc_inmigracion"].isna()
     densidad_initial_na = enriched["densidad_hab_km2"].isna()
 
+    # 1. Obtener métricas detalladas desde OpenData BCN (Edad media, Inmigración actual, etc.)
+    demographic_stats = _compute_demographic_stats_from_raw(raw_base_dir, dim_barrios)
+    
+    if not demographic_stats.empty:
+        # Marcamos métricas que intentaremos llenar desde aquí
+        target_cols = ["edad_media", "porc_inmigracion", "pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]
+        
+        # Guardamos estados iniciales para logging
+        initial_nas = {col: enriched[col].isna() for col in target_cols}
+        
+        # Merge inteligente: si el año coincide, genial. Si no, propagamos el último.
+        fact_years = set(enriched["anio"].unique())
+        stats_years = set(demographic_stats["anio"].unique())
+        overlapping_years = fact_years & stats_years
+        
+        if not overlapping_years and not stats_years:
+             pass 
+        elif not overlapping_years:
+            latest_year = demographic_stats["anio"].max()
+            logger.info("Propagando métricas demográficas desde el año %s", latest_year)
+            stats_latest = demographic_stats[demographic_stats["anio"] == latest_year].drop(columns=["anio"])
+            enriched = enriched.merge(stats_latest, on="barrio_id", how="left", suffixes=("", "_raw"))
+        else:
+            enriched = enriched.merge(demographic_stats, on=["barrio_id", "anio"], how="left", suffixes=("", "_raw"))
+            
+        # Llenar huecos con los datos de los CSVs raw
+        for col in target_cols:
+            raw_col = f"{col}_raw"
+            if raw_col in enriched.columns:
+                mask = enriched[col].isna() & enriched[raw_col].notna()
+                if mask.any():
+                    enriched.loc[mask, col] = enriched.loc[mask, raw_col]
+                    # Actualizar metadatos
+                    enriched.loc[mask, "source"] = enriched.loc[mask, "source"].apply(lambda s: _append_tag(s, "opendatabcn_raw"))
+                enriched = enriched.drop(columns=[raw_col])
+
+    # 2. Hogares y Tamaño de Hogar (Portal de Dades)
     households_info = _compute_household_metrics(
         portaldades_dir,
         dim_barrios,
@@ -660,6 +747,7 @@ def enrich_fact_demografia(
         enriched["hogares_totales"] = hogares_combined.infer_objects(copy=False)
         enriched = enriched.drop(columns=["hogares_observados"])
 
+        # Para años sin datos de hogares (como 2025), estimar usando el último avg_size conocido
         avg_size_series = (
             households_info.dropna(subset=["avg_size"])
             .sort_values("anio")
@@ -701,6 +789,7 @@ def enrich_fact_demografia(
                 "source",
             ].apply(lambda current: _append_tag(current, "portaldades"))
 
+    # 3. Inmigración / Compras Extranjeras (Fallback si no hay datos demográficos directos)
     immigration_info = _compute_foreign_purchase_share(portaldades_dir, dim_barrios)
     if not immigration_info.empty:
         enriched = enriched.merge(
@@ -710,7 +799,7 @@ def enrich_fact_demografia(
             suffixes=("", "_enriched"),
         )
         mask_imm = (
-            inmigracion_initial_na & enriched["porc_inmigracion_enriched"].notna()
+            enriched["porc_inmigracion"].isna() & enriched["porc_inmigracion_enriched"].notna()
         )
         if mask_imm.any():
             enriched.loc[mask_imm, "porc_inmigracion"] = enriched.loc[
@@ -727,6 +816,7 @@ def enrich_fact_demografia(
             ].apply(lambda current: _append_tag(current, "portaldades"))
         enriched = enriched.drop(columns=["porc_inmigracion_enriched"])
 
+    # 4. Edad Media de Edificaciones (Solo como último recurso si no hay edad media demográfica)
     building_age = _compute_building_age_proxy(portaldades_dir, dim_barrios)
     if not building_age.empty:
         building_age_latest = (
@@ -739,7 +829,7 @@ def enrich_fact_demografia(
             on="barrio_id",
             how="left",
         )
-        mask_age = edad_initial_na & enriched["edad_media_proxy"].notna()
+        mask_age = enriched["edad_media"].isna() & enriched["edad_media_proxy"].notna()
         if mask_age.any():
             enriched.loc[mask_age, "edad_media"] = enriched.loc[
                 mask_age,
@@ -755,6 +845,7 @@ def enrich_fact_demografia(
             ].apply(lambda current: _append_tag(current, "portaldades"))
         enriched = enriched.drop(columns=["edad_media_proxy"])
 
+    # 5. Superficie y Densidad (Usar última área conocida)
     area_info = _compute_area_by_barrio(portaldades_dir, dim_barrios)
     if not area_info.empty:
         area_latest = (
@@ -764,7 +855,7 @@ def enrich_fact_demografia(
         )
         enriched = enriched.merge(area_latest, on="barrio_id", how="left")
         mask_density = (
-            densidad_initial_na
+            enriched["densidad_hab_km2"].isna()
             & enriched["area_m2"].notna()
             & enriched["area_m2"].gt(0)
             & enriched["poblacion_total"].notna()
@@ -789,88 +880,8 @@ def enrich_fact_demografia(
     enriched["densidad_hab_km2"] = enriched["densidad_hab_km2"].astype("Float64")
     enriched["edad_media"] = enriched["edad_media"].astype("Float64")
 
-    age_metrics = _compute_age_metrics_from_raw(raw_base_dir, dim_barrios)
-
-    if not age_metrics.empty:
-        for column in ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]:
-            if column not in enriched.columns:
-                enriched[column] = pd.NA
-
-        mayores_initial_na = enriched["pct_mayores_65"].isna()
-        menores_initial_na = enriched["pct_menores_15"].isna()
-        envej_initial_na = enriched["indice_envejecimiento"].isna()
-
-        fact_years = set(enriched["anio"].unique())
-        metric_years = set(age_metrics["anio"].unique())
-        overlapping_years = fact_years & metric_years
-
-        if not overlapping_years:
-            latest_year = age_metrics["anio"].max()
-            logger.info(
-                "No hay overlap de años entre fact_demografia (%s) y métricas de edad (%s). "
-                "Propagando métricas del año %s a todos los años.",
-                sorted(fact_years),
-                sorted(metric_years),
-                latest_year,
-            )
-
-            age_metrics_latest = age_metrics[age_metrics["anio"] == latest_year].copy()
-            age_metrics_latest = age_metrics_latest.drop(columns=["anio"])
-
-            enriched = enriched.merge(
-                age_metrics_latest,
-                on=["barrio_id"],
-                how="left",
-                suffixes=("", "_new"),
-            )
-        else:
-            enriched = enriched.merge(
-                age_metrics,
-                on=["barrio_id", "anio"],
-                how="left",
-                suffixes=("", "_new"),
-            )
-
-        for column in ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]:
-            new_col = f"{column}_new"
-            if new_col in enriched.columns:
-                mask = enriched[column].isna() & enriched[new_col].notna()
-                if mask.any():
-                    enriched.loc[mask, column] = enriched.loc[mask, new_col]
-                enriched = enriched.drop(columns=[new_col])
-
-        enriched["pct_mayores_65"] = enriched["pct_mayores_65"].astype("Float64")
-        enriched["pct_menores_15"] = enriched["pct_menores_15"].astype("Float64")
-        enriched["indice_envejecimiento"] = enriched[
-            "indice_envejecimiento"
-        ].astype("Float64")
-
-        mayores_filled = int(
-            (mayores_initial_na & enriched["pct_mayores_65"].notna()).sum(),
-        )
-        menores_filled = int(
-            (menores_initial_na & enriched["pct_menores_15"].notna()).sum(),
-        )
-        envej_filled = int(
-            (envej_initial_na & enriched["indice_envejecimiento"].notna()).sum(),
-        )
-
-        if mayores_filled or menores_filled or envej_filled:
-            logger.info(
-                "Métricas de edad enriquecidas: mayores_65=%s, menores_15=%s, "
-                "envejecimiento=%s",
-                mayores_filled,
-                menores_filled,
-                envej_filled,
-            )
-    else:
-        for column in ["pct_mayores_65", "pct_menores_15", "indice_envejecimiento"]:
-            if column not in enriched.columns:
-                enriched[column] = pd.NA
-
     logger.info(
-        "Enriquecimiento demográfico completado: hogares=%s, edad=%s, inmigración=%s, "
-        "densidad=%s",
+        "Enriquecimiento demográfico completado: hogares=%s, edad=%s, inmigración=%s, densidad=%s",
         int((hogares_initial_na & enriched["hogares_totales"].notna()).sum()),
         int((edad_initial_na & enriched["edad_media"].notna()).sum()),
         int((inmigracion_initial_na & enriched["porc_inmigracion"].notna()).sum()),

@@ -655,6 +655,14 @@ def run_etl(
                         [fact_standard_filtered, fact_demografia_2025],
                         ignore_index=True
                     ).sort_values(["anio", "barrio_id"]).reset_index(drop=True)
+
+                    # Re-enriquecer el total para asegurar consistencia (especialmente para 2025)
+                    fact_demografia = enrich_fact_demografia(
+                        fact_demografia,
+                        dim_barrios,
+                        raw_base_dir=raw_base_dir,
+                        reference_time=reference_time,
+                    )
                     
                     logger.info("✓ Demografía combinada: %s registros (años %s-%s)",
                         len(fact_demografia),
@@ -681,6 +689,15 @@ def run_etl(
                     dim_barrios,
                     reference_time
                 )
+                
+                # Enriquecer métricas adicionales
+                if fact_demografia is not None and not fact_demografia.empty:
+                    fact_demografia = enrich_fact_demografia(
+                        fact_demografia,
+                        dim_barrios,
+                        raw_base_dir=raw_base_dir,
+                        reference_time=reference_time,
+                    )
                 if fact_demografia is not None and not fact_demografia.empty:
                     logger.info("✓ fact_demografia poblada desde ampliada: %s registros", len(fact_demografia))
             except Exception as e:

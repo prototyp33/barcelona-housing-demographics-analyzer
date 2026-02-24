@@ -158,6 +158,7 @@ CREATE_TABLE_STATEMENTS = (
         trimestre INTEGER,
         precio_m2_venta REAL,
         precio_mes_alquiler REAL,
+        indicador TEXT,
         dataset_id TEXT,
         source TEXT,
         etl_loaded_at TEXT,
@@ -170,6 +171,7 @@ CREATE_TABLE_STATEMENTS = (
         barrio_id,
         anio,
         COALESCE(trimestre, -1),
+        COALESCE(indicador, ''),
         COALESCE(dataset_id, ''),
         COALESCE(source, '')
     );
@@ -199,8 +201,9 @@ CREATE_TABLE_STATEMENTS = (
         anio INTEGER NOT NULL,
         mes INTEGER NOT NULL,
         precio_mes_alquiler REAL,
+        indicador TEXT,
         dataset_id TEXT,
-        source TEXT DEFAULT 'opendatabcn',
+        source TEXT,
         etl_loaded_at TEXT,
         FOREIGN KEY (barrio_id) REFERENCES dim_barrios (barrio_id)
     );
@@ -211,6 +214,7 @@ CREATE_TABLE_STATEMENTS = (
         barrio_id,
         anio,
         mes,
+        COALESCE(indicador, ''),
         COALESCE(dataset_id, ''),
         COALESCE(source, '')
     );
@@ -1041,6 +1045,48 @@ def migrate_database_schema(conn: sqlite3.Connection) -> None:
                     )
             if missing_vpo_cols.keys() - vpo_columns:
                 logger.info("? Columnas adicionales a?adidas a fact_vivienda_publica")
+
+            # A?adir columna indicador a fact_precios si falta
+            cursor = conn.execute("PRAGMA table_info(fact_precios)")
+            precios_columns = {row[1] for row in cursor.fetchall()}
+            if "indicador" not in precios_columns:
+                logger.info("A?adiendo columna indicador a fact_precios")
+                conn.execute("ALTER TABLE fact_precios ADD COLUMN indicador TEXT")
+                # Recrear el índice único para incluir indicador
+                conn.execute("DROP INDEX IF EXISTS idx_fact_precios_unique")
+                conn.execute("""
+                    CREATE UNIQUE INDEX idx_fact_precios_unique
+                    ON fact_precios (
+                        barrio_id,
+                        anio,
+                        COALESCE(trimestre, -1),
+                        COALESCE(indicador, ''),
+                        COALESCE(dataset_id, ''),
+                        COALESCE(source, '')
+                    );
+                """)
+                logger.info("? Columna indicador y nuevo índice único creados en fact_precios")
+
+            # A?adir columna indicador a fact_alquiler_mensual si falta
+            cursor = conn.execute("PRAGMA table_info(fact_alquiler_mensual)")
+            alquiler_columns = {row[1] for row in cursor.fetchall()}
+            if "indicador" not in alquiler_columns:
+                logger.info("A?adiendo columna indicador a fact_alquiler_mensual")
+                conn.execute("ALTER TABLE fact_alquiler_mensual ADD COLUMN indicador TEXT")
+                # Recrear el índice único
+                conn.execute("DROP INDEX IF EXISTS idx_fact_alquiler_mensual_unique")
+                conn.execute("""
+                    CREATE UNIQUE INDEX idx_fact_alquiler_mensual_unique
+                    ON fact_alquiler_mensual (
+                        barrio_id,
+                        anio,
+                        mes,
+                        COALESCE(indicador, ''),
+                        COALESCE(dataset_id, ''),
+                        COALESCE(source, '')
+                    );
+                """)
+                logger.info("? Columna indicador y nuevo índice único creados en fact_alquiler_mensual")
     except sqlite3.Error as e:
         logger.warning("Error al aplicar migraci?n de esquema: %s", e)
         # No lanzar excepci?n para no romper el flujo si la tabla no existe a?n

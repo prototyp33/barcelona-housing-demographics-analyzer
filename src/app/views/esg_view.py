@@ -72,7 +72,7 @@ def render_social_infrastructure(year: int, distrito: Optional[str] = None):
                 return
                 
         apply_plotly_theme(fig_pie)
-        st.plotly_chart(fig_pie, use_container_width=True, key="esg_infrastructure_pie")
+        st.plotly_chart(fig_pie, width="stretch", key="esg_infrastructure_pie")
 
     with col2:
         # Bar chart de Vivienda Pública por barrio
@@ -89,7 +89,7 @@ def render_social_infrastructure(year: int, distrito: Optional[str] = None):
             )
             apply_plotly_theme(fig_bar)
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_bar, use_container_width=True, key="esg_vivienda_bar")
+            st.plotly_chart(fig_bar, width="stretch", key="esg_vivienda_bar")
         else:
             st.info("🏘️ Datos de vivienda pública no disponibles para este año")
 
@@ -142,7 +142,7 @@ def render_safety_and_tourism(year: int, distrito: Optional[str] = None):
     )
     
     apply_plotly_theme(fig_scatter)
-    st.plotly_chart(fig_scatter, use_container_width=True, key="esg_safety_scatter")
+    st.plotly_chart(fig_scatter, width="stretch", key="esg_safety_scatter")
     
     # Add summary metrics below the chart
     col1, col2, col3 = st.columns(3)
@@ -202,7 +202,7 @@ def render_model_fairness():
     with st.expander("Ver Histórico de Auditorías CI/CD"):
         st.dataframe(
             df_equity[['model_version', 'mae', 'r2', 'ges', 'ipr', 'etl_loaded_at']],
-            use_container_width=True
+            width="stretch"
         )
 
 def render(year: Optional[int] = None, distrito_filter: Optional[str] = None):
@@ -275,7 +275,7 @@ def render_education_chart(year: int, distrito: Optional[str] = None):
     )
     
     apply_plotly_theme(fig)
-    st.plotly_chart(fig, use_container_width=True, key="esg_education_bar")
+    st.plotly_chart(fig, width="stretch", key="esg_education_bar")
 
 
 def render_housing_chart(year: int, distrito: Optional[str] = None):
@@ -308,4 +308,4 @@ def render_housing_chart(year: int, distrito: Optional[str] = None):
     )
     
     apply_plotly_theme(fig)
-    st.plotly_chart(fig, use_container_width=True, key="esg_housing_bar")
+    st.plotly_chart(fig, width="stretch", key="esg_housing_bar")

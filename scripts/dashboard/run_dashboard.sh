@@ -147,7 +147,7 @@ setup_environment() {
     print_info "Configurando entorno..."
     
     # Establecer PYTHONPATH
-    export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}"
+    export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
     cd "$PROJECT_ROOT"
     
     print_success "Entorno configurado"

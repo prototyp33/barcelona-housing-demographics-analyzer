@@ -182,7 +182,7 @@ def main():
             ))
             
             st.subheader("Data Highlights")
-            st.dataframe(df_yield.drop(columns=['geometry_json']), use_container_width=True, hide_index=True)
+            st.dataframe(df_yield.drop(columns=['geometry_json']), width="stretch", hide_index=True)
 
     with tab3:
         st.header("Dual Comparative Yield")
@@ -209,7 +209,7 @@ def main():
                 title=f"Yield Comparison: Real vs Market ({selected_year})"
             )
             fig.update_layout(xaxis_title="Neighborhood", yaxis_title="Annual Yield %")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         else:
             st.info("Please select a year with data.")
     with tab4:
@@ -241,7 +241,7 @@ def main():
                         color="total_centros_educativos",
                         color_continuous_scale="Blues"
                     )
-                    st.plotly_chart(fig_edu, use_container_width=True)
+                    st.plotly_chart(fig_edu, width="stretch")
                 else:
                     st.warning("No education/housing data available.")
                     
@@ -261,7 +261,7 @@ def main():
                         title="Airbnb Listings vs. Crime Rate",
                         labels={"num_listings_airbnb": "Airbnb listings", "tasa_criminalidad_1000hab": "Crime Rate"}
                     )
-                    st.plotly_chart(fig_safe, use_container_width=True)
+                    st.plotly_chart(fig_safe, width="stretch")
                 else:
                     st.warning("No safety/tourism data available.")
 
@@ -274,7 +274,7 @@ def main():
             )
             st.dataframe(
                 full_metrics.drop(columns=['geometry_json']), 
-                use_container_width=True, 
+                width="stretch", 
                 hide_index=True
             )
 

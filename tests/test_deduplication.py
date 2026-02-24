@@ -20,6 +20,7 @@ def test_fact_precios_deduplication():
             'trimestre': pd.NA,
             'precio_m2_venta': 3500.0,
             'precio_mes_alquiler': pd.NA,
+            'indicador': 'venda-indicator-1',
             'dataset_id': 'indicator_1',
             'source': 'portaldades',
             'etl_loaded_at': '2023-01-01T00:00:00'
@@ -31,6 +32,7 @@ def test_fact_precios_deduplication():
             'trimestre': pd.NA,
             'precio_m2_venta': 3200.0,
             'precio_mes_alquiler': pd.NA,
+            'indicador': 'venda-indicator-2',
             'dataset_id': 'indicator_2',
             'source': 'portaldades',
             'etl_loaded_at': '2023-01-01T00:00:00'

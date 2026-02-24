@@ -8,21 +8,15 @@ y su relación con factores demográficos.
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Configurar el path ANTES de importar streamlit o cualquier módulo src
-# Esto es crítico para que las importaciones funcionen correctamente
+# Crítico cuando se ejecuta sin PYTHONPATH (ej: streamlit run directo)
 _file_path = Path(__file__).resolve()
 PROJECT_ROOT = _file_path.parent.parent.parent
-
-# Añadir al path de múltiples formas para asegurar compatibilidad
-project_root_str = str(PROJECT_ROOT)
-if project_root_str not in sys.path:
-    sys.path.insert(0, project_root_str)
-# También añadir al PYTHONPATH de entorno si no está
-if 'PYTHONPATH' not in os.environ or project_root_str not in os.environ.get('PYTHONPATH', ''):
-    os.environ['PYTHONPATH'] = f"{project_root_str}:{os.environ.get('PYTHONPATH', '')}"
+_project_root_str = str(PROJECT_ROOT)
+if _project_root_str not in sys.path:
+    sys.path.insert(0, _project_root_str)
 
 import streamlit as st
 import logging
@@ -644,7 +638,7 @@ def main() -> None:
             
             if utility_section == "📖 Diccionario":
                 st.caption("Ver diccionario de datos completo en la pestaña principal")
-                if st.button("Abrir Diccionario", use_container_width=True):
+                if st.button("Abrir Diccionario", width="stretch"):
                     st.info("Navega a Settings > Diccionario de Datos")
             
             elif utility_section == "📥 Descargas":
@@ -656,7 +650,7 @@ def main() -> None:
                             data=fp,
                             file_name="barcelona_housing.db",
                             mime="application/x-sqlite3",
-                            use_container_width=True,
+                            width="stretch",
                         )
                 
                 st.caption("**Reporte Ejecutivo**")
@@ -670,7 +664,7 @@ def main() -> None:
                                 data=fr,
                                 file_name=latest_report.name,
                                 mime="text/html",
-                                use_container_width=True,
+                                width="stretch",
                             )
                 except Exception:
                     pass

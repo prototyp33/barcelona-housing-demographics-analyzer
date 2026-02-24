@@ -13,7 +13,9 @@ if [ -f "$SCRIPT_DIR/scripts/dashboard/run_dashboard.sh" ]; then
     exec "$SCRIPT_DIR/scripts/dashboard/run_dashboard.sh" "$@"
 else
     # Fallback al comportamiento original
-    export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+    # Usar SCRIPT_DIR para asegurar que PYTHONPATH apunte al root del proyecto
+    cd "$SCRIPT_DIR"
+    export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH}"
     lsof -ti:8501 | xargs kill -9 2>/dev/null || true
     sleep 1
     echo "🚀 Starting Barcelona Housing Demographics Dashboard..."

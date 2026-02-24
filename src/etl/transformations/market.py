@@ -202,6 +202,7 @@ def _prepare_venta_prices(
             "trimestre": pd.NA,
             "precio_m2_venta": merged[value_column],
             "precio_mes_alquiler": pd.NA,
+            "indicador": pd.NA,
             "dataset_id": dataset_id,
             "source": source_series.loc[merged.index],
             "etl_loaded_at": reference_time.isoformat(),
@@ -251,7 +252,7 @@ def prepare_fact_precios(
         fact_venta = (
             fact_venta.sort_values(["anio", "barrio_id", "source"])
             .drop_duplicates(
-                subset=["barrio_id", "anio", "trimestre", "dataset_id", "source"],
+                subset=["barrio_id", "anio", "trimestre", "indicador", "dataset_id", "source"],
                 keep="first",
             )
             .reset_index(drop=True)
@@ -282,7 +283,7 @@ def prepare_fact_precios(
         fact_alquiler = (
             fact_alquiler.sort_values(["anio", "barrio_id", "source"])
             .drop_duplicates(
-                subset=["barrio_id", "anio", "trimestre", "dataset_id", "source"],
+                subset=["barrio_id", "anio", "trimestre", "indicador", "dataset_id", "source"],
                 keep="first",
             )
             .reset_index(drop=True)
@@ -306,6 +307,7 @@ def prepare_fact_precios(
                 "barrio_id",
                 "anio",
                 "trimestre",
+                "indicador",
                 "dataset_id",
                 "source",
             ]
@@ -354,6 +356,7 @@ def prepare_fact_precios(
         "trimestre",
         "precio_m2_venta",
         "precio_mes_alquiler",
+        "indicador",
         "dataset_id",
         "source",
         "etl_loaded_at",
@@ -411,10 +414,20 @@ def prepare_renta_barrio(
         raise ValueError(f"DataFrame faltan columnas requeridas: {missing}")
 
     renta_col: Optional[str] = None
-    for column in ["Import_Euros", "Import_Renda_Bruta_€", "Import"]:
-        if column in df.columns:
-            renta_col = column
+    # Prioridad por nombres conocidos y variantes de encoding para el símbolo €
+    target_prefixes = ["Import_Euros", "Import_Renda_Bruta", "Import"]
+    
+    for col in df.columns:
+        if any(prefix in col for prefix in target_prefixes):
+            renta_col = col
             break
+            
+    # Si no se encuentra, buscar por el símbolo directamente (mangles included)
+    if renta_col is None:
+        for column in df.columns:
+            if "€" in column or "â‚¬" in column or "â\x82\xac" in column:
+                renta_col = column
+                break
 
     if renta_col is None:
         raise ValueError(

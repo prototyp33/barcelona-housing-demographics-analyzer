@@ -142,15 +142,21 @@ def prepare_portaldades_precios(
                 or "m2" in nombre_indicador.lower()
             )
 
+            # Identificar dimensiones adicionales para no promediar indicadores distintos
+            dim_cols = [c for c in df.columns if c.startswith("Dim-") and c not in required_cols]
+            
             # Para evitar pérdida de granularidad cuando TEMPS trae meses, agregamos anual a nivel barrio-año
             # y, adicionalmente, preservamos mensual en una tabla dedicada.
             if is_venta and is_precio_m2:
+                group_keys = ["barrio_id", "anio"] + dim_cols
                 grouped = (
-                    df.groupby(["barrio_id", "anio"], as_index=False)["VALUE"]
+                    df.groupby(group_keys, as_index=False)["VALUE"]
                     .mean()
                     .rename(columns={"VALUE": "precio_m2_venta"})
                 )
                 for _, row in grouped.iterrows():
+                    # El indicador es la combinación de las dimensiones adicionales
+                    indicador = "|".join([str(row[c]) for c in dim_cols if pd.notna(row[c])]) if dim_cols else None
                     venta_records.append(
                         {
                             "barrio_id": int(row["barrio_id"]),
@@ -159,18 +165,21 @@ def prepare_portaldades_precios(
                             "trimestre": pd.NA,
                             "precio_m2_venta": float(row["precio_m2_venta"]),
                             "precio_mes_alquiler": pd.NA,
+                            "indicador": indicador,
                             "dataset_id": file_id,
                             "source": "portaldades",
                             "etl_loaded_at": reference_time.isoformat(),
                         }
                     )
             elif is_alquiler and not is_precio_m2:
+                group_keys = ["barrio_id", "anio"] + dim_cols
                 grouped = (
-                    df.groupby(["barrio_id", "anio"], as_index=False)["VALUE"]
+                    df.groupby(group_keys, as_index=False)["VALUE"]
                     .mean()
                     .rename(columns={"VALUE": "precio_mes_alquiler"})
                 )
                 for _, row in grouped.iterrows():
+                    indicador = "|".join([str(row[c]) for c in dim_cols if pd.notna(row[c])]) if dim_cols else None
                     alquiler_records.append(
                         {
                             "barrio_id": int(row["barrio_id"]),
@@ -179,6 +188,7 @@ def prepare_portaldades_precios(
                             "trimestre": pd.NA,
                             "precio_m2_venta": pd.NA,
                             "precio_mes_alquiler": float(row["precio_mes_alquiler"]),
+                            "indicador": indicador,
                             "dataset_id": file_id,
                             "source": "portaldades",
                             "etl_loaded_at": reference_time.isoformat(),
@@ -190,18 +200,21 @@ def prepare_portaldades_precios(
                 mensual["mes"] = pd.to_numeric(mensual["mes"], errors="coerce").astype("Int64")
                 mensual = mensual[mensual["mes"].between(1, 12, inclusive="both")]
                 if not mensual.empty:
+                    group_keys_m = ["barrio_id", "anio", "mes"] + dim_cols
                     grouped_m = (
-                        mensual.groupby(["barrio_id", "anio", "mes"], as_index=False)["VALUE"]
+                        mensual.groupby(group_keys_m, as_index=False)["VALUE"]
                         .mean()
                         .rename(columns={"VALUE": "precio_mes_alquiler"})
                     )
                     for _, row in grouped_m.iterrows():
+                        indicador = "|".join([str(row[c]) for c in dim_cols if pd.notna(row[c])]) if dim_cols else None
                         alquiler_mensual_records.append(
                             {
                                 "barrio_id": int(row["barrio_id"]),
                                 "anio": int(row["anio"]),
                                 "mes": int(row["mes"]),
                                 "precio_mes_alquiler": float(row["precio_mes_alquiler"]),
+                                "indicador": indicador,
                                 "dataset_id": file_id,
                                 "source": "portaldades",
                                 "etl_loaded_at": reference_time.isoformat(),
@@ -225,13 +238,13 @@ def prepare_portaldades_precios(
     if not venta_df.empty:
         venta_df = (
             venta_df.sort_values(["anio", "barrio_id", "dataset_id", "source", "etl_loaded_at"])
-            .drop_duplicates(subset=["barrio_id", "anio", "dataset_id", "source"], keep="last")
+            .drop_duplicates(subset=["barrio_id", "anio", "indicador", "dataset_id", "source"], keep="last")
             .reset_index(drop=True)
         )
     if not alquiler_df.empty:
         alquiler_df = (
             alquiler_df.sort_values(["anio", "barrio_id", "dataset_id", "source", "etl_loaded_at"])
-            .drop_duplicates(subset=["barrio_id", "anio", "dataset_id", "source"], keep="last")
+            .drop_duplicates(subset=["barrio_id", "anio", "indicador", "dataset_id", "source"], keep="last")
             .reset_index(drop=True)
         )
     if not alquiler_mensual_df.empty:

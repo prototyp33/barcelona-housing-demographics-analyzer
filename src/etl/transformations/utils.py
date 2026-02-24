@@ -290,10 +290,10 @@ def _map_continente_to_nacionalidad(continente_code: int) -> str:
         Categoría de nacionalidad.
     """
     mapping = {
-        1: "Europa",
+        1: "África",
         2: "América",
-        3: "África",
-        4: "Asia",
+        3: "Asia",
+        4: "Europa",
         5: "Oceanía",
         999: "No consta",
     }

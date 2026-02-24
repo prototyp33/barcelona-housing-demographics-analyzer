@@ -591,12 +591,13 @@ def load_precios(year: int, distrito: Optional[str] = None) -> pd.DataFrame:
         except Exception:
             pass
 
-        # 3. Consolidar - filter out empty or all-NA DataFrames
+        # 3. Consolidar - filtrar DataFrames vacíos y columnas all-NA para evitar FutureWarning
         dfs = [df for df in [df_off, df_id] if not df.empty and not df.isna().all().all()]
         if not dfs:
             return pd.DataFrame()
-            
-        df = pd.concat(dfs, ignore_index=True).groupby('barrio_id').agg({
+        # Eliminar columnas totalmente NA de cada df antes de concat (evita FutureWarning pandas 2.2+)
+        dfs_clean = [d.dropna(axis=1, how="all") for d in dfs]
+        df = pd.concat(dfs_clean, ignore_index=True).groupby('barrio_id').agg({
             'barrio_nombre': 'first',
             'distrito_nombre': 'first',
             'geometry_json': 'first',

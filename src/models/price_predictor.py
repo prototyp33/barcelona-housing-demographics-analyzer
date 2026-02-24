@@ -94,6 +94,7 @@ class PricePredictor:
         results = {}
         
         # 1. Linear Regression (Baseline)
+        logger.info("Training Linear Regression...")
         lr_pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("model", LinearRegression())
@@ -101,8 +102,9 @@ class PricePredictor:
         lr_pipeline.fit(X_train, y_train)
         results["linear"] = self._evaluate_model(lr_pipeline, X_train, y_train, X_test, y_test, cv_folds)
         
-        # 2. Ridge Regression
-        ridge_alphas = [0.1, 1.0, 10.0, 50.0, 100.0]
+        # 2. Ridge Regression (Exhaustive search)
+        logger.info("Training Ridge Regression with grid search...")
+        ridge_alphas = np.logspace(-3, 4, 50)
         ridge_pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("model", RidgeCV(alphas=ridge_alphas, cv=cv_folds))
@@ -110,14 +112,25 @@ class PricePredictor:
         ridge_pipeline.fit(X_train, y_train)
         results["ridge"] = self._evaluate_model(ridge_pipeline, X_train, y_train, X_test, y_test, cv_folds)
         
-        # 3. Lasso Regression
-        lasso_alphas = [0.0005, 0.001, 0.01, 0.1, 1.0]
+        # 3. Lasso Regression (Exhaustive search)
+        logger.info("Training Lasso Regression with grid search...")
+        lasso_alphas = np.logspace(-5, 2, 50)
         lasso_pipeline = Pipeline([
             ("scaler", StandardScaler()),
-            ("model", LassoCV(alphas=lasso_alphas, cv=cv_folds, max_iter=10000))
+            ("model", LassoCV(alphas=lasso_alphas, cv=cv_folds, max_iter=20000))
         ])
         lasso_pipeline.fit(X_train, y_train)
         results["lasso"] = self._evaluate_model(lasso_pipeline, X_train, y_train, X_test, y_test, cv_folds)
+
+        # 4. ElasticNet (Combination of L1 and L2)
+        logger.info("Training ElasticNet with grid search...")
+        from sklearn.linear_model import ElasticNetCV
+        enet_pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", ElasticNetCV(l1_ratio=[.1, .5, .7, .9, .95, .99, 1], alphas=lasso_alphas, cv=cv_folds, max_iter=20000))
+        ])
+        enet_pipeline.fit(X_train, y_train)
+        results["elasticnet"] = self._evaluate_model(enet_pipeline, X_train, y_train, X_test, y_test, cv_folds)
         
         self.models = results
         

@@ -15,7 +15,8 @@ import json
 
 from src.models.price_predictor import PricePredictor, MODELS_DIR
 from src.app.components import card_standard, render_section_header, create_metric_grid, render_kpi_card, create_two_column_layout, render_spacer
-from src.app.styles import PROFESSIONAL_COLORS, COLORS
+from src.app.utils import PROFESSIONAL_COLORS
+from src.app.design_system import COLORS
 from src.app.data_loader import get_connection, get_geojson
 
 logger = logging.getLogger(__name__)
@@ -207,7 +208,7 @@ def render(year: int = 2023) -> None:
                     text_auto='.2f'
                 )
                 fig.update_layout(height=450, margin=dict(l=20, r=20, t=20, b=20), plot_bgcolor='white')
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 
                 st.info("💡 **Gini Inmobiliario:** En Barcelona, la **Renta Familiar** y la **Presión de Airbnb** son los dos motores más potentes de revalorización, seguidos de cerca por la estructura demográfica (% extranjeros y tamaño del hogar).")
 
@@ -244,7 +245,7 @@ def render(year: int = 2023) -> None:
                 hover_data=["barrio_nombre", "target_precio_m2", "prediction", "renta_media"]
             )
             fig_map.update_layout(height=600, margin={"r": 0, "t": 0, "l": 0, "b": 0})
-            st.plotly_chart(fig_map, use_container_width=True)
+            st.plotly_chart(fig_map, width="stretch")
             
             if map_view_type == "Error (Residuales)":
                 st.markdown("""
@@ -272,7 +273,7 @@ def render(year: int = 2023) -> None:
             fig_sens = px.line(sens_df, x="value", y="prediction", title=f"Variación de Precio vs {name_map.get(feat_choice, feat_choice)}")
             fig_sens.add_scatter(x=[input_df[feat_choice].iloc[0]], y=[prediction], mode='markers', marker=dict(size=12, color='red'), name="Actual")
             fig_sens.update_layout(height=450, plot_bgcolor='white', xaxis_title=name_map.get(feat_choice, feat_choice), yaxis_title="Precio (€/m²)")
-            st.plotly_chart(fig_sens, use_container_width=True)
+            st.plotly_chart(fig_sens, width="stretch")
 
     # Interpretation Help Footer
     st.markdown("---")
