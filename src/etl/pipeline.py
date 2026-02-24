@@ -1174,6 +1174,7 @@ def run_etl(
         fact_turismo_intensidad = prepare_fact_turismo_intensidad(turismo_intensidad_files, dim_barrios, reference_time) if turismo_intensidad_files else None
 
         # 14. Calcular esfuerzo de alquiler (Affordability)
+        fact_esfuerzo_alquiler = None
         if fact_precios is not None and not fact_precios.empty and \
            fact_renta_hist is not None and not fact_renta_hist.empty:
             logger.info("Calculando métricas de esfuerzo de alquiler (series históricas)...")
@@ -1186,6 +1187,7 @@ def run_etl(
             except Exception as e:
                 logger.warning("Error calculando esfuerzo de alquiler: %s", e)
                 logger.debug(traceback.format_exc())
+                fact_esfuerzo_alquiler = None
 
         # === VALIDACIÓN DE INTEGRIDAD REFERENCIAL ===
         # Validar todas las fact tables antes de insertar en SQLite

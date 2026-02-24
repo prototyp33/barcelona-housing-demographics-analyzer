@@ -675,6 +675,8 @@ class TestRunETL:
                 None,  # fact_catastro_avanzado
                 None,  # fact_hogares_avanzado
                 None,  # fact_turismo_intensidad
+                None,  # fact_renta_hist
+                None,  # fact_esfuerzo_alquiler
                 [],  # fk_validation_results
             )
 
@@ -754,6 +756,8 @@ class TestRunETL:
                 None,  # fact_catastro_avanzado
                 None,  # fact_hogares_avanzado
                 None,  # fact_turismo_intensidad
+                None,  # fact_renta_hist
+                None,  # fact_esfuerzo_alquiler
                 [],  # fk_validation_results
             )
 
@@ -840,6 +844,8 @@ class TestRunETL:
                 None,  # fact_catastro_avanzado
                 None,  # fact_hogares_avanzado
                 None,  # fact_turismo_intensidad
+                None,  # fact_renta_hist
+                None,  # fact_esfuerzo_alquiler
                 [],
             )
 
@@ -939,6 +945,8 @@ class TestRunETL:
                 None,  # fact_catastro_avanzado
                 None,  # fact_hogares_avanzado
                 None,  # fact_turismo_intensidad
+                None,  # fact_renta_hist
+                None,  # fact_esfuerzo_alquiler
                 [],  # fk_validation_results
             )
 
@@ -1023,6 +1031,8 @@ class TestRunETL:
                 None,  # fact_catastro_avanzado
                 None,  # fact_hogares_avanzado
                 None,  # fact_turismo_intensidad
+                None,  # fact_renta_hist
+                None,  # fact_esfuerzo_alquiler
                 [],  # fk_validation_results
             )
 
@@ -1155,6 +1165,8 @@ class TestRunETL:
                 None,  # fact_catastro_avanzado
                 None,  # fact_hogares_avanzado
                 None,  # fact_turismo_intensidad
+                None,  # fact_renta_hist
+                None,  # fact_esfuerzo_alquiler
                 [],
             )
 

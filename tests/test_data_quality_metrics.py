@@ -40,7 +40,7 @@ def sample_data():
     }
 
 
-@patch("src.app.data_quality_metrics.get_connection")
+@patch("src.app.data_quality_metrics._db_manager.get_connection")
 def test_calculate_completeness(mock_get_conn, mock_connection):
     """Test cálculo de completitud."""
     # Mock de resultados SQL
@@ -60,7 +60,7 @@ def test_calculate_completeness(mock_get_conn, mock_connection):
         assert 0 <= result <= 100
 
 
-@patch("src.app.data_quality_metrics.get_connection")
+@patch("src.app.data_quality_metrics._db_manager.get_connection")
 def test_calculate_validity(mock_get_conn):
     """Test cálculo de validez."""
     mock_conn = Mock()
@@ -78,7 +78,7 @@ def test_calculate_validity(mock_get_conn):
         assert 0 <= result <= 100
 
 
-@patch("src.app.data_quality_metrics.get_connection")
+@patch("src.app.data_quality_metrics._db_manager.get_connection")
 def test_calculate_consistency(mock_get_conn):
     """Test cálculo de consistencia."""
     mock_conn = Mock()
@@ -95,7 +95,7 @@ def test_calculate_consistency(mock_get_conn):
         assert 0 <= result <= 100
 
 
-@patch("src.app.data_quality_metrics.get_connection")
+@patch("src.app.data_quality_metrics._db_manager.get_connection")
 def test_calculate_timeliness(mock_get_conn):
     """Test cálculo de actualidad."""
     mock_conn = Mock()
@@ -112,7 +112,7 @@ def test_calculate_timeliness(mock_get_conn):
         assert result >= 0
 
 
-@patch("src.app.data_quality_metrics.get_connection")
+@patch("src.app.data_quality_metrics._db_manager.get_connection")
 def test_detect_quality_issues(mock_get_conn):
     """Test detección de issues."""
     mock_conn = Mock()
@@ -131,17 +131,20 @@ def test_detect_quality_issues(mock_get_conn):
 
 def test_get_quality_history():
     """Test obtención de historial de calidad."""
-    # Esta función usa otras funciones cached, así que solo verificamos estructura
-    with patch("src.app.data_quality_metrics.calculate_completeness", return_value=96.2):
-        with patch("src.app.data_quality_metrics.calculate_validity", return_value=98.5):
-            with patch("src.app.data_quality_metrics.calculate_consistency", return_value=94.8):
-                from src.app.data_quality_metrics import get_quality_history
-                
-                result = get_quality_history()
-                
-                assert isinstance(result, pd.DataFrame)
-                assert "fecha" in result.columns
-                assert "completeness" in result.columns
-                assert "validity" in result.columns
-                assert "consistency" in result.columns
+    # get_quality_history usa _db_manager.get_connection() y pd.read_sql; sin tabla falla y usa fallback
+    with patch("src.app.data_quality_metrics._db_manager.get_connection") as mock_get_conn:
+        mock_conn = Mock()
+        mock_get_conn.return_value = mock_conn
+        with patch("pandas.read_sql") as mock_read_sql:
+            mock_read_sql.side_effect = Exception("tabla no existe")
+            with patch("src.app.data_quality_metrics.calculate_completeness", return_value=96.2):
+                with patch("src.app.data_quality_metrics.calculate_validity", return_value=98.5):
+                    with patch("src.app.data_quality_metrics.calculate_consistency", return_value=94.8):
+                        from src.app.data_quality_metrics import get_quality_history
+                        result = get_quality_history()
+                        assert isinstance(result, pd.DataFrame)
+                        assert "fecha" in result.columns
+                        assert "completeness" in result.columns
+                        assert "validity" in result.columns
+                        assert "consistency" in result.columns
 
