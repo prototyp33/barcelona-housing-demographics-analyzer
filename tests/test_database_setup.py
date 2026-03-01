@@ -11,6 +11,7 @@ from src.database_setup import (
     create_connection,
     create_database_schema,
     ensure_database_path,
+    ensure_dim_tiempo,
     register_etl_run,
     truncate_tables,
     validate_table_name,
@@ -189,6 +190,46 @@ def test_register_etl_run():
             assert result is not None
             assert result[0] == run_id
             assert result[1] == status
+        finally:
+            conn.close()
+
+
+def test_ensure_dim_tiempo():
+    """Verifica que ensure_dim_tiempo crea y puebla dim_tiempo."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+        conn = create_connection(db_path)
+        try:
+            create_database_schema(conn)
+            ensure_dim_tiempo(conn)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM dim_tiempo")
+            count = cursor.fetchone()[0]
+            assert count > 0, "dim_tiempo debe tener registros"
+            cursor.execute(
+                "SELECT anio, periodo FROM dim_tiempo ORDER BY anio LIMIT 3"
+            )
+            rows = cursor.fetchall()
+            assert any(r[0] >= 2012 for r in rows)
+        finally:
+            conn.close()
+
+
+def test_ensure_dim_tiempo_idempotent():
+    """Verifica que ensure_dim_tiempo es idempotente (puede llamarse 2 veces)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+        conn = create_connection(db_path)
+        try:
+            create_database_schema(conn)
+            ensure_dim_tiempo(conn)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM dim_tiempo")
+            count1 = cursor.fetchone()[0]
+            ensure_dim_tiempo(conn)
+            cursor.execute("SELECT COUNT(*) FROM dim_tiempo")
+            count2 = cursor.fetchone()[0]
+            assert count1 == count2
         finally:
             conn.close()
 

@@ -12,6 +12,94 @@ from src.etl.validators import (
 )
 
 
+def test_validate_foreign_keys_empty_dataframe(
+    dim_barrios: pd.DataFrame,
+) -> None:
+    """DataFrame vacío retorna copia y resultado con 0 registros."""
+    empty_df = pd.DataFrame(columns=["barrio_id", "anio", "precio_m2_venta"])
+    result_df, result = validate_foreign_keys(
+        df=empty_df,
+        fk_column="barrio_id",
+        reference_df=dim_barrios,
+        pk_column="barrio_id",
+        table_name="fact_precios",
+        strategy="filter",
+    )
+    assert len(result_df) == 0
+    assert result.total_records == 0
+    assert result.valid_records == 0
+    assert result.invalid_records == 0
+
+
+def test_validate_foreign_keys_strict_raises(
+    dim_barrios: pd.DataFrame,
+    fact_precios_invalid: pd.DataFrame,
+) -> None:
+    """Modo STRICT lanza FKValidationError cuando hay FK inválidos."""
+    with pytest.raises(FKValidationError) as exc_info:
+        validate_foreign_keys(
+            df=fact_precios_invalid,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_precios",
+            strategy="strict",
+        )
+    assert exc_info.value.table_name == "fact_precios"
+    assert 99 in exc_info.value.invalid_keys or 100 in exc_info.value.invalid_keys
+
+
+def test_validate_foreign_keys_warn_no_filter(
+    dim_barrios: pd.DataFrame,
+    fact_precios_invalid: pd.DataFrame,
+) -> None:
+    """Modo WARN no filtra, retorna todos los registros."""
+    result_df, result = validate_foreign_keys(
+        df=fact_precios_invalid,
+        fk_column="barrio_id",
+        reference_df=dim_barrios,
+        pk_column="barrio_id",
+        table_name="fact_precios",
+        strategy="warn",
+    )
+    assert len(result_df) == len(fact_precios_invalid)
+    assert result.invalid_records == 2
+
+
+def test_validate_foreign_keys_missing_fk_column(
+    dim_barrios: pd.DataFrame,
+    fact_precios_valid: pd.DataFrame,
+) -> None:
+    """Columna FK inexistente lanza ValueError."""
+    with pytest.raises(ValueError) as exc_info:
+        validate_foreign_keys(
+            df=fact_precios_valid,
+            fk_column="columna_inexistente",
+            reference_df=dim_barrios,
+            pk_column="barrio_id",
+            table_name="fact_precios",
+            strategy="filter",
+        )
+    assert "columna_inexistente" in str(exc_info.value)
+
+
+def test_validate_foreign_keys_missing_pk_column(
+    dim_barrios: pd.DataFrame,
+    fact_precios_valid: pd.DataFrame,
+) -> None:
+    """Columna PK inexistente en referencia lanza ValueError."""
+    with pytest.raises(ValueError) as exc_info:
+        validate_foreign_keys(
+            df=fact_precios_valid,
+            fk_column="barrio_id",
+            reference_df=dim_barrios,
+            pk_column="pk_inexistente",
+            table_name="fact_precios",
+            strategy="filter",
+        )
+    assert "pk_inexistente" in str(exc_info.value)
+
+
 @pytest.fixture
 def dim_barrios() -> pd.DataFrame:
     """Fixture con dimensión de barrios de prueba."""

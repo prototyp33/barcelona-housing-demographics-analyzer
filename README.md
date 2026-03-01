@@ -38,7 +38,7 @@ pip install -r requirements.txt
 #### Option 1: Streamlit Dashboard (Recommended)
 
 ```bash
-./run_dashboard.sh
+./scripts/run_dashboard.sh
 ```
 
 Then open http://localhost:8501 in your browser.
@@ -46,7 +46,7 @@ Then open http://localhost:8501 in your browser.
 #### Option 2: FastAPI Backend
 
 ```bash
-./run_api.sh
+./scripts/run_api.sh
 ```
 
 Then open http://localhost:8000/docs for API documentation.
@@ -159,8 +159,8 @@ barcelona-housing-demographics-analyzer/
 ├── data/
 │   ├── raw/             # Raw extracted data
 │   └── processed/       # Processed database
-├── run_dashboard.sh     # Helper to run Streamlit
-└── run_api.sh          # Helper to run FastAPI
+├── scripts/run_dashboard.sh   # Helper to run Streamlit
+└── scripts/run_api.sh        # Helper to run FastAPI
 ```
 
 ---

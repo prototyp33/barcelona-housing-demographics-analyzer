@@ -13,7 +13,9 @@ Data analysis platform combining demographic and real estate data for Barcelona'
 - **Database**: SQLite (`data/processed/database.db`)
 - **Analysis**: Jupyter notebooks
 - **Testing**: pytest
-- **Future**: Streamlit dashboard (post-sprint)
+- **Dashboard**: Streamlit (`src/app/`)
+- **API**: FastAPI (`src/api/`)
+- **ML**: XGBoost, scikit-learn (modelos de predicción de precios)
 
 ### Data Sources & Constraints
 | Source | Coverage | Constraints |
@@ -30,29 +32,25 @@ Data analysis platform combining demographic and real estate data for Barcelona'
 - All extractors inherit from `BaseExtractor` pattern
 - Database has referential integrity enforced via foreign keys
 
-## Current Sprint Focus: Data Integrity (Nov 2025)
+## Current Project Status (Feb 2026)
 
-**Priority Tasks (MUST complete before new features)**:
-1. Fix deduplication in `fact_precios` table (data loss issue)
-2. Inject GeoJSON geometries into `dim_barrios.geometry_json`
-3. Enrich demographic fields in `fact_demografia`
+**Active Components**:
+- ✅ Streamlit dashboard (Overview, Market View, Demographics, Map, Correlations, Data Quality)
+- ✅ FastAPI backend con endpoints para barrios, precios, accesibilidad
+- ✅ Modelos ML Phase 5: ensemble con features ESG (R² ~0.90, MAE ~212€)
+- ✅ Pipeline ETL: TMB/OSM (1.071 paradas bus, 165 estaciones), fact_movilidad
+- ✅ Fairness A/B harness con métricas GES, IPR, PDI
 
-**Blocked Until Sprint Complete**:
-- ❌ Streamlit dashboard development
-- ❌ New Idealista scraping features
-- ❌ Machine learning models
-- ❌ Advanced visualizations
-
-**Sprint Success Criteria**:
-- `fact_precios`: Multi-source records preserved (>1014 rows)
-- `dim_barrios`: 73/73 barrios have valid geometry_json
-- `fact_demografia`: <10% null values in key fields
+**Prioridades en curso**:
+1. Feature engineering de accesibilidad (normalización, interacciones)
+2. Resolver tests preexistentes (servicios_salud, zonas_verdes, educacion)
+3. Mantener integridad de datos (fact_precios, dim_barrios.geometry_json)
 
 ## Key Files Reference
 - Main database schema: `src/database_setup.py`
-- ETL pipeline: `src/data_processing.py`
-- Data cleaners: `src/transform/cleaners.py`
-- Logging utility: `src/utils/logger.py`
+- ETL pipeline: `src/etl/pipeline.py`
+- Mobility features: `src/processing/prepare_movilidad.py`
+- Model training: `scripts/optimize_model.py`, `scripts/fairness_ab_harness.py`
 
 ## Directory Structure (DO NOT VIOLATE)
 barcelona-housing-demographics-analyzer/

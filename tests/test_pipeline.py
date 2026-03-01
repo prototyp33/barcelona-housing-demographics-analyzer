@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 from src.etl.pipeline import (
+    _convert_to_json_serializable,
     _find_latest_file,
     _get_latest_file_from_manifest,
     _load_manifest,
@@ -609,6 +610,48 @@ class TestHelperFunctions:
         """Verifica que lanza FileNotFoundError si path es None."""
         with pytest.raises(FileNotFoundError):
             _safe_read_csv(None)
+
+    def test_get_latest_file_from_manifest_file_not_exists(self, tmp_path: Path):
+        """Verifica que retorna None si el archivo del manifest no existe en disco."""
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        # No crear el archivo - solo poner entrada en manifest
+        manifest = [
+            {
+                "file_path": "opendatabcn/nonexistent.csv",
+                "source": "opendatabcn",
+                "type": "demographics",
+                "timestamp": "2025-11-29T12:00:00",
+            },
+        ]
+        result = _get_latest_file_from_manifest(
+            manifest, raw_dir, "demographics", source="opendatabcn"
+        )
+        assert result is None
+
+    def test_convert_to_json_serializable(self):
+        """Verifica conversión de tipos numpy/pandas a nativos Python."""
+        import numpy as np
+        # Dict con numpy int64 y float64
+        obj = {
+            "anio": np.int64(2023),
+            "precio": np.float64(3500.5),
+            "lista": [np.int32(1), np.float32(2.0)],
+            "nested": {"val": np.int64(42)},
+        }
+        result = _convert_to_json_serializable(obj)
+        assert result["anio"] == 2023
+        assert isinstance(result["anio"], int)
+        assert result["precio"] == 3500.5
+        assert isinstance(result["precio"], float)
+        assert result["lista"] == [1, 2.0]
+        assert result["nested"]["val"] == 42
+        # pd.NA -> None
+        result_na = _convert_to_json_serializable({"x": pd.NA})
+        assert result_na["x"] is None
+        # Tipos nativos pasan igual
+        assert _convert_to_json_serializable("text") == "text"
+        assert _convert_to_json_serializable(123) == 123
 
 
 class TestRunETL:

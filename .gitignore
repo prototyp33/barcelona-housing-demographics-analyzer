@@ -25,6 +25,7 @@ venv/
 ENV/
 env/
 .venv
+.venv*/
 myenv/
 
 # IDE
@@ -38,6 +39,8 @@ myenv/
 .ipynb_checkpoints
 notebooks/**/*.ipynb_checkpoints/
 notebooks/**/.ipynb_checkpoints/
+# HTML exportados por notebooks (evitar commits grandes)
+notebooks/**/*.html
 
 # Data files
 data/
@@ -82,3 +85,6 @@ docs/labels.md  # Auto-generado por update_labels_extended.py
 coverage.xml
 htmlcov/
 PR_DESCRIPTION.md
+
+# Issue tracking local (usar GitHub Issues)
+issues/

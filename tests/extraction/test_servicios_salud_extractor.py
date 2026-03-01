@@ -38,24 +38,28 @@ def mock_opendata_extractor():
 
 @pytest.fixture
 def sample_centros_salud_df():
-    """DataFrame de ejemplo con centros de salud."""
-    return pd.DataFrame({
+    """DataFrame de ejemplo con centros de salud (≥100 para criterio de aceptación)."""
+    base = pd.DataFrame({
         "nombre": ["Centro de Salud A", "Hospital B", "Centro de Salud C"],
         "latitud": [41.38, 41.40, 41.39],
         "longitud": [2.15, 2.17, 2.16],
         "tipo": ["Centro de Salud", "Hospital", "Centro de Salud"],
     })
+    # Repetir para alcanzar ≥100 centros (criterio del extractor)
+    return pd.concat([base] * 34, ignore_index=True)
 
 
 @pytest.fixture
 def sample_farmacias_df():
-    """DataFrame de ejemplo con farmacias."""
-    return pd.DataFrame({
+    """DataFrame de ejemplo con farmacias (≥200 para criterio de aceptación)."""
+    base = pd.DataFrame({
         "nombre": ["Farmacia A", "Farmacia B", "Farmacia C"],
         "latitud": [41.38, 41.40, 41.39],
         "longitud": [2.15, 2.17, 2.16],
         "tipo": ["Farmacia", "Farmacia", "Farmacia"],
     })
+    # Repetir para alcanzar ≥200 farmacias (criterio del extractor)
+    return pd.concat([base] * 67, ignore_index=True)
 
 
 class TestServiciosSaludExtractor:
@@ -67,7 +71,6 @@ class TestServiciosSaludExtractor:
         assert extractor.output_dir == tmp_path
         assert hasattr(extractor, "opendata_extractor")
     
-    @pytest.mark.skip(reason="Pre-existing: Extractor returns None instead of DataFrame - See issue #TBD")
     def test_extract_centros_salud_hospitales_success(
         self,
         extractor: ServiciosSaludExtractor,
@@ -96,9 +99,9 @@ class TestServiciosSaludExtractor:
         df, metadata = extractor.extract_centros_salud_hospitales()
         
         assert df is not None
-        assert len(df) == 3
+        assert len(df) >= 100
         assert metadata["success"] is True
-        assert metadata["centros_with_valid_coords"] == 3
+        assert metadata["centros_with_valid_coords"] >= 100
     
     def test_extract_centros_salud_hospitales_no_datasets(
         self, extractor, mock_opendata_extractor
@@ -114,7 +117,6 @@ class TestServiciosSaludExtractor:
         assert metadata["success"] is False
         assert "error" in metadata
     
-    @pytest.mark.skip(reason="Pre-existing: Extractor returns None instead of DataFrame - See issue #TBD")
     def test_extract_farmacias_success(
         self,
         extractor: ServiciosSaludExtractor,
@@ -145,9 +147,9 @@ class TestServiciosSaludExtractor:
         df, metadata = extractor.extract_farmacias()
         
         assert df is not None
-        assert len(df) == 3
+        assert len(df) >= 200
         assert metadata["success"] is True
-        assert metadata["farmacias_with_valid_coords"] == 3
+        assert metadata["farmacias_with_valid_coords"] >= 200
     
     def test_extract_farmacias_no_datasets(
         self, extractor, mock_opendata_extractor
@@ -163,7 +165,6 @@ class TestServiciosSaludExtractor:
         assert metadata["success"] is False
         assert "error" in metadata
     
-    @pytest.mark.skip(reason="Pre-existing: Extractor returns None instead of DataFrame - See issue #TBD")
     def test_extract_all_combines_sources(
         self,
         extractor: ServiciosSaludExtractor,
@@ -215,7 +216,7 @@ class TestServiciosSaludExtractor:
         df, metadata = extractor.extract_all()
         
         assert df is not None
-        assert len(df) == 6  # 3 centros + 3 farmacias
+        assert len(df) >= 300  # centros (≥100) + farmacias (≥200)
         assert "tipo_servicio" in df.columns
         assert metadata["has_centros"] is True
         assert metadata["has_farmacias"] is True
@@ -332,18 +333,25 @@ class TestServiciosSaludExtractor:
         
         assert extractor._is_farmacias_dataset(df, "equipament-sanitat") is False
     
-    @pytest.mark.skip(reason="Pre-existing: Extractor returns None instead of DataFrame - See issue #TBD")
     def test_extract_centros_salud_filters_farmacias(
         self,
         extractor: ServiciosSaludExtractor
     ):
         """Test que filtra farmacias de centros de salud."""
-        df_mixed = pd.DataFrame({
-            "nombre": ["Centro A", "Farmacia B", "Hospital C"],
-            "latitud": [41.38, 41.39, 41.40],
-            "longitud": [2.15, 2.16, 2.17],
-            "tipo": ["Centro de Salud", "Farmacia", "Hospital"],
+        # ≥100 centros para criterio; incluir 1 farmacia que debe filtrarse
+        base_centros = pd.DataFrame({
+            "nombre": ["Centro A"] * 51 + ["Hospital C"] * 51,
+            "latitud": [41.38] * 51 + [41.40] * 51,
+            "longitud": [2.15] * 51 + [2.17] * 51,
+            "tipo": ["Centro de Salud"] * 51 + ["Hospital"] * 51,
         })
+        farmacia = pd.DataFrame({
+            "nombre": ["Farmacia B"],
+            "latitud": [41.39],
+            "longitud": [2.16],
+            "tipo": ["Farmacia"],
+        })
+        df_mixed = pd.concat([base_centros, farmacia], ignore_index=True)
         
         extractor.opendata_extractor.search_datasets_by_keyword.return_value = [
             "equipament-sanitat"
@@ -359,10 +367,9 @@ class TestServiciosSaludExtractor:
         
         assert df is not None
         # Debe filtrar la farmacia
-        assert len(df) == 2  # Solo Centro A y Hospital C
+        assert len(df) == 102  # Solo Centro A y Hospital C
         assert "Farmacia B" not in df["nombre"].values
     
-    @pytest.mark.skip(reason="Pre-existing: Extractor returns None instead of DataFrame - See issue #TBD")
     def test_extract_farmacias_filters_centros(
         self,
         extractor: ServiciosSaludExtractor,
@@ -371,15 +378,24 @@ class TestServiciosSaludExtractor:
         """Test que filtra centros de salud de farmacias."""
         extractor.opendata_extractor = mock_opendata_extractor
         
-        df_mixed = pd.DataFrame({
-            "nombre": ["Centro A", "Farmacia B", "Farmacia C"],
-            "latitud": [41.38, 41.39, 41.40],
-            "longitud": [2.15, 2.16, 2.17],
-            "tipo": ["Centro de Salud", "Farmacia", "Farmacia"],
+        # ≥200 farmacias para criterio; incluir 1 centro que debe filtrarse
+        base_farmacias = pd.DataFrame({
+            "nombre": ["Farmacia B"] * 100 + ["Farmacia C"] * 100,
+            "latitud": [41.39] * 100 + [41.40] * 100,
+            "longitud": [2.16] * 100 + [2.17] * 100,
+            "tipo": ["Farmacia"] * 200,
         })
+        centro = pd.DataFrame({
+            "nombre": ["Centro A"],
+            "latitud": [41.38],
+            "longitud": [2.15],
+            "tipo": ["Centro de Salud"],
+        })
+        df_mixed = pd.concat([base_farmacias, centro], ignore_index=True)
         
+        # Usar solo "pharmacy-locations" (sin "farmacies"/"farmacias") para forzar filtro por tipo
         mock_opendata_extractor.search_datasets_by_keyword.return_value = [
-            "sanitat-farmacies"
+            "pharmacy-locations"
         ]
         mock_opendata_extractor.download_dataset.return_value = (df_mixed, {})
         mock_opendata_extractor.get_dataset_info.return_value = {
@@ -388,10 +404,14 @@ class TestServiciosSaludExtractor:
             "tags": [{"name": "farmacia"}]
         }
         
-        df, metadata = extractor.extract_farmacias()
+        # Parchear FARMACIAS_DATASET_IDS vacío para que solo se use pharmacy-locations
+        with patch.object(
+            extractor, "FARMACIAS_DATASET_IDS", []
+        ):
+            df, metadata = extractor.extract_farmacias()
         
         assert df is not None
         # Debe filtrar el centro de salud
-        assert len(df) == 2  # Solo Farmacia B y Farmacia C
+        assert len(df) == 200  # Solo Farmacia B y Farmacia C
         assert "Centro A" not in df["nombre"].values
 

@@ -511,13 +511,20 @@ def test_extract_idescat_alquiler_http_error(output_dir: Path) -> None:
     assert "error" in meta
 
 
-def test_extract_opendata_habitatge_not_implemented(output_dir: Path) -> None:
-    """Debe indicar que Open Data BCN habitatge no está completamente implementado."""
+def test_extract_opendata_habitatge_success_with_mock(output_dir: Path) -> None:
+    """Extrae habitatges tutelats de Open Data BCN cuando hay datos disponibles."""
     extractor = ViviendaPublicaExtractor(output_dir=output_dir)
+    sample_df = pd.DataFrame({
+        "register_id": ["99400216457", "99400286258"],
+        "address": ["Calle A 1", "Calle B 2"],
+    })
 
-    df, meta = extractor.extract_opendata_habitatge()
+    with patch.object(
+        extractor.opendata_extractor, "download_dataset", return_value=(sample_df, {"success": True})
+    ):
+        df, meta = extractor.extract_opendata_habitatge()
 
-    assert df is None
-    assert meta["success"] is False
-    assert "error" in meta
+    assert df is not None
+    assert len(df) == 2
+    assert meta.get("success") or "filepath" in meta
 

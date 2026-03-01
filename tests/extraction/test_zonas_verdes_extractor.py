@@ -265,18 +265,26 @@ def test_find_superficie_column_not_found(output_dir: Path) -> None:
     assert superficie_col is None
 
 
-@pytest.mark.skip(reason="Pre-existing: Assertion logic issue - See issue #TBD")
 def test_extract_all_only_parques(output_dir: Path, sample_parques_data: pd.DataFrame) -> None:
     """Debe retornar solo parques si no hay arbolado."""
     extractor = ZonasVerdesExtractor(output_dir=output_dir)
 
+    def mock_search(keyword: str, **kwargs):
+        # Parques: devolver dataset que el mock_download reconocerá
+        if keyword in ["parc", "jardi"]:
+            return ["parques-jardines"]
+        # Arbolado: vacío para simular que no hay datos
+        return []
+
     def mock_download(dataset_id: str, **kwargs):
-        if "parc" in dataset_id.lower() or "jardi" in dataset_id.lower():
+        dataset_lower = dataset_id.lower()
+        if any(k in dataset_lower for k in ["parc", "parque", "jardi", "jardin", "parques-jardines"]):
             return sample_parques_data, {}
         return None, {}
 
-    with patch.object(extractor.opendata_extractor, "download_dataset", side_effect=mock_download):
-        df, meta = extractor.extract_all()
+    with patch.object(extractor.opendata_extractor, "search_datasets_by_keyword", side_effect=mock_search):
+        with patch.object(extractor.opendata_extractor, "download_dataset", side_effect=mock_download):
+            df, meta = extractor.extract_all()
 
     assert df is not None
     assert meta["has_parques"] is True

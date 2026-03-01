@@ -55,7 +55,7 @@ jupyter lab
 
 ```bash
 cd /Users/adrianiraeguialvear/Projects/barcelona-housing-demographics-analyzer
-./setup_jupyter.sh
+./scripts/setup_jupyter.sh
 ```
 
 Luego ejecuta los comandos que te muestra el script.
