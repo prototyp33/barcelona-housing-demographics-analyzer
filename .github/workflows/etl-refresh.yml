@@ -88,7 +88,7 @@ jobs:
           EOF
       
       - name: Upload database artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: database-${{ github.run_id }}
           path: data/processed/database.db
@@ -96,7 +96,7 @@ jobs:
       
       - name: Upload ETL logs
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: etl-logs-${{ github.run_id }}
           path: |
